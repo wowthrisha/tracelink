@@ -1,0 +1,53 @@
+# ── Secrets ────────────────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# ── Python ─────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.coverage
+htmlcov/
+*.cover
+.venv/
+venv/
+env/
+.Python
+
+# ── Alembic generated ──────────────────────────────────────────────
+# (keep versions/ tracked; ignore only compiled cache)
+backend/alembic/versions/__pycache__/
+
+# ── Node ───────────────────────────────────────────────────────────
+node_modules/
+dist/
+build/
+.next/
+.nuxt/
+
+# ── OS / editor ────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ── Uploads / temp / local storage ────────────────────────────────
+tmp/
+uploads/
+/tmp/
+backend/test_securedoc.db
+backend/test_link_service.db
+backend/*.db
+
+# ── Generated assets ───────────────────────────────────────────────
+*.webp
+*.png
+*.jpg
+cloudflared.log
+*.log

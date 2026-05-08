@@ -1,0 +1,6 @@
+[run]
+concurrency = thread,greenlet
+source = app
+omit =
+    app/workers/tasks.py
+    */test_*

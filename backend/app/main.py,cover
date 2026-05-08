@@ -1,0 +1,35 @@
+> from fastapi import FastAPI, Request
+> from fastapi.middleware.cors import CORSMiddleware
+> from fastapi.responses import JSONResponse
+> from slowapi import _rate_limit_exceeded_handler
+> from slowapi.errors import RateLimitExceeded
+  
+> from app.config import settings
+> from app.middleware.rate_limit import limiter
+> from app.routers import documents, links, viewer, analytics
+  
+> app = FastAPI(title="SecureDoc API", version="1.0.0")
+  
+  # Rate limiter
+> app.state.limiter = limiter
+> app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+  
+  # CORS
+> app.add_middleware(
+>     CORSMiddleware,
+>     allow_origins=settings.allowed_origins_list,
+>     allow_credentials=True,
+>     allow_methods=["*"],
+>     allow_headers=["*"],
+> )
+  
+  # Routers
+> app.include_router(documents.router)
+> app.include_router(links.router)
+> app.include_router(viewer.router)
+> app.include_router(analytics.router)
+  
+  
+> @app.get("/health")
+> async def health():
+!     return {"status": "ok"}

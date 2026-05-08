@@ -1,0 +1,47 @@
+version: '3.9'
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: securedoc
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: securedoc
+    ports: ["5432:5432"]
+    volumes: [pgdata:/var/lib/postgresql/data]
+
+  redis:
+    image: redis:7-alpine
+    ports: ["6379:6379"]
+
+  s3:
+    image: motoserver/moto:latest
+
+  api:
+    build: ./backend
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    ports: ["8000:8000"]
+    env_file: ./backend/.env
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://securedoc:password@db:5432/securedoc
+      - REDIS_URL=redis://redis:6379/0
+      - STORAGE_ENDPOINT_URL=http://s3:5000
+      - ALLOWED_ORIGINS=*
+    depends_on: [db, redis]
+    volumes:
+      - ./backend:/app
+      - ./frontend:/frontend
+
+  worker:
+    build: ./backend
+    command: celery -A app.workers.celery_app worker --loglevel=info --concurrency=2
+    env_file: ./backend/.env
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://securedoc:password@db:5432/securedoc
+      - STORAGE_ENDPOINT_URL=http://s3:5000
+      - REDIS_URL=redis://redis:6379/0
+    depends_on: [db, redis]
+    volumes: [./backend:/app]
+
+volumes:
+  pgdata:

@@ -1,0 +1,44 @@
+! import uuid
+! from datetime import datetime
+! from typing import Optional, Any, Dict
+! from pydantic import BaseModel
+  
+  
+! class EventLogRequest(BaseModel):
+!     token: str
+!     session_id: str
+!     event_type: str
+!     page_number: Optional[int] = None
+!     metadata: Optional[Dict[str, Any]] = None
+  
+  
+! class EventResponse(BaseModel):
+!     id: uuid.UUID
+!     event_type: str
+!     page_number: Optional[int]
+!     viewer_email: Optional[str]
+!     ip_hash: Optional[str]
+!     session_id: Optional[str]
+!     created_at: datetime
+!     link_id: uuid.UUID
+  
+!     model_config = {"from_attributes": True}
+  
+  
+! class AnalyticsOverview(BaseModel):
+!     total_documents: int
+!     total_views_today: int
+!     active_links: int
+!     blocked_attempts_today: int
+!     views_last_7_days: list
+  
+  
+! class DocumentAnalytics(BaseModel):
+!     id: uuid.UUID
+!     filename: str
+!     total_views: int
+!     unique_sessions: int
+!     avg_time_on_page_sec: float
+!     completion_rate_pct: float
+!     blocked_attempts: int
+!     risk_score: str

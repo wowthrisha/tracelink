@@ -1,0 +1,65 @@
+from pydantic_settings import BaseSettings, SettingsConfigDict
+from functools import lru_cache
+from typing import Optional
+
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
+
+    # Database
+    database_url: str = "postgresql+asyncpg://securedoc:password@localhost:5432/securedoc"
+    test_database_url: str = "sqlite+aiosqlite:///./test_securedoc.db"
+
+    # Storage
+    storage_endpoint_url: Optional[str] = None
+    storage_access_key_id: str = "test_key"
+    storage_secret_access_key: str = "test_secret"
+    storage_bucket_name: str = "securedoc-docs"
+    storage_region: str = "us-east-1"
+    storage_public_base_url: Optional[str] = None
+
+    # Redis / Celery
+    redis_url: str = "redis://localhost:6379/0"
+
+    # JWT (internal share-link tokens)
+    jwt_secret: str = "change_me_to_a_long_random_string_in_production"
+    jwt_algorithm: str = "HS256"
+    jwt_link_expire_hours: int = 24
+
+    # Supabase (user authentication)
+    supabase_url: str = ""
+    supabase_anon_key: str = ""
+
+    # App
+    app_env: str = "development"
+    allowed_origins: str = "http://localhost:5500,http://127.0.0.1:5500"
+    max_upload_mb: int = 100
+    max_pages_per_doc: int = 500
+    watermark_opacity: float = 0.22
+    page_tile_dpi: int = 150
+    page_format: str = "WEBP"
+    page_tile_quality: int = 85
+
+    # Frontend share URL base
+    app_public_base_url: str = "http://localhost:8000"
+    frontend_base_url: str = "http://localhost:5501"
+
+    @property
+    def allowed_origins_list(self) -> list[str]:
+        return [o.strip() for o in self.allowed_origins.split(",")]
+
+    @property
+    def max_upload_bytes(self) -> int:
+        return self.max_upload_mb * 1024 * 1024
+
+
+@lru_cache()
+def get_settings() -> Settings:
+    return Settings()
+
+
+settings = get_settings()

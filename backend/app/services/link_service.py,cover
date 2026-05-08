@@ -1,0 +1,160 @@
+> import json
+> import secrets
+> import uuid
+> from dataclasses import dataclass
+> from datetime import datetime, timezone
+> from typing import Optional, List
+  
+> from fastapi import HTTPException
+> from sqlalchemy.ext.asyncio import AsyncSession
+> from sqlalchemy import select, update
+  
+> from app.models.link import ShareLink
+> from app.utils.crypto import hash_password, verify_password
+  
+  
+> @dataclass
+> class ValidationResult:
+>     link: ShareLink
+>     is_valid: bool
+>     session_id: str
+  
+  
+> class LinkService:
+>     async def create_link(
+>         self,
+>         db: AsyncSession,
+>         document_id: str,
+>         label: Optional[str] = None,
+>         password: Optional[str] = None,
+>         allowed_emails: Optional[List[str]] = None,
+>         allowed_domains: Optional[List[str]] = None,
+>         max_views: Optional[int] = None,
+>         expires_at: Optional[datetime] = None,
+>     ) -> ShareLink:
+>         token = secrets.token_urlsafe(48)[:64]
+  
+>         pw_hash = hash_password(password) if password else None
+>         emails_json = (
+>             json.dumps([e.lower() for e in allowed_emails]) if allowed_emails else None
+>         )
+>         domains_json = json.dumps(allowed_domains) if allowed_domains else None
+  
+>         link = ShareLink(
+>             document_id=uuid.UUID(document_id) if isinstance(document_id, str) else document_id,
+>             token=token,
+>             label=label,
+>             password_hash=pw_hash,
+>             allowed_emails=emails_json,
+>             allowed_domains=domains_json,
+>             max_views=max_views,
+>             expires_at=expires_at,
+>         )
+>         db.add(link)
+>         await db.commit()
+>         await db.refresh(link)
+>         return link
+  
+>     async def validate_link(
+>         self,
+>         db: AsyncSession,
+>         token: str,
+>         password: Optional[str] = None,
+>         viewer_email: Optional[str] = None,
+>         referer_domain: Optional[str] = None,
+>         analytics_svc=None,
+>         ip: Optional[str] = None,
+>         user_agent: Optional[str] = None,
+>     ) -> ValidationResult:
+>         from app.services.analytics_service import AnalyticsService
+  
+>         if analytics_svc is None:
+>             analytics_svc = AnalyticsService()
+  
+          # 1. Link exists
+>         result = await db.execute(select(ShareLink).where(ShareLink.token == token))
+>         link = result.scalar_one_or_none()
+>         if not link:
+!             raise HTTPException(status_code=404, detail="Link not found")
+  
+>         now = datetime.now(timezone.utc)
+  
+          # 2. Not revoked
+>         if link.revoked_at is not None:
+>             await analytics_svc.log_event(
+>                 db, link.id, "revoked", ip=ip, user_agent=user_agent
+>             )
+>             raise HTTPException(status_code=410, detail="Link revoked")
+  
+          # 3. Not expired
+>         if link.expires_at is not None:
+>             expires = link.expires_at
+>             if expires.tzinfo is None:
+>                 expires = expires.replace(tzinfo=timezone.utc)
+>             if expires < now:
+>                 await analytics_svc.log_event(
+>                     db, link.id, "expired", ip=ip, user_agent=user_agent
+>                 )
+>                 raise HTTPException(status_code=410, detail="Link expired")
+  
+          # 4. View count < max_views
+>         if link.max_views is not None and link.view_count >= link.max_views:
+>             await analytics_svc.log_event(
+>                 db, link.id, "max_views_reached", ip=ip, user_agent=user_agent
+>             )
+>             raise HTTPException(status_code=410, detail="Max views reached")
+  
+          # 5. Password check
+>         if link.password_hash is not None:
+>             if not password or not verify_password(password, link.password_hash):
+>                 await analytics_svc.log_event(
+>                     db, link.id, "password_wrong", ip=ip, user_agent=user_agent
+>                 )
+>                 raise HTTPException(
+>                     status_code=401,
+>                     detail="Wrong password" if password else "Password required",
+>                 )
+  
+          # 6. Email allowlist check
+>         if link.allowed_emails:
+>             allowed = json.loads(link.allowed_emails)
+>             if not viewer_email or viewer_email.lower() not in allowed:
+>                 await analytics_svc.log_event(
+>                     db, link.id, "access_denied", ip=ip, user_agent=user_agent
+>                 )
+>                 raise HTTPException(status_code=403, detail="Access denied")
+  
+          # 7. Domain allowlist check
+>         if link.allowed_domains:
+!             allowed_domains = json.loads(link.allowed_domains)
+!             if not referer_domain or referer_domain not in allowed_domains:
+!                 await analytics_svc.log_event(
+!                     db, link.id, "access_denied", ip=ip, user_agent=user_agent
+!                 )
+!                 raise HTTPException(status_code=403, detail="Access denied")
+  
+>         session_id = self._generate_session_id()
+>         return ValidationResult(link=link, is_valid=True, session_id=session_id)
+  
+>     async def revoke_link(self, db: AsyncSession, link_id: str) -> ShareLink:
+>         result = await db.execute(
+>             select(ShareLink).where(ShareLink.id == uuid.UUID(link_id))
+>         )
+>         link = result.scalar_one_or_none()
+>         if not link:
+!             raise HTTPException(status_code=404, detail="Link not found")
+>         link.revoked_at = datetime.now(timezone.utc)
+>         await db.commit()
+>         await db.refresh(link)
+>         return link
+  
+>     async def increment_view_count(self, db: AsyncSession, link_id: str) -> None:
+>         await db.execute(
+>             update(ShareLink)
+>             .where(ShareLink.id == uuid.UUID(link_id))
+>             .values(view_count=ShareLink.view_count + 1)
+>         )
+>         await db.commit()
+  
+>     def _generate_session_id(self) -> str:
+>         return secrets.token_hex(8)  # 16 hex chars
