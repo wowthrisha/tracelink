@@ -1,47 +1,92 @@
-version: '3.9'
+# SecureDoc — full-stack Docker Compose
+#
+# One-command local deployment:
+#   docker compose up --build
+#   or: ./start.sh all
+#
+# Prerequisites:
+#   cp backend/.env.example backend/.env   # then fill in your values
+#
+# Services:
+#   db      — PostgreSQL 16 (local only; in production use a managed DB via DATABASE_URL)
+#   redis   — Redis 7       (local only; in production use a managed Redis via REDIS_URL)
+#   api     — FastAPI backend + static frontend served at http://localhost:8000
+#   worker  — Celery PDF-processing worker
 
 services:
+
+  # ── Database ───────────────────────────────────────────────────────────────
   db:
     image: postgres:16-alpine
     environment:
       POSTGRES_USER: securedoc
       POSTGRES_PASSWORD: password
       POSTGRES_DB: securedoc
-    ports: ["5432:5432"]
-    volumes: [pgdata:/var/lib/postgresql/data]
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U securedoc"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
 
+  # ── Redis ──────────────────────────────────────────────────────────────────
   redis:
     image: redis:7-alpine
-    ports: ["6379:6379"]
-
-  s3:
-    image: motoserver/moto:latest
-
-  api:
-    build: ./backend
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
-    ports: ["8000:8000"]
-    env_file: ./backend/.env
-    environment:
-      - DATABASE_URL=postgresql+asyncpg://securedoc:password@db:5432/securedoc
-      - REDIS_URL=redis://redis:6379/0
-      - STORAGE_ENDPOINT_URL=http://s3:5000
-      - ALLOWED_ORIGINS=*
-    depends_on: [db, redis]
     volumes:
-      - ./backend:/app
-      - ./frontend:/frontend
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
 
-  worker:
-    build: ./backend
-    command: celery -A app.workers.celery_app worker --loglevel=info --concurrency=2
+  # ── API (FastAPI + StaticFiles frontend) ───────────────────────────────────
+  api:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    ports:
+      - "8000:8000"
+    # env_file supplies Supabase, storage, JWT, and app config.
+    # The environment block below overrides DB/Redis with Docker-internal hostnames.
     env_file: ./backend/.env
     environment:
-      - DATABASE_URL=postgresql+asyncpg://securedoc:password@db:5432/securedoc
-      - STORAGE_ENDPOINT_URL=http://s3:5000
-      - REDIS_URL=redis://redis:6379/0
-    depends_on: [db, redis]
-    volumes: [./backend:/app]
+      DATABASE_URL: postgresql+asyncpg://securedoc:password@db:5432/securedoc
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 25s
+    restart: unless-stopped
+
+  # ── Celery worker ──────────────────────────────────────────────────────────
+  worker:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    command: ["celery", "-A", "app.workers.celery_app", "worker",
+              "--loglevel=info", "--concurrency=2"]
+    env_file: ./backend/.env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://securedoc:password@db:5432/securedoc
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
 
 volumes:
   pgdata:
+  redisdata:

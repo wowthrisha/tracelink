@@ -4,6 +4,23 @@ Secure document sharing platform with per-link access control, viewer analytics,
 
 ---
 
+## Quick Start — One Command
+
+```bash
+# 1. Copy env template (edit if you have Supabase / storage credentials)
+cp backend/.env.example backend/.env
+
+# 2. Start everything (Docker required)
+./start.sh all
+# or: make up && make test
+```
+
+This builds Docker images, runs DB migrations, starts all services, and runs the test suite. The app is available at `http://localhost:8000` when complete.
+
+**No Docker?** Use native mode — see [Local Development](#development-setup) below.
+
+---
+
 ## Architecture
 
 | Layer | Technology |
@@ -81,8 +98,22 @@ cd frontend && python3 -m http.server 5500
 ### 7. Run tests
 
 ```bash
-cd backend && PYTHONPATH=. pytest tests/ -q
-# Expected: 149 passed, 0 failed
+# Fast — SQLite mocks, no live services needed
+./start.sh test
+# or: make test
+# or: cd backend && PYTHONPATH=. python -m pytest tests/ -q
+# Expected: 159+ passed, 0 failed
+
+# Inside the running Docker container
+make test-docker
+```
+
+### 8. Verify the stack is working
+
+```bash
+./start.sh check       # health + mode + share URL
+curl localhost:8000/health   # → {"status":"ok"}
+open http://localhost:8000   # opens the app
 ```
 
 ---
@@ -254,7 +285,22 @@ CLOUDFLARE_TUNNEL_TOKEN=<from Zero Trust dashboard>
 ./start.sh tunnel
 ```
 
-### Option B — Cloud server (Railway / Fly / VPS)
+### Option B — Docker Compose (local production-like)
+
+```bash
+cp backend/.env.example backend/.env   # fill in credentials
+docker compose up --build              # starts db + redis + api + worker
+```
+
+The Dockerfile bakes in both the backend and frontend. Migrations run automatically on startup via `backend/entrypoint.sh`.
+
+```
+docker compose logs -f api     # tail API logs
+docker compose logs -f worker  # tail worker logs
+docker compose down            # stop all services
+```
+
+### Option C — Cloud server (Railway / Fly / VPS)
 
 1. Deploy `backend/` to your hosting provider
 2. Set start command: `python run_demo.py`

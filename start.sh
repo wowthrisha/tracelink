@@ -2,24 +2,21 @@
 # ═══════════════════════════════════════════════════════════════════════════════
 # SecureDoc — Unified startup helper
 #
-# COMMANDS
-#   ./start.sh backend      Start FastAPI backend on :8000
-#   ./start.sh worker       Start Celery PDF processing worker
-#   ./start.sh quicktunnel  Start a free Cloudflare Quick Tunnel (trycloudflare.com)
-#                           No card, no login, no DNS changes needed.
-#                           Auto-detects the public URL and updates backend/.env.
-#   ./start.sh set-url URL  Manually set APP_PUBLIC_BASE_URL in backend/.env
-#   ./start.sh tunnel       Start a named Cloudflare Tunnel (needs CLOUDFLARE_TUNNEL_TOKEN)
+# ONE-COMMAND STARTUP
+#   ./start.sh all          Build + start full stack via Docker Compose, then run tests
+#
+# LOCAL DEV (native — no Docker)
+#   Terminal 1: ./start.sh backend      FastAPI on :8000 (demo storage)
+#   Terminal 2: ./start.sh worker       Celery PDF worker
+#
+# TESTING
+#   ./start.sh test         Run backend unit test suite (SQLite mocks, no live services)
 #   ./start.sh check        Health-check the running stack
 #
-# TYPICAL LOCAL DEV (no sharing)
-#   Terminal 1: ./start.sh backend
-#   Terminal 2: ./start.sh worker
-#
-# GLOBAL SHARING via quick tunnel (no card, no DNS changes)
-#   Terminal 1: ./start.sh quicktunnel   ← wait for URL, .env auto-updated
-#   Terminal 2: ./start.sh backend       ← starts/restarts after URL is set
-#   Terminal 3: ./start.sh worker
+# GLOBAL SHARING via Cloudflare Quick Tunnel
+#   ./start.sh quicktunnel  Auto-detects public URL and updates backend/.env
+#   ./start.sh set-url URL  Manually set APP_PUBLIC_BASE_URL in backend/.env
+#   ./start.sh tunnel       Named Cloudflare Tunnel (needs CLOUDFLARE_TUNNEL_TOKEN)
 # ═══════════════════════════════════════════════════════════════════════════════
 set -euo pipefail
 
@@ -67,6 +64,83 @@ cmd="${1:-help}"
 
 case "$cmd" in
 
+  # ── all — one-command Docker Compose startup + test run ──────────────────────
+  all)
+    echo ""
+    hr
+    bold "SecureDoc — one-command startup"
+    hr
+    echo ""
+
+    if ! command -v docker &>/dev/null; then
+      echo "  ERROR: docker not found."
+      echo "  Install Docker Desktop: https://docs.docker.com/get-docker/"
+      exit 1
+    fi
+
+    if [ ! -f "$ENV_FILE" ]; then
+      cp "$BACKEND_DIR/.env.example" "$ENV_FILE"
+      echo "  Created backend/.env from .env.example."
+      echo "  Edit it with your Supabase and storage credentials, then re-run."
+      echo ""
+      echo "  Minimum required for demo mode (local storage, no Supabase):"
+      echo "    DATABASE_URL  — already set for local postgres"
+      echo "    JWT_SECRET    — generate: python3 -c \"import secrets; print(secrets.token_hex(32))\""
+      echo "    APP_PUBLIC_BASE_URL — already set to http://localhost:8000"
+      echo ""
+      echo "  Re-run: ./start.sh all"
+      exit 1
+    fi
+
+    bold "Building images and starting services ..."
+    docker compose up --build -d
+
+    echo ""
+    bold "Waiting for backend to become healthy ..."
+    attempts=0
+    until curl -sf http://localhost:8000/health >/dev/null 2>&1; do
+      sleep 3
+      attempts=$((attempts + 1))
+      if [ "$attempts" -ge 20 ]; then
+        echo ""
+        echo "  ERROR: Backend did not become healthy after 60 s."
+        echo "  Check logs: docker compose logs api"
+        exit 1
+      fi
+    done
+    echo "  Backend is healthy."
+
+    echo ""
+    bold "Running unit test suite ..."
+    cd "$BACKEND_DIR"
+    if PYTHONPATH=. python3 -m pytest tests/ -q --tb=short; then
+      echo ""
+      hr
+      bold "All systems go."
+      bold ""
+      bold "  App:        http://localhost:8000"
+      bold "  API docs:   http://localhost:8000/docs"
+      bold "  Logs:       docker compose logs -f"
+      bold "  Stop:       docker compose down"
+      bold "  Health:     ./start.sh check"
+      hr
+      echo ""
+    else
+      echo ""
+      echo "  Tests FAILED. Check output above."
+      echo "  Backend logs: docker compose logs api"
+      exit 1
+    fi
+    ;;
+
+  # ── test — unit test suite (SQLite mocks, no live services needed) ────────────
+  test)
+    echo ""
+    echo "  Running backend unit test suite ..."
+    cd "$BACKEND_DIR"
+    PYTHONPATH=. python3 -m pytest tests/ -q --tb=short
+    ;;
+
   # ── backend ──────────────────────────────────────────────────────────────────
   backend)
     PUBLIC_BASE="$(_read_env APP_PUBLIC_BASE_URL http://localhost:8000)"
@@ -77,14 +151,14 @@ case "$cmd" in
     hr
     echo ""
     cd "$BACKEND_DIR"
-    exec python run_demo.py
+    exec python3 run_demo.py
     ;;
 
   # ── worker ───────────────────────────────────────────────────────────────────
   worker)
     echo "Starting Celery PDF worker …"
     cd "$BACKEND_DIR"
-    exec python -m celery -A app.workers.celery_app worker --loglevel=info --concurrency=2
+    exec python3 -m celery -A app.workers.celery_app worker --loglevel=info --concurrency=2
     ;;
 
   # ── quicktunnel ──────────────────────────────────────────────────────────────
@@ -204,10 +278,20 @@ case "$cmd" in
     bold "SecureDoc startup helper"
     hr
     echo ""
-    bold "COMMANDS"
-    echo "    ./start.sh backend       Start FastAPI backend on :8000"
-    echo "    ./start.sh worker        Start Celery PDF worker"
-    echo "    ./start.sh quicktunnel   Free global sharing via trycloudflare.com"
+    bold "ONE-COMMAND STARTUP (Docker)"
+    echo "    ./start.sh all           Build + start everything, then run tests"
+    echo "    make up                  Same via Makefile"
+    echo ""
+    bold "LOCAL DEV (native, separate terminals)"
+    echo "    ./start.sh backend       FastAPI on :8000 (demo storage)"
+    echo "    ./start.sh worker        Celery PDF worker"
+    echo ""
+    bold "TESTING"
+    echo "    ./start.sh test          Unit test suite (SQLite mocks)"
+    echo "    make test                Same via Makefile"
+    echo ""
+    bold "GLOBAL SHARING"
+    echo "    ./start.sh quicktunnel   Free public URL via trycloudflare.com"
     echo "    ./start.sh set-url URL   Manually set APP_PUBLIC_BASE_URL"
     echo "    ./start.sh tunnel        Named Cloudflare Tunnel (needs token)"
     echo "    ./start.sh check         Health-check the stack"
@@ -215,10 +299,13 @@ case "$cmd" in
     bold "CURRENT CONFIG"
     echo "    APP_PUBLIC_BASE_URL = ${PUBLIC_BASE}"
     if [[ "$PUBLIC_BASE" == *"trycloudflare.com"* ]]; then
-      echo "    Mode: quick tunnel (globally shareable)"
-    else
+      echo "    Mode: Cloudflare Quick Tunnel (globally shareable)"
+    elif [[ "$PUBLIC_BASE" == "http://localhost"* ]]; then
       echo "    Mode: local only — run './start.sh quicktunnel' for global sharing"
+    else
+      echo "    Mode: custom domain"
     fi
+    echo "    Share URL: ${PUBLIC_BASE}/v/<token>"
     echo ""
     hr
     ;;
