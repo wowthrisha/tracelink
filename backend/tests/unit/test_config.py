@@ -1,10 +1,39 @@
-"""Deployment config correctness tests.
+"""Deployment config and database URL normalization tests.
 
 Verifies that Settings parses env vars correctly, that production guards
 are detectable, and that share URL generation is consistent.
 """
 import pytest
 from app.config import Settings
+from app.database import _normalize_db_url
+
+
+class TestDatabaseUrlNormalization:
+    """Railway and most cloud providers supply postgresql:// URLs.
+    SQLAlchemy async engine requires postgresql+asyncpg://."""
+
+    def test_postgresql_scheme_is_rewritten(self):
+        url = "postgresql://user:pass@host:5432/db"
+        assert _normalize_db_url(url) == "postgresql+asyncpg://user:pass@host:5432/db"
+
+    def test_postgres_short_scheme_is_rewritten(self):
+        url = "postgres://user:pass@host:5432/db"
+        assert _normalize_db_url(url) == "postgresql+asyncpg://user:pass@host:5432/db"
+
+    def test_already_asyncpg_is_unchanged(self):
+        url = "postgresql+asyncpg://user:pass@host:5432/db"
+        assert _normalize_db_url(url) == url
+
+    def test_sqlite_is_unchanged(self):
+        url = "sqlite+aiosqlite:///./test.db"
+        assert _normalize_db_url(url) == url
+
+    def test_railway_style_url(self):
+        url = "postgresql://securedoc:password@containers-us-west-1.railway.app:5432/railway"
+        result = _normalize_db_url(url)
+        assert result.startswith("postgresql+asyncpg://")
+        assert "psycopg2" not in result
+        assert "containers-us-west-1.railway.app" in result
 
 
 class TestConfigParsing:

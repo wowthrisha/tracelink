@@ -7,8 +7,20 @@ class Base(DeclarativeBase):
     pass
 
 
+def _normalize_db_url(url: str) -> str:
+    """Rewrite plain postgres:// or postgresql:// to the asyncpg dialect.
+
+    Railway (and most cloud providers) supply a standard postgresql:// URL.
+    SQLAlchemy's async engine requires postgresql+asyncpg://.
+    """
+    for prefix in ("postgresql://", "postgres://"):
+        if url.startswith(prefix):
+            return "postgresql+asyncpg://" + url[len(prefix):]
+    return url
+
+
 def make_engine(url: str | None = None):
-    db_url = url or settings.database_url
+    db_url = _normalize_db_url(url or settings.database_url)
     connect_args = {}
     if "sqlite" in db_url:
         connect_args = {"check_same_thread": False}
