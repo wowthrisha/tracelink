@@ -48,6 +48,18 @@ class Settings(BaseSettings):
     app_public_base_url: str = "http://localhost:8000"
     frontend_base_url: str = "http://localhost:5501"
 
+    # Stripe billing (all optional — billing disabled when key is empty)
+    stripe_secret_key: str = ""
+    stripe_webhook_secret: str = ""
+    stripe_price_id_pro: str = ""  # Stripe Price ID for Pro plan
+
+    # Plan limits
+    free_plan_doc_limit: int = 10  # documents allowed on free plan (0 = unlimited)
+
+    @property
+    def billing_enabled(self) -> bool:
+        return bool(self.stripe_secret_key)
+
     @property
     def allowed_origins_list(self) -> list[str]:
         return [o.strip() for o in self.allowed_origins.split(",")]

@@ -20,10 +20,38 @@ from app.services.storage import get_storage_service
 from app.config import settings
 from app.middleware.rate_limit import limiter
 from app.auth import get_current_user
+from app.models.billing import UserBilling, PLAN_PRO
 
 router = APIRouter(prefix="/api/documents", tags=["documents"])
 
 ALLOWED_CONTENT_TYPES = {"application/pdf"}
+
+
+async def _check_upload_quota(db: AsyncSession, user_id: uuid.UUID) -> None:
+    """Raise 403 if free-plan user has hit the document upload limit."""
+    limit = settings.free_plan_doc_limit
+    if limit <= 0:
+        return  # 0 means unlimited
+
+    billing_result = await db.execute(
+        select(UserBilling).where(UserBilling.user_id == user_id)
+    )
+    billing = billing_result.scalar_one_or_none()
+    if billing and billing.plan == PLAN_PRO:
+        return  # Pro users have no limit
+
+    count_result = await db.execute(
+        select(func.count()).select_from(Document).where(Document.user_id == user_id)
+    )
+    count = count_result.scalar() or 0
+    if count >= limit:
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                f"Free plan allows up to {limit} documents. "
+                "Upgrade to Pro to upload more."
+            ),
+        )
 
 
 @router.post("/upload", status_code=202)
@@ -36,6 +64,11 @@ async def upload_document(
     db: AsyncSession = Depends(get_db),
     user: dict = Depends(get_current_user),
 ):
+    user_uuid = uuid.UUID(user["user_id"])
+
+    # Check free-plan document quota before accepting the upload
+    await _check_upload_quota(db, user_uuid)
+
     # Validate content type
     if file.content_type not in ALLOWED_CONTENT_TYPES:
         raise HTTPException(status_code=400, detail="File must be a PDF")
@@ -56,12 +89,17 @@ async def upload_document(
     storage_key = f"originals/{doc_id}.pdf"
     original_filename = filename or file.filename or "document.pdf"
 
-    # Validate group_id if provided
+    # Validate group_id if provided (must belong to this user)
     resolved_group_id = None
     if group_id:
         try:
             gid = uuid.UUID(group_id)
-            grp_result = await db.execute(select(DocumentGroup).where(DocumentGroup.id == gid))
+            grp_result = await db.execute(
+                select(DocumentGroup).where(
+                    DocumentGroup.id == gid,
+                    DocumentGroup.user_id == user_uuid,
+                )
+            )
             if not grp_result.scalar_one_or_none():
                 raise HTTPException(status_code=404, detail="Group not found")
             resolved_group_id = gid
@@ -78,7 +116,7 @@ async def upload_document(
         status="uploaded",
         file_size_bytes=len(file_bytes),
         group_id=resolved_group_id,
-        user_id=uuid.UUID(user["user_id"]),
+        user_id=user_uuid,
     )
     db.add(doc)
     await db.commit()

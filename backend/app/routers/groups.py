@@ -28,7 +28,12 @@ async def list_groups(
     db: AsyncSession = Depends(get_db),
     user: dict = Depends(get_current_user),
 ):
-    result = await db.execute(select(DocumentGroup).order_by(DocumentGroup.name))
+    user_uuid = uuid.UUID(user["user_id"])
+    result = await db.execute(
+        select(DocumentGroup)
+        .where(DocumentGroup.user_id == user_uuid)
+        .order_by(DocumentGroup.name)
+    )
     groups = result.scalars().all()
 
     out = []
@@ -48,14 +53,20 @@ async def create_group(
     db: AsyncSession = Depends(get_db),
     user: dict = Depends(get_current_user),
 ):
-    # Check unique name
+    user_uuid = uuid.UUID(user["user_id"])
+
+    # Check unique name per user
     existing = await db.execute(
-        select(DocumentGroup).where(DocumentGroup.name == payload.name)
+        select(DocumentGroup).where(
+            DocumentGroup.user_id == user_uuid,
+            DocumentGroup.name == payload.name,
+        )
     )
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=409, detail="Group name already exists")
 
     group = DocumentGroup(
+        user_id=user_uuid,
         name=payload.name,
         color=payload.color or "#6366f1",
         description=payload.description,
@@ -72,7 +83,13 @@ async def get_group(
     db: AsyncSession = Depends(get_db),
     user: dict = Depends(get_current_user),
 ):
-    result = await db.execute(select(DocumentGroup).where(DocumentGroup.id == group_id))
+    user_uuid = uuid.UUID(user["user_id"])
+    result = await db.execute(
+        select(DocumentGroup).where(
+            DocumentGroup.id == group_id,
+            DocumentGroup.user_id == user_uuid,
+        )
+    )
     group = result.scalar_one_or_none()
     if not group:
         raise HTTPException(status_code=404, detail="Group not found")
@@ -91,15 +108,22 @@ async def update_group(
     db: AsyncSession = Depends(get_db),
     user: dict = Depends(get_current_user),
 ):
-    result = await db.execute(select(DocumentGroup).where(DocumentGroup.id == group_id))
+    user_uuid = uuid.UUID(user["user_id"])
+    result = await db.execute(
+        select(DocumentGroup).where(
+            DocumentGroup.id == group_id,
+            DocumentGroup.user_id == user_uuid,
+        )
+    )
     group = result.scalar_one_or_none()
     if not group:
         raise HTTPException(status_code=404, detail="Group not found")
 
     if payload.name is not None:
-        # Check unique name
+        # Check unique name per user (exclude this group)
         existing = await db.execute(
             select(DocumentGroup).where(
+                DocumentGroup.user_id == user_uuid,
                 DocumentGroup.name == payload.name,
                 DocumentGroup.id != group_id,
             )
@@ -129,7 +153,13 @@ async def delete_group(
     db: AsyncSession = Depends(get_db),
     user: dict = Depends(get_current_user),
 ):
-    result = await db.execute(select(DocumentGroup).where(DocumentGroup.id == group_id))
+    user_uuid = uuid.UUID(user["user_id"])
+    result = await db.execute(
+        select(DocumentGroup).where(
+            DocumentGroup.id == group_id,
+            DocumentGroup.user_id == user_uuid,
+        )
+    )
     group = result.scalar_one_or_none()
     if not group:
         raise HTTPException(status_code=404, detail="Group not found")
@@ -153,12 +183,19 @@ async def assign_documents_to_group(
     user: dict = Depends(get_current_user),
 ):
     """Assign a list of document IDs to a group. Pass document_ids: [uuid, ...]."""
-    result = await db.execute(select(DocumentGroup).where(DocumentGroup.id == group_id))
+    user_uuid = uuid.UUID(user["user_id"])
+
+    # Verify group belongs to this user
+    result = await db.execute(
+        select(DocumentGroup).where(
+            DocumentGroup.id == group_id,
+            DocumentGroup.user_id == user_uuid,
+        )
+    )
     group = result.scalar_one_or_none()
     if not group:
         raise HTTPException(status_code=404, detail="Group not found")
 
-    user_uuid = uuid.UUID(user["user_id"])
     doc_ids = body.get("document_ids", [])
     assigned = 0
     for doc_id in doc_ids:
@@ -186,12 +223,27 @@ async def remove_document_from_group(
     user: dict = Depends(get_current_user),
 ):
     """Remove a single document from its group."""
-    doc_result = await db.execute(select(Document).where(Document.id == document_id))
+    user_uuid = uuid.UUID(user["user_id"])
+
+    # Verify group belongs to this user
+    group_result = await db.execute(
+        select(DocumentGroup).where(
+            DocumentGroup.id == group_id,
+            DocumentGroup.user_id == user_uuid,
+        )
+    )
+    if not group_result.scalar_one_or_none():
+        raise HTTPException(status_code=404, detail="Group not found")
+
+    doc_result = await db.execute(
+        select(Document).where(
+            Document.id == document_id,
+            Document.user_id == user_uuid,
+        )
+    )
     doc = doc_result.scalar_one_or_none()
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
-    if doc.user_id != uuid.UUID(user["user_id"]):
-        raise HTTPException(status_code=403, detail="Not authorized to modify this document")
     if doc.group_id != group_id:
         raise HTTPException(status_code=400, detail="Document is not in this group")
     doc.group_id = None

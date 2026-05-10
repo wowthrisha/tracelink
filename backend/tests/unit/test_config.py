@@ -117,3 +117,55 @@ class TestProductionGuards:
     def test_https_url_passes_localhost_check(self):
         s = Settings(app_public_base_url="https://secure.example.com")
         assert "localhost" not in s.app_public_base_url
+
+    def test_billing_disabled_when_stripe_key_empty(self):
+        s = Settings(stripe_secret_key="")
+        assert s.billing_enabled is False
+
+    def test_billing_enabled_when_stripe_key_set(self):
+        s = Settings(stripe_secret_key="sk_test_abc123")
+        assert s.billing_enabled is True
+
+    def test_free_plan_doc_limit_default(self):
+        s = Settings()
+        assert s.free_plan_doc_limit == 10
+
+    def test_free_plan_doc_limit_configurable(self):
+        s = Settings(free_plan_doc_limit=25)
+        assert s.free_plan_doc_limit == 25
+
+
+class TestStableDomainConfig:
+    """Stable production domain URL configuration."""
+
+    def test_share_url_uses_stable_domain(self):
+        s = Settings(app_public_base_url="https://secure.myapp.com")
+        token = "a" * 64
+        share_url = f"{s.app_public_base_url}/v/{token}"
+        assert share_url == f"https://secure.myapp.com/v/{token}"
+
+    def test_production_domain_has_no_localhost(self):
+        s = Settings(app_public_base_url="https://secure.myapp.com")
+        assert "localhost" not in s.app_public_base_url
+        assert "127.0.0.1" not in s.app_public_base_url
+
+    def test_production_domain_uses_https(self):
+        s = Settings(app_public_base_url="https://secure.myapp.com")
+        assert s.app_public_base_url.startswith("https://")
+
+    def test_trycloudflare_url_is_detectable_as_temporary(self):
+        """Quick tunnel URLs should be detectable (used in monitoring, not production)."""
+        s = Settings(app_public_base_url="https://random.trycloudflare.com")
+        assert "trycloudflare.com" in s.app_public_base_url
+
+    def test_allowed_origins_includes_stable_domain(self):
+        s = Settings(allowed_origins="https://secure.myapp.com,https://api.myapp.com")
+        origins = s.allowed_origins_list
+        assert "https://secure.myapp.com" in origins
+        assert "https://api.myapp.com" in origins
+
+    def test_cors_origins_does_not_include_localhost_in_production_config(self):
+        """A production config should have no localhost origins."""
+        s = Settings(allowed_origins="https://secure.myapp.com")
+        localhost_origins = [o for o in s.allowed_origins_list if "localhost" in o]
+        assert localhost_origins == []

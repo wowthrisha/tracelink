@@ -10,7 +10,7 @@ from slowapi.errors import RateLimitExceeded
 
 from app.config import settings
 from app.middleware.rate_limit import limiter
-from app.routers import documents, links, viewer, analytics, groups
+from app.routers import documents, links, viewer, analytics, groups, billing
 from app.auth import _fetch_jwks
 
 _UNSAFE_DEFAULTS = {
@@ -28,6 +28,16 @@ if settings.app_env == "production":
         _errors.append("  APP_PUBLIC_BASE_URL still points to localhost")
     if "localhost" in settings.frontend_base_url:
         _errors.append("  FRONTEND_BASE_URL still points to localhost")
+    if not settings.app_public_base_url.startswith("https://"):
+        _errors.append("  APP_PUBLIC_BASE_URL must use HTTPS in production")
+    # Warn (not block) if ALLOWED_ORIGINS still has localhost
+    _localhost_origins = [o for o in settings.allowed_origins_list if "localhost" in o or "127.0.0.1" in o]
+    if _localhost_origins:
+        import logging as _logging
+        _logging.getLogger("securedoc.startup").warning(
+            "CORS: ALLOWED_ORIGINS includes localhost entries in production: %s",
+            _localhost_origins,
+        )
     if _errors:
         raise RuntimeError(
             "Refusing to start in production with unsafe configuration:\n"
@@ -99,6 +109,7 @@ app.include_router(links.router)
 app.include_router(viewer.router)
 app.include_router(analytics.router)
 app.include_router(groups.router)
+app.include_router(billing.router)
 
 
 @app.get("/health")
