@@ -1,9 +1,34 @@
 import asyncio
 import uuid
 import logging
+from datetime import datetime, timedelta, timezone
 from app.workers.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
+
+# A document stuck in "processing" for longer than this threshold is assumed to
+# have been orphaned by a crashed worker and will be cleaned up and retried.
+_STALE_PROCESSING_THRESHOLD = timedelta(minutes=15)
+
+
+def _should_process(status: str, updated_at: datetime) -> str:
+    """
+    Decide whether the worker should (re)process a document.
+
+    Returns one of:
+      "proceed"  — normal upload path, start fresh
+      "skip"     — already finished (ready / error) or actively processing
+      "recover"  — stuck in processing past the staleness threshold; caller
+                   must clean up partial pages before re-processing
+    """
+    if status == "uploaded":
+        return "proceed"
+    if status == "processing":
+        ts = updated_at if updated_at.tzinfo else updated_at.replace(tzinfo=timezone.utc)
+        if datetime.now(timezone.utc) - ts >= _STALE_PROCESSING_THRESHOLD:
+            return "recover"
+        return "skip"
+    return "skip"  # "ready" or "error"
 
 
 def _run_async(coro):
@@ -37,7 +62,7 @@ def process_document(self, document_id: str) -> dict:
 async def _process_document_async(task, document_id: str) -> dict:
     from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
     from sqlalchemy.orm import sessionmaker
-    from sqlalchemy import select, update
+    from sqlalchemy import select, delete
     from app.config import settings
     from app.models.document import Document, DocumentPage
     from app.services.storage import get_storage_service
@@ -61,9 +86,24 @@ async def _process_document_async(task, document_id: str) -> dict:
             if not doc:
                 raise ValueError(f"Document {document_id} not found")
 
-            if doc.status != "uploaded":
-                logger.warning(f"Document {document_id} status is {doc.status}, skipping")
+            decision = _should_process(doc.status, doc.updated_at)
+
+            if decision == "skip":
+                logger.info(f"Document {document_id} status={doc.status!r}, skipping")
                 return {"document_id": document_id, "status": doc.status}
+
+            if decision == "recover":
+                # Crashed mid-processing: delete any partial pages then reprocess
+                logger.warning(
+                    f"Document {document_id} stuck in processing, "
+                    "cleaning up partial pages and retrying"
+                )
+                await db.execute(
+                    delete(DocumentPage).where(
+                        DocumentPage.document_id == uuid.UUID(document_id)
+                    )
+                )
+                await db.flush()
 
             # 2. Set processing
             doc.status = "processing"
@@ -77,7 +117,7 @@ async def _process_document_async(task, document_id: str) -> dict:
 
             # 5. Upload pages and insert records
             for page in pages:
-                # Apply forensic stamp (no-op phase 1)
+                # Apply forensic stamp
                 stamped = watermark.apply_forensic_stamp(
                     page.image_bytes, document_id, page.page_number
                 )
@@ -106,23 +146,26 @@ async def _process_document_async(task, document_id: str) -> dict:
 
     except Exception as exc:
         logger.error(f"process_document failed for {document_id}: {exc}")
-        # Try to mark as error
+        # Use a fresh engine for error reporting — the original session may be broken
         try:
-            engine2 = create_async_engine(settings.database_url, echo=False)
-            async_session2 = sessionmaker(engine2, class_=AsyncSession, expire_on_commit=False)
-            async with async_session2() as db2:
-                result = await db2.execute(
-                    select(Document).where(Document.id == uuid.UUID(document_id))
+            from sqlalchemy.ext.asyncio import create_async_engine as _make_engine
+            from sqlalchemy.orm import sessionmaker as _sm
+            from sqlalchemy import select as _sel
+            from app.config import settings as _cfg
+            err_engine = _make_engine(_cfg.database_url, echo=False)
+            err_session = _sm(err_engine, class_=AsyncSession, expire_on_commit=False)
+            async with err_session() as db2:
+                res = await db2.execute(
+                    _sel(Document).where(Document.id == uuid.UUID(document_id))
                 )
-                doc = result.scalar_one_or_none()
-                if doc:
-                    doc.status = "error"
-                    doc.error_message = str(exc)
+                err_doc = res.scalar_one_or_none()
+                if err_doc:
+                    err_doc.status = "error"
+                    err_doc.error_message = str(exc)[:2000]
                     await db2.commit()
-            await engine2.dispose()
+            await err_engine.dispose()
         except Exception as inner:
             logger.error(f"Failed to update error status: {inner}")
-        await engine.dispose()
         raise task.retry(exc=exc)
     finally:
         await engine.dispose()

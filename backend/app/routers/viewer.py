@@ -1,3 +1,4 @@
+import collections
 import json
 import uuid
 from datetime import datetime, timezone
@@ -22,6 +23,36 @@ router = APIRouter(prefix="/api/viewer", tags=["viewer"])
 link_svc = LinkService()
 watermark_svc = WatermarkService()
 analytics_svc = AnalyticsService()
+
+# ── In-process LRU cache for raw page bytes ────────────────────────────────────
+# Page bytes from storage are deterministic per storage_key.  Caching them avoids
+# a round-trip to S3/R2 on every viewer page request.  The visible watermark
+# (which embeds session_id / viewer email) is applied *after* the cache hit, so
+# no per-viewer data is ever stored here.
+#
+# Sizing: 50 docs × 60 pages × ~50 KB ≈ 150 MB worst-case; with LRU eviction at
+# 600 entries we keep only the hottest pages in memory.
+_PAGE_BYTES_CACHE: collections.OrderedDict = collections.OrderedDict()
+_PAGE_BYTES_CACHE_MAX = 600
+
+
+def _page_cache_get(key: str) -> Optional[bytes]:
+    if key not in _PAGE_BYTES_CACHE:
+        return None
+    _PAGE_BYTES_CACHE.move_to_end(key)
+    return _PAGE_BYTES_CACHE[key]
+
+
+def _page_cache_put(key: str, value: bytes) -> None:
+    _PAGE_BYTES_CACHE[key] = value
+    _PAGE_BYTES_CACHE.move_to_end(key)
+    if len(_PAGE_BYTES_CACHE) > _PAGE_BYTES_CACHE_MAX:
+        _PAGE_BYTES_CACHE.popitem(last=False)
+
+
+def clear_page_cache() -> None:
+    """Flush the in-process page byte cache.  Called in tests to prevent cross-test pollution."""
+    _PAGE_BYTES_CACHE.clear()
 
 
 @router.get("/gate/{token}")
@@ -180,9 +211,13 @@ async def get_page(
     if not page:
         raise HTTPException(status_code=404, detail="Page not found")
 
-    # Download image (proxy through backend — NEVER redirect to storage URL)
+    # Download base image with in-process LRU cache (avoids repeated S3/R2 round-trips).
+    # The visible watermark applied below is session-specific; only the raw bytes are cached.
     storage = get_storage_service()
-    image_bytes = await storage.download_bytes(page.storage_key)
+    image_bytes = _page_cache_get(page.storage_key)
+    if image_bytes is None:
+        image_bytes = await storage.download_bytes(page.storage_key)
+        _page_cache_put(page.storage_key, image_bytes)
 
     # Apply visible watermark
     now_str = now.strftime("%Y-%m-%d")
