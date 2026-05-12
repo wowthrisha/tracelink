@@ -13,6 +13,9 @@ class Settings(BaseSettings):
     # Database
     database_url: str = "postgresql+asyncpg://securedoc:password@localhost:5432/securedoc"
     test_database_url: str = "sqlite+aiosqlite:///./test_securedoc.db"
+    # Migration URL overrides (see alembic/env.py for precedence logic)
+    database_public_url: Optional[str] = None   # Railway public proxy URL for local migrations
+    migration_database_url: Optional[str] = None  # Explicit override — beats everything
 
     # Storage
     storage_endpoint_url: Optional[str] = None

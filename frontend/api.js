@@ -178,8 +178,18 @@ window.SecureDocAPI = {
     return r.json();
   },
 
+  // Read-only reference to the resolved API base so other inline scripts can
+  // construct URLs consistently without duplicating the auto-detect logic.
+  apiBase: API_BASE,
+
   getPageUrl(linkToken, pageNumber, sessionId) {
-    return `${API_BASE}/api/viewer/page/${linkToken}/${pageNumber}?session_id=${sessionId}`;
+    if (!linkToken || !sessionId) {
+      console.error('[SecureDoc] getPageUrl: linkToken or sessionId is missing', { linkToken, pageNumber, sessionId });
+    }
+    // Guard against accidentally injecting extra slashes when API_BASE is empty.
+    const base = API_BASE.replace(/\/$/, '');
+    const page = Math.max(1, parseInt(pageNumber, 10) || 1);
+    return `${base}/api/viewer/page/${linkToken}/${page}?session_id=${encodeURIComponent(sessionId || '')}`;
   },
 
   logEvent(token, sessionId, eventType, pageNumber = null, metadata = {}) {

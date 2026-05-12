@@ -1832,6 +1832,12 @@
       const pageCache = useRef(new Map());
 
       const loadPage = useCallback(async (token, pageNum, sessionId) => {
+        if (!token || !sessionId) {
+          console.error('[SecureDoc] loadPage: token or sessionId missing — cannot construct page URL',
+            { token: token ? '[set]' : '[missing]', pageNum, sessionId: sessionId ? '[set]' : '[missing]' });
+          setImgLoading(false);
+          return;
+        }
         const key = `${token}:${pageNum}`;
         if (pageCache.current.has(key)) {
           setImgSrc(pageCache.current.get(key));
@@ -1839,15 +1845,26 @@
           return;
         }
         setImgLoading(true);
+        const url = window.SecureDocAPI.getPageUrl(token, pageNum, sessionId);
         try {
-          const r = await fetch(window.SecureDocAPI.getPageUrl(token, pageNum, sessionId));
-          if (!r.ok) throw new Error('page fetch failed');
+          const r = await fetch(url);
+          if (!r.ok) {
+            // HTTP error (e.g. 404 Page not found, 410 expired, 403 IP blocked).
+            // Do NOT fall through to the img-src fallback — the same URL will return
+            // the same error and trigger a duplicate request in the network tab.
+            console.error('[SecureDoc] page fetch HTTP error', r.status, url);
+            setImgLoading(false);
+            return;
+          }
           const blobUrl = URL.createObjectURL(await r.blob());
           pageCache.current.set(key, blobUrl);
           setImgSrc(blobUrl);
         } catch {
-          // Fall back to direct URL (image tag will show its own error state)
-          setImgSrc(window.SecureDocAPI.getPageUrl(token, pageNum, sessionId));
+          // Network-level failure (no response at all).
+          // Fall back to a direct img src as a last resort — the browser may
+          // succeed where fetch failed (e.g. different cache path).
+          console.warn('[SecureDoc] page fetch network error, falling back to img src', url);
+          setImgSrc(url);
         } finally {
           setImgLoading(false);
         }
@@ -3384,7 +3401,7 @@
       useEffect(() => {
         async function load() {
           try {
-            const r = await fetch(`${window.SecureDocAPI && window.__apiBase || ''}/api/billing/status`, {
+            const r = await fetch(`${window.SecureDocAPI?.apiBase || ''}/api/billing/status`, {
               headers: { ...authHeaders() },
             });
             if (r.ok) {
@@ -3408,7 +3425,7 @@
         setActionLoading('upgrade');
         setError('');
         try {
-          const r = await fetch('/api/billing/checkout', {
+          const r = await fetch(`${window.SecureDocAPI?.apiBase || ''}/api/billing/checkout`, {
             method: 'POST',
             headers: { ...authHeaders() },
           });
@@ -3434,7 +3451,7 @@
         setActionLoading('manage');
         setError('');
         try {
-          const r = await fetch('/api/billing/portal', {
+          const r = await fetch(`${window.SecureDocAPI?.apiBase || ''}/api/billing/portal`, {
             method: 'POST',
             headers: { ...authHeaders() },
           });
