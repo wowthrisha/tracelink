@@ -145,44 +145,43 @@ async def list_documents(
     )
     documents = result.scalars().all()
 
+    if not documents:
+        return {"documents": []}
+
+    doc_ids = [doc.id for doc in documents]
+
+    # Batch: link counts per document (1 query)
+    link_counts_result = await db.execute(
+        select(ShareLink.document_id, func.count(ShareLink.id).label("cnt"))
+        .where(ShareLink.document_id.in_(doc_ids))
+        .group_by(ShareLink.document_id)
+    )
+    link_counts: dict = {row.document_id: row.cnt for row in link_counts_result.all()}
+
+    # Batch: view counts per document via JOIN (1 query)
+    views_result = await db.execute(
+        select(ShareLink.document_id, func.count(AccessEvent.id).label("cnt"))
+        .join(
+            AccessEvent,
+            (AccessEvent.link_id == ShareLink.id) & (AccessEvent.event_type == "opened"),
+        )
+        .where(ShareLink.document_id.in_(doc_ids))
+        .group_by(ShareLink.document_id)
+    )
+    view_counts: dict = {row.document_id: row.cnt for row in views_result.all()}
+
+    # Batch: group info for all referenced groups (1 query)
+    group_ids = {doc.group_id for doc in documents if doc.group_id}
+    groups: dict = {}
+    if group_ids:
+        grp_result = await db.execute(
+            select(DocumentGroup).where(DocumentGroup.id.in_(group_ids))
+        )
+        groups = {grp.id: grp for grp in grp_result.scalars().all()}
+
     summaries = []
     for doc in documents:
-        # Count share links
-        link_count_result = await db.execute(
-            select(func.count()).select_from(ShareLink).where(
-                ShareLink.document_id == doc.id
-            )
-        )
-        share_link_count = link_count_result.scalar() or 0
-
-        # Count total views (opened events via links)
-        links_result = await db.execute(
-            select(ShareLink.id).where(ShareLink.document_id == doc.id)
-        )
-        link_ids = [row[0] for row in links_result.all()]
-
-        total_views = 0
-        if link_ids:
-            views_result = await db.execute(
-                select(func.count()).select_from(AccessEvent).where(
-                    AccessEvent.link_id.in_(link_ids),
-                    AccessEvent.event_type == "opened",
-                )
-            )
-            total_views = views_result.scalar() or 0
-
-        # Fetch group info
-        group_name = None
-        group_color = None
-        if doc.group_id:
-            grp_result = await db.execute(
-                select(DocumentGroup).where(DocumentGroup.id == doc.group_id)
-            )
-            grp = grp_result.scalar_one_or_none()
-            if grp:
-                group_name = grp.name
-                group_color = grp.color
-
+        grp = groups.get(doc.group_id) if doc.group_id else None
         summaries.append(
             DocumentSummary(
                 id=doc.id,
@@ -191,11 +190,11 @@ async def list_documents(
                 page_count=doc.page_count,
                 file_size_bytes=doc.file_size_bytes,
                 created_at=doc.created_at,
-                share_link_count=share_link_count,
-                total_views=total_views,
+                share_link_count=link_counts.get(doc.id, 0),
+                total_views=view_counts.get(doc.id, 0),
                 group_id=doc.group_id,
-                group_name=group_name,
-                group_color=group_color,
+                group_name=grp.name if grp else None,
+                group_color=grp.color if grp else None,
             )
         )
 
@@ -241,27 +240,22 @@ async def get_document(
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
 
-    link_count_result = await db.execute(
-        select(func.count()).select_from(ShareLink).where(
-            ShareLink.document_id == doc.id
+    # Link count + view count in a single JOIN query
+    stats_result = await db.execute(
+        select(
+            func.count(ShareLink.id.distinct()).label("link_count"),
+            func.count(AccessEvent.id).label("view_count"),
         )
-    )
-    share_link_count = link_count_result.scalar() or 0
-
-    links_result = await db.execute(
-        select(ShareLink.id).where(ShareLink.document_id == doc.id)
-    )
-    link_ids = [row[0] for row in links_result.all()]
-
-    total_views = 0
-    if link_ids:
-        views_result = await db.execute(
-            select(func.count()).select_from(AccessEvent).where(
-                AccessEvent.link_id.in_(link_ids),
-                AccessEvent.event_type == "opened",
-            )
+        .select_from(ShareLink)
+        .outerjoin(
+            AccessEvent,
+            (AccessEvent.link_id == ShareLink.id) & (AccessEvent.event_type == "opened"),
         )
-        total_views = views_result.scalar() or 0
+        .where(ShareLink.document_id == doc.id)
+    )
+    stats_row = stats_result.one()
+    share_link_count = stats_row.link_count or 0
+    total_views = stats_row.view_count or 0
 
     pages_result = await db.execute(
         select(DocumentPage)
@@ -312,12 +306,15 @@ async def delete_document(
     db: AsyncSession = Depends(get_db),
     user: dict = Depends(get_current_user),
 ):
-    result = await db.execute(select(Document).where(Document.id == document_id))
+    result = await db.execute(
+        select(Document).where(
+            Document.id == document_id,
+            Document.user_id == uuid.UUID(user["user_id"]),
+        )
+    )
     doc = result.scalar_one_or_none()
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
-    if doc.user_id != uuid.UUID(user["user_id"]):
-        raise HTTPException(status_code=403, detail="Not authorized to delete this document")
 
     storage = get_storage_service()
 

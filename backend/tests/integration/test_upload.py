@@ -117,7 +117,7 @@ class TestDocumentOwnership:
     async def test_user_a_cannot_delete_user_b_document(self, client, db_session):
         doc_b = await self._create_user_b_doc(db_session)
         r = await client.delete(f"/api/documents/{doc_b.id}")
-        assert r.status_code == 403
+        assert r.status_code == 404  # must not leak document existence
 
     @pytest.mark.asyncio
     async def test_upload_sets_user_id_on_document(self, client, db_session, sample_pdf_bytes):

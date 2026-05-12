@@ -351,11 +351,11 @@ class TestCrossUserDocumentAccess:
         assert r.status_code == 404
 
     @pytest.mark.asyncio
-    async def test_user_b_document_returns_403_on_delete(self, client, db_session):
+    async def test_user_b_document_returns_404_on_delete(self, client, db_session):
         doc_b = await _make_doc(db_session, user_id=TEST_USER_B_ID)
         await db_session.commit()
         r = await client.delete(f"/api/documents/{doc_b.id}")
-        assert r.status_code == 403
+        assert r.status_code == 404  # must not leak document existence
 
 
 class TestCrossUserAnalyticsAccess:
