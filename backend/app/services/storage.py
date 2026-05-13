@@ -4,20 +4,34 @@ from functools import partial
 from typing import Optional
 import boto3
 import boto3.exceptions
+from botocore.config import Config as BotocoreConfig
 from botocore.exceptions import ClientError
 from app.config import settings
+
+# Fail fast: 2 attempts, 30 s connect, 60 s read.  Without this boto3 retries
+# 5 times with exponential backoff, blocking the request for 3+ minutes before
+# Railway's proxy kills it with a 502.
+_BOTO_CONFIG = BotocoreConfig(
+    retries={"max_attempts": 2, "mode": "standard"},
+    connect_timeout=30,
+    read_timeout=60,
+)
 
 
 class StorageService:
     def __init__(self):
-        kwargs = {
+        kwargs: dict = {
             "aws_access_key_id": settings.storage_access_key_id,
             "aws_secret_access_key": settings.storage_secret_access_key,
+            "config": _BOTO_CONFIG,
         }
         if settings.storage_endpoint_url:
             kwargs["endpoint_url"] = settings.storage_endpoint_url
             kwargs["region_name"] = settings.storage_region
-            kwargs["config"] = boto3.session.Config(signature_version="s3v4")
+            # Merge signature version into the existing config object
+            kwargs["config"] = _BOTO_CONFIG.merge(
+                BotocoreConfig(signature_version="s3v4")
+            )
 
         self._client = boto3.client("s3", **kwargs)
         self._bucket = settings.storage_bucket_name
