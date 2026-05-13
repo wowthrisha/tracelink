@@ -9,6 +9,26 @@ logger = logging.getLogger(__name__)
 # A document stuck in "processing" for longer than this threshold is assumed to
 # have been orphaned by a crashed worker and will be cleaned up and retried.
 _STALE_PROCESSING_THRESHOLD = timedelta(minutes=15)
+_THUMBNAIL_WIDTH_PX = 200
+
+
+def _make_thumbnail(image_bytes: bytes) -> bytes:
+    """
+    Resize a full-resolution page image to a narrow thumbnail for sidebar navigation.
+
+    Thumbnails are stored at thumbs/{doc_id}/{page:04d}.webp alongside full-res pages.
+    They are generated best-effort — a failure here must never block document processing.
+    """
+    import io as _io
+    from PIL import Image
+
+    img = Image.open(_io.BytesIO(image_bytes))
+    ratio = _THUMBNAIL_WIDTH_PX / img.width
+    new_h = max(1, int(img.height * ratio))
+    thumb = img.resize((_THUMBNAIL_WIDTH_PX, new_h), Image.LANCZOS)
+    buf = _io.BytesIO()
+    thumb.save(buf, format="WEBP", quality=60)
+    return buf.getvalue()
 
 
 def _should_process(status: str, updated_at: datetime) -> str:
@@ -29,6 +49,111 @@ def _should_process(status: str, updated_at: datetime) -> str:
             return "recover"
         return "skip"
     return "skip"  # "ready" or "error"
+
+
+async def process_document_with_session(
+    db,
+    document_id: str,
+    storage,
+    rasterizer,
+    watermark,
+) -> dict:
+    """
+    Core document processing logic — testable without Celery or Redis.
+
+    The caller owns the DB session lifecycle.  On success the session is
+    committed; on error the exception propagates (caller decides retry policy).
+    """
+    from sqlalchemy import select, delete
+    from app.models.document import Document, DocumentPage
+
+    # 1. Fetch document
+    result = await db.execute(
+        select(Document).where(Document.id == uuid.UUID(document_id))
+    )
+    doc = result.scalar_one_or_none()
+    if not doc:
+        raise ValueError(f"Document {document_id} not found")
+
+    decision = _should_process(doc.status, doc.updated_at)
+
+    if decision == "skip":
+        logger.info("Document %s status=%r — skipping", document_id, doc.status)
+        return {"document_id": document_id, "status": doc.status}
+
+    if decision == "recover":
+        logger.warning(
+            "Document %s stuck in processing — deleting partial pages and retrying",
+            document_id,
+        )
+        await db.execute(
+            delete(DocumentPage).where(
+                DocumentPage.document_id == uuid.UUID(document_id)
+            )
+        )
+        await db.flush()
+
+    # 2. Set processing
+    doc.status = "processing"
+    await db.commit()
+    logger.info("Document %s: status → processing", document_id)
+
+    # 3. Download PDF
+    logger.info("Document %s: downloading from storage key %r", document_id, doc.storage_key)
+    pdf_bytes = await storage.download_bytes(doc.storage_key)
+    logger.info("Document %s: downloaded %d bytes", document_id, len(pdf_bytes))
+
+    # 4. Rasterize (validates magic bytes internally; raises RasterizerError on bad PDF)
+    logger.info("Document %s: rasterizing PDF", document_id)
+    pages = await rasterizer.rasterize_document(pdf_bytes, document_id)
+    logger.info("Document %s: rasterized %d page(s)", document_id, len(pages))
+
+    # 5. Apply forensic stamp, upload each page + thumbnail, insert DB records
+    for page in pages:
+        stamped = watermark.apply_forensic_stamp(
+            page.image_bytes, document_id, page.page_number
+        )
+        page_key = f"pages/{document_id}/{page.page_number:04d}.webp"
+        await storage.upload_file(stamped, page_key, content_type="image/webp")
+        logger.debug(
+            "Document %s: uploaded page %d → %s", document_id, page.page_number, page_key
+        )
+
+        # Thumbnail — best-effort: failure must not block document processing
+        try:
+            thumb_bytes = _make_thumbnail(stamped)
+            thumb_key = f"thumbs/{document_id}/{page.page_number:04d}.webp"
+            await storage.upload_file(thumb_bytes, thumb_key, content_type="image/webp")
+            logger.debug(
+                "Document %s: uploaded thumbnail %d → %s",
+                document_id, page.page_number, thumb_key,
+            )
+        except Exception as thumb_exc:
+            logger.warning(
+                "Document %s: thumbnail generation failed for page %d: %s",
+                document_id, page.page_number, thumb_exc,
+            )
+
+        db_page = DocumentPage(
+            document_id=uuid.UUID(document_id),
+            page_number=page.page_number,
+            storage_key=page_key,
+            width_px=page.width_px,
+            height_px=page.height_px,
+        )
+        db.add(db_page)
+
+    # 6. Mark ready
+    doc.status = "ready"
+    doc.page_count = len(pages)
+    await db.commit()
+    logger.info("Document %s: status → ready (%d pages)", document_id, len(pages))
+
+    return {
+        "document_id": document_id,
+        "page_count": len(pages),
+        "status": "ready",
+    }
 
 
 def _run_async(coro):
@@ -62,11 +187,10 @@ def process_document(self, document_id: str) -> dict:
 async def _process_document_async(task, document_id: str) -> dict:
     from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
     from sqlalchemy.orm import sessionmaker
-    from sqlalchemy import select, delete
     from app.config import settings
-    from app.models.document import Document, DocumentPage
+    from app.models.document import Document
     from app.services.storage import get_storage_service
-    from app.services.rasterizer import RasterizerService, RasterizerError
+    from app.services.rasterizer import RasterizerService
     from app.services.watermark import WatermarkService
 
     engine = create_async_engine(settings.database_url, echo=False)
@@ -78,74 +202,12 @@ async def _process_document_async(task, document_id: str) -> dict:
 
     try:
         async with async_session() as db:
-            # 1. Fetch document
-            result = await db.execute(
-                select(Document).where(Document.id == uuid.UUID(document_id))
+            return await process_document_with_session(
+                db, document_id, storage, rasterizer, watermark
             )
-            doc = result.scalar_one_or_none()
-            if not doc:
-                raise ValueError(f"Document {document_id} not found")
-
-            decision = _should_process(doc.status, doc.updated_at)
-
-            if decision == "skip":
-                logger.info(f"Document {document_id} status={doc.status!r}, skipping")
-                return {"document_id": document_id, "status": doc.status}
-
-            if decision == "recover":
-                # Crashed mid-processing: delete any partial pages then reprocess
-                logger.warning(
-                    f"Document {document_id} stuck in processing, "
-                    "cleaning up partial pages and retrying"
-                )
-                await db.execute(
-                    delete(DocumentPage).where(
-                        DocumentPage.document_id == uuid.UUID(document_id)
-                    )
-                )
-                await db.flush()
-
-            # 2. Set processing
-            doc.status = "processing"
-            await db.commit()
-
-            # 3. Download PDF
-            pdf_bytes = await storage.download_bytes(doc.storage_key)
-
-            # 4. Validate + rasterize
-            pages = await rasterizer.rasterize_document(pdf_bytes, document_id)
-
-            # 5. Upload pages and insert records
-            for page in pages:
-                # Apply forensic stamp
-                stamped = watermark.apply_forensic_stamp(
-                    page.image_bytes, document_id, page.page_number
-                )
-                page_key = f"pages/{document_id}/{page.page_number:04d}.webp"
-                await storage.upload_file(stamped, page_key, content_type="image/webp")
-
-                db_page = DocumentPage(
-                    document_id=uuid.UUID(document_id),
-                    page_number=page.page_number,
-                    storage_key=page_key,
-                    width_px=page.width_px,
-                    height_px=page.height_px,
-                )
-                db.add(db_page)
-
-            # 6. Update document status
-            doc.status = "ready"
-            doc.page_count = len(pages)
-            await db.commit()
-
-            return {
-                "document_id": document_id,
-                "page_count": len(pages),
-                "status": "ready",
-            }
 
     except Exception as exc:
-        logger.error(f"process_document failed for {document_id}: {exc}")
+        logger.error("process_document failed for %s: %s", document_id, exc)
         # Use a fresh engine for error reporting — the original session may be broken
         try:
             from sqlalchemy.ext.asyncio import create_async_engine as _make_engine
@@ -165,7 +227,7 @@ async def _process_document_async(task, document_id: str) -> dict:
                     await db2.commit()
             await err_engine.dispose()
         except Exception as inner:
-            logger.error(f"Failed to update error status: {inner}")
+            logger.error("Failed to update error status: %s", inner)
         raise task.retry(exc=exc)
     finally:
         await engine.dispose()

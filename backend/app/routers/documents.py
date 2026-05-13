@@ -1,8 +1,13 @@
+import asyncio
+import logging
+import os
 import uuid
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
+
+logger = logging.getLogger(__name__)
 
 from app.database import get_db
 from app.models.document import Document, DocumentPage
@@ -25,6 +30,37 @@ from app.models.billing import UserBilling, PLAN_PRO
 router = APIRouter(prefix="/api/documents", tags=["documents"])
 
 ALLOWED_CONTENT_TYPES = {"application/pdf"}
+
+
+async def _run_demo_processing(document_id: str) -> None:
+    """
+    Process a document entirely in-process (no Celery / Redis).
+    Only used when USE_DEMO_STORAGE=1.  Runs as a background asyncio task so
+    the upload response is returned immediately.
+    """
+    from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
+    from sqlalchemy.orm import sessionmaker
+    from app.config import settings
+    from app.services.storage import get_storage_service
+    from app.services.rasterizer import RasterizerService
+    from app.services.watermark import WatermarkService
+    from app.workers.tasks import process_document_with_session
+
+    engine = create_async_engine(settings.database_url, echo=False)
+    _sf = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    try:
+        async with _sf() as db:
+            await process_document_with_session(
+                db,
+                document_id,
+                get_storage_service(),
+                RasterizerService(),
+                WatermarkService(),
+            )
+    except Exception as exc:
+        logger.error("Demo-mode rendering failed for document %s: %s", document_id, exc)
+    finally:
+        await engine.dispose()
 
 
 async def _check_upload_quota(db: AsyncSession, user_id: uuid.UUID) -> None:
@@ -120,10 +156,24 @@ async def upload_document(
     )
     db.add(doc)
     await db.commit()
+    logger.info("Document %s uploaded by user %s (%s)", doc_id, user_uuid, original_filename)
 
-    # Enqueue Celery task
-    from app.workers.tasks import process_document
-    process_document.delay(str(doc_id))
+    # Trigger processing: demo mode runs in-process; production queues a Celery task
+    if os.getenv("USE_DEMO_STORAGE") == "1":
+        logger.info("Demo mode: scheduling in-process rendering for document %s", doc_id)
+        asyncio.create_task(_run_demo_processing(str(doc_id)))
+    else:
+        try:
+            from app.workers.tasks import process_document
+            process_document.delay(str(doc_id))
+            logger.info("Queued Celery task securedoc.process_document for document %s", doc_id)
+        except Exception as celery_exc:
+            logger.error(
+                "Failed to queue Celery task for document %s: %s — "
+                "document will remain in 'uploaded' state until a worker picks it up",
+                doc_id,
+                celery_exc,
+            )
 
     return DocumentUploadResponse(
         id=doc_id,
@@ -321,6 +371,11 @@ async def delete_document(
     # Delete page images
     page_keys = await storage.list_keys_with_prefix(f"pages/{document_id}/")
     for key in page_keys:
+        await storage.delete_file(key)
+
+    # Delete thumbnails
+    thumb_keys = await storage.list_keys_with_prefix(f"thumbs/{document_id}/")
+    for key in thumb_keys:
         await storage.delete_file(key)
 
     # Delete original

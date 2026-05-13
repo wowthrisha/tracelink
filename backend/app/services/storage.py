@@ -30,7 +30,7 @@ class StorageService:
         storage_key: str,
         content_type: str = "application/pdf",
     ) -> str:
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         client = self._get_client()
         
         def _upload():
@@ -62,7 +62,7 @@ class StorageService:
         storage_key: str,
         expires_in_seconds: int = 60,
     ) -> str:
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         client = self._get_client()
         url = await loop.run_in_executor(
             None,
@@ -76,7 +76,7 @@ class StorageService:
         return url
 
     async def download_bytes(self, storage_key: str) -> bytes:
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         client = self._get_client()
 
         def _get():
@@ -86,7 +86,7 @@ class StorageService:
         return await loop.run_in_executor(None, _get)
 
     async def delete_file(self, storage_key: str) -> None:
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         client = self._get_client()
         await loop.run_in_executor(
             None,
@@ -94,7 +94,7 @@ class StorageService:
         )
 
     async def list_keys_with_prefix(self, prefix: str) -> list[str]:
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         client = self._get_client()
 
         def _list():

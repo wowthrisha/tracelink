@@ -2,9 +2,10 @@ import uuid
 import pytest
 
 from app.models.document import Document
+from app.models.group import DocumentGroup
 from app.models.link import ShareLink
 from app.models.event import AccessEvent
-from tests.conftest import TEST_USER_B_ID
+from tests.conftest import TEST_USER_ID, TEST_USER_B_ID
 
 
 class TestAnalyticsEndpoints:
@@ -206,3 +207,66 @@ class TestAnalyticsIsolation:
         assert r.status_code == 200
         assert r.json()["events"] == []
         assert r.json()["total"] == 0
+
+    # ── Group analytics isolation ───────────────────────────────────────────
+
+    async def _make_group_b(self, db_session, name: str = "B Secret Group") -> DocumentGroup:
+        grp = DocumentGroup(
+            id=uuid.uuid4(),
+            user_id=uuid.UUID(TEST_USER_B_ID),
+            name=name,
+            color="#ff0000",
+        )
+        db_session.add(grp)
+        await db_session.commit()
+        await db_session.refresh(grp)
+        return grp
+
+    @pytest.mark.asyncio
+    async def test_group_analytics_excludes_other_users_groups(
+        self, client, db_session
+    ):
+        """INVARIANT: /api/analytics/groups must never expose user B's groups to user A."""
+        grp_b = await self._make_group_b(db_session)
+
+        r = await client.get("/api/analytics/groups")
+        assert r.status_code == 200
+        group_ids = [g["group_id"] for g in r.json()["groups"]]
+        assert str(grp_b.id) not in group_ids, (
+            f"SECURITY VIOLATION: user B's group {grp_b.id} visible in user A's analytics"
+        )
+
+    @pytest.mark.asyncio
+    async def test_group_analytics_shows_own_groups(
+        self, client, db_session
+    ):
+        """User A's own groups appear; user B's do not."""
+        grp_a = DocumentGroup(
+            id=uuid.uuid4(),
+            user_id=uuid.UUID(TEST_USER_ID),
+            name="A Own Group",
+            color="#00ff00",
+        )
+        db_session.add(grp_a)
+        grp_b = await self._make_group_b(db_session, "B Only Group")
+        await db_session.commit()
+
+        r = await client.get("/api/analytics/groups")
+        assert r.status_code == 200
+        group_ids = [g["group_id"] for g in r.json()["groups"]]
+        assert str(grp_a.id) in group_ids
+        assert str(grp_b.id) not in group_ids
+
+    @pytest.mark.asyncio
+    async def test_overview_total_groups_excludes_other_users(
+        self, client, db_session
+    ):
+        """INVARIANT: total_groups in overview counts only the current user's groups."""
+        # Only user B has a group — user A's total_groups must be 0
+        await self._make_group_b(db_session)
+
+        r = await client.get("/api/analytics/overview")
+        assert r.status_code == 200
+        assert r.json()["total_groups"] == 0, (
+            "SECURITY VIOLATION: total_groups counted another user's group"
+        )

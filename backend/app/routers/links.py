@@ -41,7 +41,7 @@ def _link_to_summary(link: ShareLink, request: Request) -> LinkSummary:
     if link.permissions:
         try:
             permissions = json.loads(link.permissions)
-        except:
+        except Exception:
             pass
 
     return LinkSummary(

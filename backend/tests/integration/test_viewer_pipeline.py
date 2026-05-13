@@ -14,7 +14,7 @@ from unittest.mock import patch, AsyncMock, call
 
 from app.models.document import Document, DocumentPage
 from app.models.link import ShareLink
-from app.routers.viewer import clear_page_cache
+from app.routers.viewer import clear_page_cache, clear_thumb_cache
 from app.services.link_service import LinkService
 from tests.conftest import TEST_USER_ID
 
@@ -311,3 +311,235 @@ class TestLargeDocument:
         r = await client.post("/api/viewer/validate", json={"token": link.token})
         assert r.status_code == 200
         assert r.json()["page_count"] == 60
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 4. VALIDATE RESPONSE — page dimensions array
+# ══════════════════════════════════════════════════════════════════════════════
+
+class TestValidatePageDimensions:
+    """
+    validate must return a pages array with per-page dimensions so the frontend
+    can pre-size canvas slots without additional requests.
+    """
+
+    @pytest.mark.asyncio
+    async def test_validate_returns_pages_array_for_ready_doc(self, client, db_session):
+        doc = await _insert_doc_with_pages(db_session, page_count=3)
+        svc = LinkService()
+        link = await svc.create_link(db_session, document_id=str(doc.id))
+
+        r = await client.post("/api/viewer/validate", json={"token": link.token})
+        assert r.status_code == 200
+        pages = r.json()["pages"]
+        assert len(pages) == 3
+        for i, p in enumerate(pages, start=1):
+            assert p["page_number"] == i
+            assert p["width_px"] == 595
+            assert p["height_px"] == 842
+
+    @pytest.mark.asyncio
+    async def test_validate_pages_empty_for_not_ready_doc(self, client, db_session):
+        """An uploaded (not yet processed) document returns an empty pages list."""
+        doc = Document(
+            id=uuid.uuid4(),
+            filename="pending.pdf",
+            storage_key=f"originals/{uuid.uuid4()}.pdf",
+            status="uploaded",
+            file_size_bytes=512,
+            user_id=uuid.UUID(TEST_USER_ID),
+        )
+        db_session.add(doc)
+        await db_session.commit()
+        await db_session.refresh(doc)
+
+        svc = LinkService()
+        link = await svc.create_link(db_session, document_id=str(doc.id))
+
+        r = await client.post("/api/viewer/validate", json={"token": link.token})
+        assert r.status_code == 200
+        assert r.json()["pages"] == []
+
+    @pytest.mark.asyncio
+    async def test_validate_pages_dimensions_correct_for_60_page_doc(
+        self, client, db_session
+    ):
+        doc = await _insert_doc_with_pages(db_session, page_count=60)
+        svc = LinkService()
+        link = await svc.create_link(db_session, document_id=str(doc.id))
+
+        r = await client.post("/api/viewer/validate", json={"token": link.token})
+        assert r.status_code == 200
+        pages = r.json()["pages"]
+        assert len(pages) == 60
+        assert pages[0]["page_number"] == 1
+        assert pages[59]["page_number"] == 60
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 5. THUMBNAIL ENDPOINT — low-latency page navigation
+# ══════════════════════════════════════════════════════════════════════════════
+
+class TestThumbnailEndpoint:
+    """GET /api/viewer/thumb/{token}/{page}?session_id={sid}"""
+
+    @pytest.fixture(autouse=True)
+    def _clear_caches(self):
+        clear_page_cache()
+        clear_thumb_cache()
+        yield
+        clear_page_cache()
+        clear_thumb_cache()
+
+    @pytest.mark.asyncio
+    async def test_thumb_returns_webp(self, client, active_link):
+        session_id = await _get_session(client, active_link.token)
+        r = await client.get(
+            f"/api/viewer/thumb/{active_link.token}/1?session_id={session_id}"
+        )
+        assert r.status_code == 200
+        assert r.headers["content-type"] == "image/webp"
+
+    @pytest.mark.asyncio
+    async def test_thumb_requires_session_id(self, client, active_link):
+        r = await client.get(f"/api/viewer/thumb/{active_link.token}/1")
+        assert r.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_thumb_revoked_link_returns_410(self, client, db_session):
+        doc = await _insert_doc_with_pages(db_session)
+        svc = LinkService()
+        link = await svc.create_link(db_session, document_id=str(doc.id))
+        session_id = await _get_session(client, link.token)
+
+        await svc.revoke_link(db_session, str(link.id))
+        await db_session.commit()
+
+        r = await client.get(
+            f"/api/viewer/thumb/{link.token}/1?session_id={session_id}"
+        )
+        assert r.status_code == 410
+        assert "revoked" in r.json()["detail"].lower()
+
+    @pytest.mark.asyncio
+    async def test_thumb_nonexistent_token_returns_404(self, client):
+        r = await client.get(
+            "/api/viewer/thumb/deadbeefdeadbeef/1?session_id=aabbccdd11223344"
+        )
+        assert r.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_thumb_page_beyond_count_returns_404(self, client, db_session):
+        doc = await _insert_doc_with_pages(db_session, page_count=2)
+        svc = LinkService()
+        link = await svc.create_link(db_session, document_id=str(doc.id))
+        session_id = await _get_session(client, link.token)
+
+        r = await client.get(
+            f"/api/viewer/thumb/{link.token}/99?session_id={session_id}"
+        )
+        assert r.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_thumb_no_cache_headers(self, client, active_link):
+        session_id = await _get_session(client, active_link.token)
+        r = await client.get(
+            f"/api/viewer/thumb/{active_link.token}/1?session_id={session_id}"
+        )
+        assert "no-store" in r.headers.get("cache-control", "")
+
+    @pytest.mark.asyncio
+    async def test_second_thumb_request_hits_cache(self, client, db_session):
+        doc = await _insert_doc_with_pages(db_session, page_count=1)
+        svc = LinkService()
+        link = await svc.create_link(db_session, document_id=str(doc.id))
+        session_id = await _get_session(client, link.token)
+
+        with patch(
+            "app.services.storage.StorageService.download_bytes",
+            new_callable=AsyncMock,
+        ) as mock_dl:
+            from tests.conftest import _make_webp_bytes
+            mock_dl.return_value = _make_webp_bytes()
+
+            r1 = await client.get(
+                f"/api/viewer/thumb/{link.token}/1?session_id={session_id}"
+            )
+            assert r1.status_code == 200
+            first_count = mock_dl.call_count  # 1 (thumb key)
+
+            r2 = await client.get(
+                f"/api/viewer/thumb/{link.token}/1?session_id={session_id}"
+            )
+            assert r2.status_code == 200
+            assert mock_dl.call_count == first_count  # cache hit — no new download
+
+    @pytest.mark.asyncio
+    async def test_thumb_uploaded_doc_returns_503(self, client, db_session):
+        doc = Document(
+            id=uuid.uuid4(),
+            filename="pending.pdf",
+            storage_key=f"originals/{uuid.uuid4()}.pdf",
+            status="uploaded",
+            file_size_bytes=512,
+            user_id=uuid.UUID(TEST_USER_ID),
+        )
+        db_session.add(doc)
+        await db_session.commit()
+        await db_session.refresh(doc)
+
+        svc = LinkService()
+        link = await svc.create_link(db_session, document_id=str(doc.id))
+
+        r = await client.get(
+            f"/api/viewer/thumb/{link.token}/1?session_id=aabbccdd11223344"
+        )
+        assert r.status_code == 503
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 6. STORAGE ERROR HANDLING — page asset unavailable
+# ══════════════════════════════════════════════════════════════════════════════
+
+class TestStorageErrorHandling:
+    """Storage download failures must return 503, not 500."""
+
+    @pytest.fixture(autouse=True)
+    def _clear_caches(self):
+        clear_page_cache()
+        clear_thumb_cache()
+        yield
+        clear_page_cache()
+        clear_thumb_cache()
+
+    @pytest.mark.asyncio
+    async def test_page_storage_error_returns_503(self, client, active_link):
+        session_id = await _get_session(client, active_link.token)
+
+        with patch(
+            "app.services.storage.StorageService.download_bytes",
+            new_callable=AsyncMock,
+            side_effect=Exception("S3 connection refused"),
+        ):
+            r = await client.get(
+                f"/api/viewer/page/{active_link.token}/1?session_id={session_id}"
+            )
+
+        assert r.status_code == 503
+        assert "unavailable" in r.json()["detail"].lower()
+
+    @pytest.mark.asyncio
+    async def test_thumb_storage_error_returns_503(self, client, active_link):
+        """Both thumb and full-res fallback failing → 503."""
+        session_id = await _get_session(client, active_link.token)
+
+        with patch(
+            "app.services.storage.StorageService.download_bytes",
+            new_callable=AsyncMock,
+            side_effect=Exception("bucket not found"),
+        ):
+            r = await client.get(
+                f"/api/viewer/thumb/{active_link.token}/1?session_id={session_id}"
+            )
+
+        assert r.status_code == 503

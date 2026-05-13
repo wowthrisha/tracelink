@@ -36,15 +36,18 @@ async def list_groups(
     )
     groups = result.scalars().all()
 
-    out = []
-    for g in groups:
+    # Batch: count documents per group in a single query
+    if groups:
         count_result = await db.execute(
-            select(func.count()).select_from(Document).where(Document.group_id == g.id)
+            select(Document.group_id, func.count(Document.id).label("cnt"))
+            .where(Document.group_id.in_([g.id for g in groups]))
+            .group_by(Document.group_id)
         )
-        doc_count = count_result.scalar() or 0
-        out.append(_group_to_response(g, doc_count))
+        doc_counts = {row.group_id: row.cnt for row in count_result.all()}
+    else:
+        doc_counts = {}
 
-    return {"groups": out}
+    return {"groups": [_group_to_response(g, doc_counts.get(g.id, 0)) for g in groups]}
 
 
 @router.post("", status_code=201, response_model=GroupResponse)

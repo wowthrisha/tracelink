@@ -73,9 +73,11 @@ class AnalyticsService:
             doc_q = doc_q.where(Document.user_id == user_id)
         total_documents = (await db.execute(doc_q)).scalar() or 0
 
-        # total_groups (organisational — not user-scoped)
-        total_groups_result = await db.execute(select(func.count()).select_from(DocumentGroup))
-        total_groups = total_groups_result.scalar() or 0
+        # total_groups — scoped to this user
+        total_groups_q = select(func.count()).select_from(DocumentGroup)
+        if user_id is not None:
+            total_groups_q = total_groups_q.where(DocumentGroup.user_id == user_id)
+        total_groups = (await db.execute(total_groups_q)).scalar() or 0
 
         # helper: execute a count query scoped to user's links (or all links)
         async def _count_events(*extra_filters):
@@ -121,22 +123,34 @@ class AnalyticsService:
             ShareLink.expires_at > now,
         )
 
-        # views_last_7_days
+        # views_last_7_days — single batch query, aggregate in Python
+        week_start = (now - timedelta(days=6)).replace(
+            hour=0, minute=0, second=0, microsecond=0
+        )
+        if scoped_link_ids is not None and not scoped_link_ids:
+            week_ts_rows = []
+        else:
+            week_q = select(AccessEvent.created_at).where(
+                AccessEvent.event_type == "opened",
+                AccessEvent.created_at >= week_start,
+            )
+            if scoped_link_ids:
+                week_q = week_q.where(AccessEvent.link_id.in_(scoped_link_ids))
+            week_ts_rows = (await db.execute(week_q)).scalars().all()
+
+        date_counts: dict = {}
+        for ts in week_ts_rows:
+            if ts.tzinfo is None:
+                ts = ts.replace(tzinfo=timezone.utc)
+            date_counts[ts.strftime("%Y-%m-%d")] = date_counts.get(ts.strftime("%Y-%m-%d"), 0) + 1
+
         views_7_days = []
         for i in range(6, -1, -1):
             day_start = (now - timedelta(days=i)).replace(
                 hour=0, minute=0, second=0, microsecond=0
             )
-            day_end = day_start + timedelta(days=1)
-            count = await _count_events(
-                AccessEvent.event_type == "opened",
-                AccessEvent.created_at >= day_start,
-                AccessEvent.created_at < day_end,
-            )
-            views_7_days.append({
-                "date": day_start.strftime("%Y-%m-%d"),
-                "count": count,
-            })
+            date_str = day_start.strftime("%Y-%m-%d")
+            views_7_days.append({"date": date_str, "count": date_counts.get(date_str, 0)})
 
         return {
             "total_documents": total_documents,
@@ -166,113 +180,95 @@ class AnalyticsService:
         result = await db.execute(query)
         documents = result.scalars().all()
 
+        if not documents:
+            return []
+
+        doc_ids = [d.id for d in documents]
+
+        # Batch: group info for all referenced groups (1 query)
+        group_ids = {d.group_id for d in documents if d.group_id}
+        groups: dict = {}
+        if group_ids:
+            grp_result = await db.execute(
+                select(DocumentGroup).where(DocumentGroup.id.in_(group_ids))
+            )
+            groups = {g.id: g for g in grp_result.scalars().all()}
+
+        # Batch: all link IDs per document (1 query)
+        links_result = await db.execute(
+            select(ShareLink.id, ShareLink.document_id)
+            .where(ShareLink.document_id.in_(doc_ids))
+        )
+        doc_link_ids: dict = {d.id: [] for d in documents}
+        all_link_ids: list = []
+        for row in links_result.all():
+            doc_link_ids[row.document_id].append(row.id)
+            all_link_ids.append(row.id)
+
+        # Batch event aggregates — one GROUP BY query per metric (6 queries total)
+        def _by_link(rows) -> dict:
+            return {row[0]: row[1] for row in rows}
+
+        if all_link_ids:
+            views_by_link = _by_link((await db.execute(
+                select(AccessEvent.link_id, func.count().label("c"))
+                .where(AccessEvent.link_id.in_(all_link_ids), AccessEvent.event_type == "opened")
+                .group_by(AccessEvent.link_id)
+            )).all())
+
+            sessions_by_link = _by_link((await db.execute(
+                select(AccessEvent.link_id, func.count(AccessEvent.session_id.distinct()).label("c"))
+                .where(AccessEvent.link_id.in_(all_link_ids), AccessEvent.session_id.isnot(None))
+                .group_by(AccessEvent.link_id)
+            )).all())
+
+            blocked_by_link = _by_link((await db.execute(
+                select(AccessEvent.link_id, func.count().label("c"))
+                .where(AccessEvent.link_id.in_(all_link_ids), AccessEvent.event_type.in_(list(BLOCKED_EVENT_TYPES)))
+                .group_by(AccessEvent.link_id)
+            )).all())
+
+            blocked24h_by_link = _by_link((await db.execute(
+                select(AccessEvent.link_id, func.count().label("c"))
+                .where(
+                    AccessEvent.link_id.in_(all_link_ids),
+                    AccessEvent.event_type.in_(list(BLOCKED_EVENT_TYPES)),
+                    AccessEvent.created_at >= last_24h,
+                )
+                .group_by(AccessEvent.link_id)
+            )).all())
+
+            completions_by_link = _by_link((await db.execute(
+                select(AccessEvent.link_id, func.count().label("c"))
+                .where(AccessEvent.link_id.in_(all_link_ids), AccessEvent.event_type == "completed")
+                .group_by(AccessEvent.link_id)
+            )).all())
+
+            pageviews_by_link = _by_link((await db.execute(
+                select(AccessEvent.link_id, func.count().label("c"))
+                .where(AccessEvent.link_id.in_(all_link_ids), AccessEvent.event_type == "page_viewed")
+                .group_by(AccessEvent.link_id)
+            )).all())
+        else:
+            views_by_link = sessions_by_link = blocked_by_link = {}
+            blocked24h_by_link = completions_by_link = pageviews_by_link = {}
+
+        # Aggregate per document in Python
         analytics = []
         for doc in documents:
-            # Get all links for this document
-            links_result = await db.execute(
-                select(ShareLink).where(ShareLink.document_id == doc.id)
-            )
-            links = links_result.scalars().all()
-            link_ids = [l.id for l in links]
+            link_ids = doc_link_ids[doc.id]
+            grp = groups.get(doc.group_id) if doc.group_id else None
 
-            # Fetch group info
-            group_name = None
-            group_color = None
-            if doc.group_id:
-                grp_result = await db.execute(
-                    select(DocumentGroup).where(DocumentGroup.id == doc.group_id)
-                )
-                grp = grp_result.scalar_one_or_none()
-                if grp:
-                    group_name = grp.name
-                    group_color = grp.color
+            total_views = sum(views_by_link.get(lid, 0) for lid in link_ids)
+            unique_sessions = sum(sessions_by_link.get(lid, 0) for lid in link_ids)
+            blocked_attempts = sum(blocked_by_link.get(lid, 0) for lid in link_ids)
+            blocked_24h = sum(blocked24h_by_link.get(lid, 0) for lid in link_ids)
+            completions = sum(completions_by_link.get(lid, 0) for lid in link_ids)
+            page_views = sum(pageviews_by_link.get(lid, 0) for lid in link_ids)
 
-            if not link_ids:
-                analytics.append({
-                    "id": doc.id,
-                    "filename": doc.filename,
-                    "group_id": doc.group_id,
-                    "group_name": group_name,
-                    "group_color": group_color,
-                    "total_views": 0,
-                    "unique_sessions": 0,
-                    "avg_time_on_page_sec": 0,
-                    "completion_rate_pct": 0.0,
-                    "blocked_attempts": 0,
-                    "risk_score": "LOW",
-                })
-                continue
-
-            # total_views
-            tv_result = await db.execute(
-                select(func.count()).select_from(AccessEvent).where(
-                    and_(
-                        AccessEvent.link_id.in_(link_ids),
-                        AccessEvent.event_type == "opened",
-                    )
-                )
-            )
-            total_views = tv_result.scalar() or 0
-
-            # unique_sessions
-            us_result = await db.execute(
-                select(func.count(AccessEvent.session_id.distinct())).where(
-                    and_(
-                        AccessEvent.link_id.in_(link_ids),
-                        AccessEvent.session_id.isnot(None),
-                    )
-                )
-            )
-            unique_sessions = us_result.scalar() or 0
-
-            # blocked_attempts (all time)
-            ba_result = await db.execute(
-                select(func.count()).select_from(AccessEvent).where(
-                    and_(
-                        AccessEvent.link_id.in_(link_ids),
-                        AccessEvent.event_type.in_(list(BLOCKED_EVENT_TYPES)),
-                    )
-                )
-            )
-            blocked_attempts = ba_result.scalar() or 0
-
-            # blocked last 24h for risk scoring
-            ba_24h_result = await db.execute(
-                select(func.count()).select_from(AccessEvent).where(
-                    and_(
-                        AccessEvent.link_id.in_(link_ids),
-                        AccessEvent.event_type.in_(list(BLOCKED_EVENT_TYPES)),
-                        AccessEvent.created_at >= last_24h,
-                    )
-                )
-            )
-            blocked_24h = ba_24h_result.scalar() or 0
-
-            # completion_rate: completed / opened
-            comp_result = await db.execute(
-                select(func.count()).select_from(AccessEvent).where(
-                    and_(
-                        AccessEvent.link_id.in_(link_ids),
-                        AccessEvent.event_type == "completed",
-                    )
-                )
-            )
-            completions = comp_result.scalar() or 0
             completion_rate = (completions / total_views * 100) if total_views > 0 else 0.0
-
-            # avg_time_on_page_sec: 30s per page_viewed event / unique_sessions
-            pv_result = await db.execute(
-                select(func.count()).select_from(AccessEvent).where(
-                    and_(
-                        AccessEvent.link_id.in_(link_ids),
-                        AccessEvent.event_type == "page_viewed",
-                    )
-                )
-            )
-            page_views = pv_result.scalar() or 0
             avg_time_on_page_sec = (page_views * 30.0) / unique_sessions if unique_sessions > 0 else 0.0
 
-            # risk_score
             if blocked_24h > 5:
                 risk_score = "HIGH"
             elif blocked_24h > 2:
@@ -284,8 +280,8 @@ class AnalyticsService:
                 "id": doc.id,
                 "filename": doc.filename,
                 "group_id": doc.group_id,
-                "group_name": group_name,
-                "group_color": group_color,
+                "group_name": grp.name if grp else None,
+                "group_color": grp.color if grp else None,
                 "total_views": total_views,
                 "unique_sessions": unique_sessions,
                 "avg_time_on_page_sec": round(avg_time_on_page_sec),
@@ -303,109 +299,103 @@ class AnalyticsService:
         now = datetime.now(timezone.utc)
         last_24h = now - timedelta(hours=24)
 
-        groups_result = await db.execute(select(DocumentGroup).order_by(DocumentGroup.name))
+        # Security: only return this user's groups
+        groups_q = select(DocumentGroup).order_by(DocumentGroup.name)
+        if user_id is not None:
+            groups_q = groups_q.where(DocumentGroup.user_id == user_id)
+        groups_result = await db.execute(groups_q)
         groups = groups_result.scalars().all()
 
+        if not groups:
+            return []
+
+        group_ids = [g.id for g in groups]
+
+        # Batch: doc counts and IDs per group (1 query)
+        docs_q = select(Document.id, Document.group_id).where(Document.group_id.in_(group_ids))
+        if user_id is not None:
+            docs_q = docs_q.where(Document.user_id == user_id)
+        docs_result = await db.execute(docs_q)
+        group_doc_ids: dict = {gid: [] for gid in group_ids}
+        all_doc_ids: list = []
+        for row in docs_result.all():
+            group_doc_ids[row.group_id].append(row.id)
+            all_doc_ids.append(row.id)
+
+        if not all_doc_ids:
+            return [
+                {
+                    "group_id": g.id, "group_name": g.name, "group_color": g.color,
+                    "document_count": 0, "total_views": 0, "unique_sessions": 0,
+                    "blocked_attempts": 0, "risk_score": "LOW", "active_links": 0,
+                }
+                for g in groups
+            ]
+
+        # Batch: link IDs per document (1 query)
+        links_result = await db.execute(
+            select(ShareLink.id, ShareLink.document_id, ShareLink.revoked_at, ShareLink.expires_at)
+            .where(ShareLink.document_id.in_(all_doc_ids))
+        )
+        doc_link_rows = links_result.all()
+        doc_link_ids: dict = {d: [] for d in all_doc_ids}
+        all_link_ids: list = []
+        active_link_ids: set = set()
+        for row in doc_link_rows:
+            doc_link_ids[row.document_id].append(row.id)
+            all_link_ids.append(row.id)
+            # Determine active at query time
+            if row.revoked_at is None:
+                exp = row.expires_at
+                if exp is None or (exp.replace(tzinfo=timezone.utc) if exp.tzinfo is None else exp) > now:
+                    active_link_ids.add(row.id)
+
+        # Batch event aggregates — one GROUP BY query per metric (4 queries)
+        def _by_link(rows) -> dict:
+            return {row[0]: row[1] for row in rows}
+
+        if all_link_ids:
+            views_by_link = _by_link((await db.execute(
+                select(AccessEvent.link_id, func.count().label("c"))
+                .where(AccessEvent.link_id.in_(all_link_ids), AccessEvent.event_type == "opened")
+                .group_by(AccessEvent.link_id)
+            )).all())
+
+            sessions_by_link = _by_link((await db.execute(
+                select(AccessEvent.link_id, func.count(AccessEvent.session_id.distinct()).label("c"))
+                .where(AccessEvent.link_id.in_(all_link_ids), AccessEvent.session_id.isnot(None))
+                .group_by(AccessEvent.link_id)
+            )).all())
+
+            blocked_by_link = _by_link((await db.execute(
+                select(AccessEvent.link_id, func.count().label("c"))
+                .where(AccessEvent.link_id.in_(all_link_ids), AccessEvent.event_type.in_(list(BLOCKED_EVENT_TYPES)))
+                .group_by(AccessEvent.link_id)
+            )).all())
+
+            blocked24h_by_link = _by_link((await db.execute(
+                select(AccessEvent.link_id, func.count().label("c"))
+                .where(
+                    AccessEvent.link_id.in_(all_link_ids),
+                    AccessEvent.event_type.in_(list(BLOCKED_EVENT_TYPES)),
+                    AccessEvent.created_at >= last_24h,
+                )
+                .group_by(AccessEvent.link_id)
+            )).all())
+        else:
+            views_by_link = sessions_by_link = blocked_by_link = blocked24h_by_link = {}
+
+        # Aggregate per group in Python
         analytics = []
         for group in groups:
-            # Documents in this group (scoped to user if provided)
-            docs_q = select(Document).where(Document.group_id == group.id)
-            if user_id is not None:
-                docs_q = docs_q.where(Document.user_id == user_id)
-            docs_result = await db.execute(docs_q)
-            docs = docs_result.scalars().all()
-            doc_ids = [d.id for d in docs]
+            doc_ids = group_doc_ids[group.id]
+            link_ids = [lid for did in doc_ids for lid in doc_link_ids.get(did, [])]
 
-            if not doc_ids:
-                analytics.append({
-                    "group_id": group.id,
-                    "group_name": group.name,
-                    "group_color": group.color,
-                    "document_count": 0,
-                    "total_views": 0,
-                    "unique_sessions": 0,
-                    "blocked_attempts": 0,
-                    "risk_score": "LOW",
-                    "active_links": 0,
-                })
-                continue
-
-            # All links for these documents
-            links_result = await db.execute(
-                select(ShareLink.id).where(ShareLink.document_id.in_(doc_ids))
-            )
-            link_ids = [row[0] for row in links_result.all()]
-
-            if not link_ids:
-                analytics.append({
-                    "group_id": group.id,
-                    "group_name": group.name,
-                    "group_color": group.color,
-                    "document_count": len(doc_ids),
-                    "total_views": 0,
-                    "unique_sessions": 0,
-                    "blocked_attempts": 0,
-                    "risk_score": "LOW",
-                    "active_links": 0,
-                })
-                continue
-
-            # total_views
-            tv_result = await db.execute(
-                select(func.count()).select_from(AccessEvent).where(
-                    and_(
-                        AccessEvent.link_id.in_(link_ids),
-                        AccessEvent.event_type == "opened",
-                    )
-                )
-            )
-            total_views = tv_result.scalar() or 0
-
-            # unique_sessions
-            us_result = await db.execute(
-                select(func.count(AccessEvent.session_id.distinct())).where(
-                    and_(
-                        AccessEvent.link_id.in_(link_ids),
-                        AccessEvent.session_id.isnot(None),
-                    )
-                )
-            )
-            unique_sessions = us_result.scalar() or 0
-
-            # blocked_attempts (all time)
-            ba_result = await db.execute(
-                select(func.count()).select_from(AccessEvent).where(
-                    and_(
-                        AccessEvent.link_id.in_(link_ids),
-                        AccessEvent.event_type.in_(list(BLOCKED_EVENT_TYPES)),
-                    )
-                )
-            )
-            blocked_attempts = ba_result.scalar() or 0
-
-            # blocked last 24h for risk
-            ba_24h_result = await db.execute(
-                select(func.count()).select_from(AccessEvent).where(
-                    and_(
-                        AccessEvent.link_id.in_(link_ids),
-                        AccessEvent.event_type.in_(list(BLOCKED_EVENT_TYPES)),
-                        AccessEvent.created_at >= last_24h,
-                    )
-                )
-            )
-            blocked_24h = ba_24h_result.scalar() or 0
-
-            # active links
-            active_links_result = await db.execute(
-                select(func.count()).select_from(ShareLink).where(
-                    and_(
-                        ShareLink.id.in_(link_ids),
-                        ShareLink.revoked_at.is_(None),
-                        or_(ShareLink.expires_at.is_(None), ShareLink.expires_at > now),
-                    )
-                )
-            )
-            active_links = active_links_result.scalar() or 0
+            total_views = sum(views_by_link.get(lid, 0) for lid in link_ids)
+            unique_sessions = sum(sessions_by_link.get(lid, 0) for lid in link_ids)
+            blocked_attempts = sum(blocked_by_link.get(lid, 0) for lid in link_ids)
+            blocked_24h = sum(blocked24h_by_link.get(lid, 0) for lid in link_ids)
+            active_links = sum(1 for lid in link_ids if lid in active_link_ids)
 
             if blocked_24h > 5:
                 risk_score = "HIGH"

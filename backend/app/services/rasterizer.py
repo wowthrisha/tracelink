@@ -42,13 +42,15 @@ class RasterizerService:
         fmt = fmt or settings.page_format
         quality = quality or settings.page_tile_quality
 
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
+        last_page = settings.max_pages_per_doc if settings.max_pages_per_doc > 0 else None
 
         def _convert():
             return pdf2image.convert_from_bytes(
                 pdf_bytes,
                 dpi=dpi,
                 fmt=fmt.lower(),
+                last_page=last_page,
             )
 
         try:
