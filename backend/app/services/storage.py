@@ -32,28 +32,28 @@ class StorageService:
     ) -> str:
         loop = asyncio.get_running_loop()
         client = self._get_client()
-        
+
         def _upload():
             try:
-                client.put_object(
-                    Bucket=self._bucket,
-                    Key=storage_key,
-                    Body=file_bytes,
-                    ContentType=content_type,
+                client.upload_fileobj(
+                    io.BytesIO(file_bytes),
+                    self._bucket,
+                    storage_key,
+                    ExtraArgs={"ContentType": content_type},
                 )
             except ClientError as e:
                 # If bucket doesn't exist, try creating it (useful for local Moto testing)
                 if e.response['Error']['Code'] == 'NoSuchBucket':
                     client.create_bucket(Bucket=self._bucket)
-                    client.put_object(
-                        Bucket=self._bucket,
-                        Key=storage_key,
-                        Body=file_bytes,
-                        ContentType=content_type,
+                    client.upload_fileobj(
+                        io.BytesIO(file_bytes),
+                        self._bucket,
+                        storage_key,
+                        ExtraArgs={"ContentType": content_type},
                     )
                 else:
                     raise e
-                    
+
         await loop.run_in_executor(None, _upload)
         return storage_key
 
