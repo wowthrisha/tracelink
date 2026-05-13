@@ -107,10 +107,16 @@ class StorageService:
     async def delete_file(self, storage_key: str) -> None:
         loop = asyncio.get_running_loop()
         client = self._get_client()
-        await loop.run_in_executor(
-            None,
-            partial(client.delete_object, Bucket=self._bucket, Key=storage_key),
-        )
+
+        def _delete():
+            try:
+                client.delete_object(Bucket=self._bucket, Key=storage_key)
+            except ClientError as e:
+                if e.response["Error"]["Code"] in ("NoSuchKey", "404"):
+                    return  # already gone — that's fine
+                raise
+
+        await loop.run_in_executor(None, _delete)
 
     async def list_keys_with_prefix(self, prefix: str) -> list[str]:
         loop = asyncio.get_running_loop()

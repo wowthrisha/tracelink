@@ -193,7 +193,8 @@ async def _process_document_async(task, document_id: str) -> dict:
     from app.services.rasterizer import RasterizerService
     from app.services.watermark import WatermarkService
 
-    engine = create_async_engine(settings.database_url, echo=False)
+    from app.database import _normalize_db_url
+    engine = create_async_engine(_normalize_db_url(settings.database_url), echo=False)
     async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
     storage = get_storage_service()
@@ -214,7 +215,8 @@ async def _process_document_async(task, document_id: str) -> dict:
             from sqlalchemy.orm import sessionmaker as _sm
             from sqlalchemy import select as _sel
             from app.config import settings as _cfg
-            err_engine = _make_engine(_cfg.database_url, echo=False)
+            from app.database import _normalize_db_url as _norm
+            err_engine = _make_engine(_norm(_cfg.database_url), echo=False)
             err_session = _sm(err_engine, class_=AsyncSession, expire_on_commit=False)
             async with err_session() as db2:
                 res = await db2.execute(
