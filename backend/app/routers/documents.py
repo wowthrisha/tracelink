@@ -143,7 +143,11 @@ async def upload_document(
             raise HTTPException(status_code=400, detail="Invalid group_id format")
 
     storage = get_storage_service()
-    await storage.upload_file(file_bytes, storage_key, content_type="application/pdf")
+    try:
+        await storage.upload_file(file_bytes, storage_key, content_type="application/pdf")
+    except Exception as exc:
+        logger.error("Storage upload failed for %s: %s", storage_key, exc)
+        raise HTTPException(status_code=502, detail=f"Storage upload failed: {exc}")
 
     doc = Document(
         id=doc_id,

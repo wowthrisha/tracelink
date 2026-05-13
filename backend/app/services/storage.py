@@ -3,6 +3,7 @@ import io
 from functools import partial
 from typing import Optional
 import boto3
+import boto3.exceptions
 from botocore.exceptions import ClientError
 from app.config import settings
 
@@ -52,7 +53,11 @@ class StorageService:
                         ExtraArgs={"ContentType": content_type},
                     )
                 else:
-                    raise e
+                    raise
+            except boto3.exceptions.S3UploadFailedError as e:
+                # upload_fileobj wraps underlying errors in S3UploadFailedError;
+                # unwrap and re-raise so callers get a consistent ClientError.
+                raise e.__cause__ or e
 
         await loop.run_in_executor(None, _upload)
         return storage_key
