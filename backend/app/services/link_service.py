@@ -38,6 +38,7 @@ class LinkService:
         max_concurrent_sessions: Optional[int] = None,
         expires_at: Optional[datetime] = None,
         permissions: Optional[dict] = None,
+        created_by: Optional[uuid.UUID] = None,
     ) -> ShareLink:
         token = secrets.token_urlsafe(48)[:64]
 
@@ -47,8 +48,9 @@ class LinkService:
             if allowed_emails
             else None
         )
+        # Domains are lowercased at storage time to ensure consistent case-insensitive matching
         domains_json = (
-            json.dumps([d.strip() for d in allowed_domains if d.strip()])
+            json.dumps([d.strip().lower() for d in allowed_domains if d.strip()])
             if allowed_domains
             else None
         )
@@ -71,6 +73,7 @@ class LinkService:
             max_views=max_views,
             max_concurrent_sessions=max_concurrent_sessions,
             expires_at=expires_at,
+            created_by=created_by,
         )
         db.add(link)
         await db.commit()
@@ -245,4 +248,4 @@ class LinkService:
         await db.commit()
 
     def _generate_session_id(self) -> str:
-        return secrets.token_hex(8)  # 16 hex chars
+        return secrets.token_hex(16)  # 32 hex chars = 128-bit entropy

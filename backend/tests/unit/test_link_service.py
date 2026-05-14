@@ -28,6 +28,7 @@ async def db_and_doc():
             status="ready",
             page_count=2,
             file_size_bytes=1024,
+            user_id=uuid.uuid4(),
         )
         session.add(doc)
         await session.commit()
@@ -163,8 +164,8 @@ class TestLinkService:
         await db.refresh(link)
         assert link.view_count == 2
 
-    def test_generate_session_id_is_16_chars(self):
+    def test_generate_session_id_is_32_chars(self):
         svc = LinkService()
         sid = svc._generate_session_id()
-        assert len(sid) == 16
+        assert len(sid) == 32  # token_hex(16) = 32 hex chars = 128-bit entropy
         assert all(c in "0123456789abcdef" for c in sid)

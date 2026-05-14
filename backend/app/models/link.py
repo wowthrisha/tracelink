@@ -1,13 +1,16 @@
 import uuid
 from datetime import datetime
 from typing import Optional, List
-from sqlalchemy import String, Integer, DateTime, ForeignKey, Text, func
+from sqlalchemy import String, Integer, DateTime, ForeignKey, Text, Index, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base
 
 
 class ShareLink(Base):
     __tablename__ = "share_links"
+    __table_args__ = (
+        Index("ix_share_links_document_id", "document_id"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         primary_key=True, default=uuid.uuid4

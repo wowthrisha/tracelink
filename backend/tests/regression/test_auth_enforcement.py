@@ -239,38 +239,64 @@ class TestPublicRoutesRequireNoAuth:
         assert "session_id" in r.json()
 
     @pytest.mark.asyncio
-    async def test_analytics_events_post_works_without_token(
+    async def test_analytics_events_post_works_without_jwt(
         self, unauth_client, db_session
     ):
-        """POST /api/analytics/events must succeed with no Authorization header."""
+        """POST /api/analytics/events works without a JWT auth header.
+        Requires only a valid share-link token + active viewer session.
+        """
         doc = await _make_doc(db_session)
         link = await _make_link(db_session, doc)
         await db_session.commit()
 
+        # First establish a real viewer session
+        val = await unauth_client.post("/api/viewer/validate", json={"token": link.token})
+        assert val.status_code == 200
+        session_id = val.json()["session_id"]
+
         r = await unauth_client.post("/api/analytics/events", json={
             "token": link.token,
-            "session_id": "a" * 16,
-            "event_type": "page_viewed",
+            "session_id": session_id,
+            "event_type": "print_attempt",
             "page_number": 1,
         })
         assert r.status_code == 200
         assert r.json()["logged"] is True
 
     @pytest.mark.asyncio
-    async def test_analytics_events_post_does_not_require_auth_header(
+    async def test_analytics_events_post_rejects_fake_session(
         self, unauth_client, db_session
     ):
-        """Explicit check: 401 must NOT be returned for the events POST."""
+        """A valid token with an inactive/fake session_id must be rejected with 403."""
         doc = await _make_doc(db_session)
         link = await _make_link(db_session, doc)
         await db_session.commit()
 
         r = await unauth_client.post("/api/analytics/events", json={
             "token": link.token,
-            "session_id": "b" * 16,
-            "event_type": "opened",
+            "session_id": "b" * 16,  # fake, never registered
+            "event_type": "print_attempt",
         })
-        assert r.status_code != 401
+        assert r.status_code == 403
+
+    @pytest.mark.asyncio
+    async def test_analytics_events_post_rejects_server_events(
+        self, unauth_client, db_session
+    ):
+        """Server-side event types must return 400, not 401."""
+        doc = await _make_doc(db_session)
+        link = await _make_link(db_session, doc)
+        await db_session.commit()
+
+        val = await unauth_client.post("/api/viewer/validate", json={"token": link.token})
+        session_id = val.json()["session_id"]
+
+        r = await unauth_client.post("/api/analytics/events", json={
+            "token": link.token,
+            "session_id": session_id,
+            "event_type": "opened",  # server-side only
+        })
+        assert r.status_code == 400
 
 
 # ══════════════════════════════════════════════════════════════════════════

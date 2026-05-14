@@ -11,6 +11,32 @@ logger = logging.getLogger(__name__)
 _STALE_PROCESSING_THRESHOLD = timedelta(minutes=15)
 _THUMBNAIL_WIDTH_PX = 200
 
+# ── Module-level async engine ───────────────────────────────────────────────
+# Created once when the first task runs; reused for all subsequent tasks in
+# the same worker process.  This avoids creating a new connection pool per task
+# (which exhausts PostgreSQL connections under load).
+_engine = None
+_session_factory = None
+
+
+def _get_db_session_factory():
+    """Return the module-level async session factory, initialising it on first call."""
+    global _engine, _session_factory
+    if _session_factory is None:
+        from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
+        from sqlalchemy.orm import sessionmaker
+        from app.config import settings
+        from app.database import _normalize_db_url
+        _engine = create_async_engine(
+            _normalize_db_url(settings.database_url),
+            echo=False,
+            pool_size=5,
+            max_overflow=10,
+        )
+        _session_factory = sessionmaker(_engine, class_=AsyncSession, expire_on_commit=False)
+        logger.info("Worker DB engine initialised")
+    return _session_factory
+
 
 def _make_thumbnail(image_bytes: bytes) -> bytes:
     """
@@ -103,7 +129,7 @@ async def process_document_with_session(
     pdf_bytes = await storage.download_bytes(doc.storage_key)
     logger.info("Document %s: downloaded %d bytes", document_id, len(pdf_bytes))
 
-    # 4. Rasterize (validates magic bytes internally; raises RasterizerError on bad PDF)
+    # 4. Rasterize — raises RasterizerError on bad/malicious PDF (permanent failure)
     logger.info("Document %s: rasterizing PDF", document_id)
     pages = await rasterizer.rasterize_document(pdf_bytes, document_id)
     logger.info("Document %s: rasterized %d page(s)", document_id, len(pages))
@@ -165,6 +191,34 @@ def _run_async(coro):
         loop.close()
 
 
+@celery_app.task(name="securedoc.purge_stale_sessions")
+def purge_stale_sessions() -> dict:
+    """
+    Periodic cleanup task: delete ViewerSession rows inactive for >2 hours.
+
+    Run this every 30 minutes via Celery Beat to prevent unbounded table growth.
+    Safe to run while the app is serving traffic — uses a DELETE WHERE clause
+    with an indexed timestamp column.
+    """
+    return _run_async(_purge_stale_sessions_async())
+
+
+async def _purge_stale_sessions_async() -> dict:
+    from sqlalchemy import delete
+    from app.models.session import ViewerSession
+
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=2)
+    session_factory = _get_db_session_factory()
+    async with session_factory() as db:
+        result = await db.execute(
+            delete(ViewerSession).where(ViewerSession.last_seen_at < cutoff)
+        )
+        await db.commit()
+        deleted = result.rowcount
+        logger.info("purge_stale_sessions: removed %d stale session(s)", deleted)
+    return {"deleted": deleted}
+
+
 @celery_app.task(
     bind=True,
     max_retries=3,
@@ -177,59 +231,66 @@ def process_document(self, document_id: str) -> dict:
     2. Set status = 'processing'.
     3. Download original PDF bytes from storage.
     4. Validate PDF magic bytes. If invalid → set status='error', raise.
-    5. Call RasterizerService.rasterize_document().
+    5. Call RasterizerService.rasterize_document() with timeout protection.
     6. For each page: upload image, insert DocumentPage record.
     7. Update Document: status='ready', page_count=N.
     """
     return _run_async(_process_document_async(self, document_id))
 
 
-async def _process_document_async(task, document_id: str) -> dict:
-    from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
-    from sqlalchemy.orm import sessionmaker
-    from app.config import settings
+async def _mark_document_error(document_id: str, message: str) -> None:
+    """Set a document's status to 'error' using the module-level engine."""
+    from sqlalchemy import select
     from app.models.document import Document
+
+    session_factory = _get_db_session_factory()
+    try:
+        async with session_factory() as db:
+            result = await db.execute(
+                select(Document).where(Document.id == uuid.UUID(document_id))
+            )
+            doc = result.scalar_one_or_none()
+            if doc:
+                doc.status = "error"
+                doc.error_message = message[:2000]
+                await db.commit()
+    except Exception as inner:
+        logger.error("Failed to update error status for %s: %s", document_id, inner)
+
+
+async def _process_document_async(task, document_id: str) -> dict:
     from app.services.storage import get_storage_service
-    from app.services.rasterizer import RasterizerService
+    from app.services.rasterizer import RasterizerService, RasterizerError
     from app.services.watermark import WatermarkService
 
-    from app.database import _normalize_db_url
-    engine = create_async_engine(_normalize_db_url(settings.database_url), echo=False)
-    async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-
+    session_factory = _get_db_session_factory()
     storage = get_storage_service()
     rasterizer = RasterizerService()
     watermark = WatermarkService()
 
     try:
-        async with async_session() as db:
+        async with session_factory() as db:
             return await process_document_with_session(
                 db, document_id, storage, rasterizer, watermark
             )
 
+    except (RasterizerError, ValueError) as exc:
+        # Permanent failures — bad PDF, document not found, conversion timeout.
+        # Retrying won't help; mark error and stop.
+        logger.error(
+            "Document %s: permanent failure (%s): %s",
+            document_id, type(exc).__name__, exc,
+        )
+        await _mark_document_error(document_id, str(exc))
+        # Raise WITHOUT retry so Celery marks task as FAILURE immediately
+        raise
+
     except Exception as exc:
-        logger.error("process_document failed for %s: %s", document_id, exc)
-        # Use a fresh engine for error reporting — the original session may be broken
-        try:
-            from sqlalchemy.ext.asyncio import create_async_engine as _make_engine
-            from sqlalchemy.orm import sessionmaker as _sm
-            from sqlalchemy import select as _sel
-            from app.config import settings as _cfg
-            from app.database import _normalize_db_url as _norm
-            err_engine = _make_engine(_norm(_cfg.database_url), echo=False)
-            err_session = _sm(err_engine, class_=AsyncSession, expire_on_commit=False)
-            async with err_session() as db2:
-                res = await db2.execute(
-                    _sel(Document).where(Document.id == uuid.UUID(document_id))
-                )
-                err_doc = res.scalar_one_or_none()
-                if err_doc:
-                    err_doc.status = "error"
-                    err_doc.error_message = str(exc)[:2000]
-                    await db2.commit()
-            await err_engine.dispose()
-        except Exception as inner:
-            logger.error("Failed to update error status: %s", inner)
+        # Transient failure — storage blip, DB connection error, etc.
+        # Mark error status then retry (Celery will re-queue).
+        logger.error(
+            "Document %s: transient failure (%s): %s — retrying",
+            document_id, type(exc).__name__, exc,
+        )
+        await _mark_document_error(document_id, str(exc))
         raise task.retry(exc=exc)
-    finally:
-        await engine.dispose()

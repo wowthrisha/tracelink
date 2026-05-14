@@ -106,6 +106,41 @@ class TestSecurityInvariants:
         assert r.status_code == 200
 
     @pytest.mark.asyncio
+    async def test_INVARIANT_viewer_email_never_stored_raw(
+        self, client, sample_document_in_db
+    ):
+        """Viewer email in access_events must be masked, never the raw address."""
+        link_r = await client.post("/api/links", json={
+            "document_id": str(sample_document_in_db.id),
+            "allowed_emails": ["viewer@example.com"],
+        })
+        token = link_r.json()["token"]
+
+        r = await client.post("/api/viewer/validate", json={
+            "token": token,
+            "email": "viewer@example.com",
+        })
+        assert r.status_code == 200
+
+        events_r = await client.get(
+            "/api/analytics/events",
+            params={"document_id": str(sample_document_in_db.id)},
+        )
+        assert events_r.status_code == 200
+        events = events_r.json()["events"]
+        email_events = [e for e in events if e.get("viewer_email")]
+        assert email_events, "Expected at least one event with viewer_email"
+
+        for e in email_events:
+            stored = e["viewer_email"]
+            # Full email must not appear
+            assert stored != "viewer@example.com", "RAW VIEWER EMAIL STORED IN DB"
+            # Must be in masked form: one char + *** @ domain
+            local, domain = stored.split("@", 1)
+            assert local.endswith("***"), f"Email not masked: {stored!r}"
+            assert domain == "example.com", f"Domain corrupted: {stored!r}"
+
+    @pytest.mark.asyncio
     async def test_INVARIANT_ip_never_stored_raw(self, client, active_link):
         await client.post("/api/viewer/validate", json={"token": active_link.token})
         r = await client.get(
@@ -139,13 +174,14 @@ class TestLinkLifecycle:
         assert val_r.status_code == 200
         session_id = val_r.json()["session_id"]
 
-        # 3. Log page view event
+        # 3. Log viewer event (client-side events only; page_viewed is server-side)
         log_r = await client.post("/api/analytics/events", json={
             "token": token,
             "session_id": session_id,
-            "event_type": "page_viewed",
+            "event_type": "print_attempt",
             "page_number": 1,
         })
+        assert log_r.status_code == 200
         assert log_r.json()["logged"] is True
 
         # 4. Revoke

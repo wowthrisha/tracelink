@@ -64,7 +64,12 @@ async def _run_demo_processing(document_id: str) -> None:
 
 
 async def _check_upload_quota(db: AsyncSession, user_id: uuid.UUID) -> None:
-    """Raise 403 if free-plan user has hit the document upload limit."""
+    """Raise 403 if the user has hit the document upload limit.
+
+    Pro access is only granted when the subscription is in an active or trialing
+    state.  A past_due or canceled subscription falls back to the free-plan limit.
+    """
+    from app.models.billing import STATUS_ACTIVE, STATUS_TRIALING
     limit = settings.free_plan_doc_limit
     if limit <= 0:
         return  # 0 means unlimited
@@ -73,8 +78,12 @@ async def _check_upload_quota(db: AsyncSession, user_id: uuid.UUID) -> None:
         select(UserBilling).where(UserBilling.user_id == user_id)
     )
     billing = billing_result.scalar_one_or_none()
-    if billing and billing.plan == PLAN_PRO:
-        return  # Pro users have no limit
+    if (
+        billing
+        and billing.plan == PLAN_PRO
+        and billing.subscription_status in (STATUS_ACTIVE, STATUS_TRIALING)
+    ):
+        return  # Active Pro users have no limit
 
     count_result = await db.execute(
         select(func.count()).select_from(Document).where(Document.user_id == user_id)
@@ -146,8 +155,8 @@ async def upload_document(
     try:
         await storage.upload_file(file_bytes, storage_key, content_type="application/pdf")
     except Exception as exc:
-        logger.error("Storage upload failed for %s: %s", storage_key, exc)
-        raise HTTPException(status_code=502, detail=f"Storage upload failed: {exc}")
+        logger.error("Storage upload failed for key %s: %s", storage_key, exc)
+        raise HTTPException(status_code=502, detail="Storage upload failed. Please try again.")
 
     doc = Document(
         id=doc_id,

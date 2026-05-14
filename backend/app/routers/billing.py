@@ -170,6 +170,8 @@ async def stripe_webhook(
         await _handle_subscription_upsert(db, data)
     elif event_type == "customer.subscription.deleted":
         await _handle_subscription_deleted(db, data)
+    elif event_type == "invoice.payment_failed":
+        await _handle_payment_failed(db, data)
     elif event_type == "checkout.session.completed":
         # subscription is handled by subscription.created; just log
         _log.info("Checkout completed: %s", data.get("id"))
@@ -202,6 +204,30 @@ async def _handle_subscription_upsert(db: AsyncSession, sub: dict) -> None:
     billing.plan = PLAN_PRO if status in ("active", "trialing") else PLAN_FREE
     await db.commit()
     _log.info("Subscription %s updated: plan=%s status=%s", sub_id, billing.plan, status)
+
+
+async def _handle_payment_failed(db: AsyncSession, invoice: dict) -> None:
+    """Mark a subscription as past_due immediately on the first payment failure.
+
+    Without this handler, the user keeps Pro access during Stripe's retry window
+    (which can be several days). Handling invoice.payment_failed lets us revoke
+    Pro access immediately and redirect the user to update their payment method.
+    """
+    from app.models.billing import STATUS_PAST_DUE
+
+    customer_id = invoice.get("customer")
+    result = await db.execute(
+        select(UserBilling).where(UserBilling.stripe_customer_id == customer_id)
+    )
+    billing = result.scalar_one_or_none()
+    if not billing:
+        _log.warning("Webhook payment_failed: no billing row for customer %s", customer_id)
+        return
+
+    billing.subscription_status = STATUS_PAST_DUE
+    billing.plan = PLAN_FREE
+    await db.commit()
+    _log.info("Payment failed for customer %s — plan downgraded to free", customer_id)
 
 
 async def _handle_subscription_deleted(db: AsyncSession, sub: dict) -> None:

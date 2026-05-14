@@ -8,7 +8,7 @@ from app.models.document import Document
 from app.models.group import DocumentGroup
 from app.models.link import ShareLink
 from app.models.event import AccessEvent
-from app.utils.crypto import hash_value
+from app.utils.crypto import hash_value, mask_email
 
 BLOCKED_EVENT_TYPES = {
     "print_attempt",
@@ -30,20 +30,28 @@ class AnalyticsService:
         user_agent: Optional[str] = None,
         session_id: Optional[str] = None,
         metadata: Optional[Dict[str, Any]] = None,
+        commit: bool = True,
     ) -> AccessEvent:
+        """Add an access event.
+
+        Pass commit=False when the caller will issue its own db.commit() — this
+        lets callers batch the analytics write with other pending DB changes into
+        a single round-trip instead of an extra commit per event.
+        """
         event = AccessEvent(
             link_id=link_id,
             event_type=event_type,
             page_number=page_number,
-            viewer_email=viewer_email,
+            viewer_email=mask_email(viewer_email) if viewer_email else None,
             ip_hash=hash_value(ip) if ip else None,
             user_agent_hash=hash_value(user_agent) if user_agent else None,
             session_id=session_id,
             metadata_json=json.dumps(metadata) if metadata else None,
         )
         db.add(event)
-        await db.commit()
-        await db.refresh(event)
+        if commit:
+            await db.commit()
+            await db.refresh(event)
         return event
 
     async def get_overview(
@@ -267,7 +275,6 @@ class AnalyticsService:
             page_views = sum(pageviews_by_link.get(lid, 0) for lid in link_ids)
 
             completion_rate = (completions / total_views * 100) if total_views > 0 else 0.0
-            avg_time_on_page_sec = (page_views * 30.0) / unique_sessions if unique_sessions > 0 else 0.0
 
             if blocked_24h > 5:
                 risk_score = "HIGH"
@@ -284,7 +291,6 @@ class AnalyticsService:
                 "group_color": grp.color if grp else None,
                 "total_views": total_views,
                 "unique_sessions": unique_sessions,
-                "avg_time_on_page_sec": round(avg_time_on_page_sec),
                 "completion_rate_pct": round(completion_rate, 1),
                 "blocked_attempts": blocked_attempts,
                 "risk_score": risk_score,

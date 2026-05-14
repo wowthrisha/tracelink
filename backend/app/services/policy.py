@@ -7,14 +7,22 @@ the same rules without duplicating logic.
 """
 import ipaddress
 import json
+import logging
 from datetime import datetime, timezone, timedelta
 from typing import Optional
 
 from sqlalchemy import select, func, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
+logger = logging.getLogger(__name__)
+
 # A session not seen within this window is considered stale / disconnected.
 SESSION_ACTIVE_MINUTES = 120
+
+# Minimum interval between session heartbeat DB writes.  Writing on every page
+# request creates ~100 writes/sec under load; throttling to 30-second intervals
+# reduces that by 30× while keeping session expiry accurate within one period.
+SESSION_HEARTBEAT_INTERVAL_SEC = 30
 
 
 class PolicyEnforcer:
@@ -32,14 +40,16 @@ class PolicyEnforcer:
           - CIDR ranges:              "10.0.0.0/24", "2001:db8::/32"
 
         If the allowlist column is NULL / empty → open access (no restriction).
-        If the allowlist is defined but the IP cannot be parsed → deny.
+        If the allowlist JSON is malformed → fail CLOSED (deny) to prevent
+        a data corruption bug from bypassing the allowlist silently.
         """
         if not allowlist_json:
             return True
         try:
             entries = [e.strip() for e in json.loads(allowlist_json) if e.strip()]
         except Exception:
-            return True  # malformed JSON → fail open to avoid self-lockout
+            logger.error("ip_allowlist JSON parse failed — denying access (fail-closed)")
+            return False  # malformed JSON → fail closed
         if not entries:
             return True
         if not ip:
@@ -75,13 +85,15 @@ class PolicyEnforcer:
 
         If no domains are configured → open access.
         If domains are configured and no email is supplied → deny.
+        If the stored JSON is malformed → fail CLOSED (deny).
         """
         if not allowed_domains_json:
             return True
         try:
             allowed = json.loads(allowed_domains_json)
         except Exception:
-            return True
+            logger.error("allowed_domains JSON parse failed — denying access (fail-closed)")
+            return False  # malformed JSON → fail closed
         if not allowed:
             return True
         if not viewer_email or "@" not in viewer_email:
@@ -150,13 +162,24 @@ class PolicyEnforcer:
         link_id,
         ip_hash: Optional[str] = None,
     ) -> None:
-        """Create or refresh a viewer session record."""
+        """Create or refresh a viewer session record.
+
+        For existing sessions, the heartbeat write is throttled to at most once
+        per SESSION_HEARTBEAT_INTERVAL_SEC to reduce DB write amplification when
+        a viewer rapidly pages through a document.
+        """
         from app.models.session import ViewerSession
 
         now = datetime.now(timezone.utc)
         existing = await db.get(ViewerSession, session_id)
         if existing:
-            existing.last_seen_at = now
+            last_seen = existing.last_seen_at
+            if last_seen.tzinfo is None:
+                last_seen = last_seen.replace(tzinfo=timezone.utc)
+            elapsed = (now - last_seen).total_seconds()
+            if elapsed >= SESSION_HEARTBEAT_INTERVAL_SEC:
+                existing.last_seen_at = now
+            # else: skip the write — session is still fresh within the interval
         else:
             db.add(
                 ViewerSession(

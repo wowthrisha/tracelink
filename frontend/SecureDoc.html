@@ -8,16 +8,17 @@
   <meta name="supabase-url" content="https://zznenaqcvzxtqxzilpyh.supabase.co" />
   <meta name="supabase-anon-key" content="sb_publishable_uTcTOZC9FjEP0VrGQefMkQ_j2XFe1Rc" />
   <title>SecureDoc</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><text y='20' font-size='20'>🔒</text></svg>" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link
     href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=DM+Mono:wght@400;500&display=swap"
     rel="stylesheet" />
-  <script src="https://unpkg.com/react@18.3.1/umd/react.development.js"
-    integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L"
+  <script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"
+    integrity="sha384-ggOt0F04k2Gm7KPWYRZnHJRbA0OFAVnfLHzovGJ19PXSS4jy5h6Sc/Pf5VksCa0"
     crossorigin="anonymous"></script>
-  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js"
-    integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm"
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"
+    integrity="sha384-8TJ0FIBMfTMiYUAB2ql3xeI2m6wQ//Mmy2yD6Q7qETVFY+MAdl9gORdEiYQ0xNH"
     crossorigin="anonymous"></script>
   <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js"
     integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y"
@@ -1211,9 +1212,18 @@
 
       useEffect(() => { fetchDocs(); fetchGroups(); }, []);
 
+      const MAX_POLL_ATTEMPTS = 150; // 150 × 2s = 5 minutes before giving up
       const startPoll = useCallback((docId) => {
         clearInterval(pollRef.current);
+        let attempts = 0;
         pollRef.current = setInterval(async () => {
+          attempts += 1;
+          if (attempts > MAX_POLL_ATTEMPTS) {
+            clearInterval(pollRef.current);
+            setUploading(false);
+            toast('Processing is taking longer than expected. Check back later.', 'error');
+            return;
+          }
           try {
             const s = await window.SecureDocAPI.pollDocumentStatus(docId);
             if (s.status === 'ready' || s.status === 'error') {
@@ -1829,7 +1839,30 @@
       // already viewed is instant and requires no extra network round-trip.
       // Cache-Control: no-store on the backend means the browser won't cache
       // these, so we must do it ourselves.
+      //
+      // We cap the cache at MAX_CACHED_PAGES and revoke evicted blob URLs to
+      // prevent unbounded memory growth during long sessions.
+      const MAX_CACHED_PAGES = 30;
       const pageCache = useRef(new Map());
+
+      const _cacheSet = useCallback((key, blobUrl) => {
+        pageCache.current.set(key, blobUrl);
+        if (pageCache.current.size > MAX_CACHED_PAGES) {
+          // Evict the oldest entry (insertion order) and free its memory
+          const firstKey = pageCache.current.keys().next().value;
+          const evicted = pageCache.current.get(firstKey);
+          URL.revokeObjectURL(evicted);
+          pageCache.current.delete(firstKey);
+        }
+      }, []);
+
+      // Revoke all blob URLs when the viewer unmounts or the session ends
+      const _clearPageCache = useCallback(() => {
+        for (const url of pageCache.current.values()) {
+          URL.revokeObjectURL(url);
+        }
+        pageCache.current.clear();
+      }, []);
 
       const loadPage = useCallback(async (token, pageNum, sessionId) => {
         if (!token || !sessionId) {
@@ -1857,7 +1890,7 @@
             return;
           }
           const blobUrl = URL.createObjectURL(await r.blob());
-          pageCache.current.set(key, blobUrl);
+          _cacheSet(key, blobUrl);
           setImgSrc(blobUrl);
         } catch {
           // Network-level failure (no response at all).
@@ -1876,7 +1909,7 @@
         if (pageCache.current.has(key)) return;
         fetch(window.SecureDocAPI.getPageUrl(token, pageNum, sessionId))
           .then(r => r.ok ? r.blob() : Promise.reject())
-          .then(blob => { pageCache.current.set(key, URL.createObjectURL(blob)); })
+          .then(blob => { _cacheSet(key, URL.createObjectURL(blob)); })
           .catch(() => {});
       }, []);
 
@@ -1974,15 +2007,20 @@
         return () => { document.removeEventListener('contextmenu', blockRC); document.removeEventListener('keydown', blockKB); window.removeEventListener('beforeprint', onBP); window.removeEventListener('afterprint', onAP); window.removeEventListener('blur', onBlur); window.removeEventListener('focus', onFocus); };
       }, [session]);
 
+      // Revoke all blob URLs when the viewer unmounts to prevent memory leaks
+      useEffect(() => () => _clearPageCache(), []);
+
       // Load page — checks in-memory blob cache first; fetches on miss.
       // Depends on individual session fields so the effect only re-fires when
       // the token, session_id, or page number actually changes (not on every
       // object re-allocation after a validate call that reused the same slot).
+      //
+      // Note: page_viewed is logged server-side on every /api/viewer/page request;
+      // the frontend only logs client-side events (print_attempt, copy_attempt, etc.)
       useEffect(() => {
         if (!session) return;
         loadPage(session.link_token, page, session.session_id);
-        // Analytics are fire-and-forget — must never delay page display
-        window.SecureDocAPI?.logEvent(session.link_token, session.session_id, 'page_viewed', page);
+        // Log completion when the viewer reaches the last page (client-side event)
         if (page === session.page_count) {
           window.SecureDocAPI?.logEvent(session.link_token, session.session_id, 'completed');
         }

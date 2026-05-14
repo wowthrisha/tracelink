@@ -1,5 +1,5 @@
 import pytest
-from app.utils.crypto import hash_password, verify_password, hash_value
+from app.utils.crypto import hash_password, verify_password, hash_value, mask_email
 
 
 class TestCrypto:
@@ -30,3 +30,39 @@ class TestCrypto:
         result = hash_value("192.168.1.1")
         assert "." not in result
         assert ":" not in result
+
+
+class TestMaskEmail:
+
+    def test_standard_email_masked(self):
+        assert mask_email("user@example.com") == "u***@example.com"
+
+    def test_short_local_part_masked(self):
+        assert mask_email("a@b.com") == "a***@b.com"
+
+    def test_subdomain_preserved(self):
+        assert mask_email("student@psgtech.ac.in") == "s***@psgtech.ac.in"
+
+    def test_uppercase_input_preserved_in_domain(self):
+        # masking does not force lowercase — caller normalises before passing
+        assert mask_email("User@Example.COM") == "U***@Example.COM"
+
+    def test_no_at_sign_returned_unchanged(self):
+        assert mask_email("notanemail") == "notanemail"
+
+    def test_empty_string_returned_unchanged(self):
+        assert mask_email("") == ""
+
+    def test_masked_form_contains_at(self):
+        result = mask_email("alice@corp.io")
+        assert "@" in result
+
+    def test_masked_form_hides_local_beyond_first_char(self):
+        result = mask_email("alice@corp.io")
+        # Domain must be intact; full local part must not appear
+        assert "corp.io" in result
+        assert "lice" not in result
+
+    def test_first_char_of_local_preserved(self):
+        result = mask_email("alice@corp.io")
+        assert result.startswith("a***@")

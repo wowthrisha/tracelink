@@ -286,7 +286,7 @@ class TestViewerEndpoint:
         assert r.status_code == 200
         body = r.json()
         assert "session_id" in body
-        assert len(body["session_id"]) == 16
+        assert len(body["session_id"]) == 32  # 128-bit entropy = 32 hex chars
         assert body["page_count"] == ready_document.page_count
         assert "watermark_text" in body
 

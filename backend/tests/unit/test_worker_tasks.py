@@ -76,3 +76,70 @@ class TestShouldProcess:
 
     def test_threshold_is_15_minutes(self):
         assert _STALE_PROCESSING_THRESHOLD == timedelta(minutes=15)
+
+
+class TestPurgeStaleSessionsAsync:
+    """_purge_stale_sessions_async must delete sessions inactive >2 hours."""
+
+    @pytest.mark.asyncio
+    async def test_deletes_stale_sessions_and_keeps_active(self):
+        from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
+        from sqlalchemy import select
+        from app.database import Base
+        from app.models.session import ViewerSession
+        from app.models.document import Document  # noqa: ensure tables exist
+        from app.models.link import ShareLink     # noqa: ensure tables exist
+        from app.models.event import AccessEvent  # noqa: ensure tables exist
+        from app.workers.tasks import _purge_stale_sessions_async
+        import uuid
+
+        engine = create_async_engine(
+            "sqlite+aiosqlite:///./test_purge_sessions.db",
+            connect_args={"check_same_thread": False},
+        )
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+
+        link_id = uuid.uuid4()
+        stale_time = datetime.now(timezone.utc) - timedelta(hours=3)
+        active_time = datetime.now(timezone.utc) - timedelta(minutes=5)
+
+        # Need a link row because ViewerSession has FK to share_links
+        # We skip the FK constraint by using SQLite without FK enforcement
+        # (SQLite doesn't enforce FKs by default) so we can insert sessions directly.
+        async with factory() as db:
+            db.add(ViewerSession(
+                session_id="stale000" * 2,
+                link_id=link_id,
+                created_at=stale_time,
+                last_seen_at=stale_time,
+            ))
+            db.add(ViewerSession(
+                session_id="active00" * 2,
+                link_id=link_id,
+                created_at=active_time,
+                last_seen_at=active_time,
+            ))
+            await db.commit()
+
+        # Patch the module-level factory to use our test DB
+        import app.workers.tasks as tasks_module
+        original_factory = tasks_module._session_factory
+        tasks_module._session_factory = factory
+
+        try:
+            result = await _purge_stale_sessions_async()
+        finally:
+            tasks_module._session_factory = original_factory
+
+        assert result["deleted"] == 1
+
+        async with factory() as db:
+            remaining = (await db.execute(select(ViewerSession))).scalars().all()
+        assert len(remaining) == 1
+        assert remaining[0].session_id == "active00" * 2
+
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.drop_all)
+        await engine.dispose()

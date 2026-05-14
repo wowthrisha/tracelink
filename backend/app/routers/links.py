@@ -90,12 +90,8 @@ async def create_link(
         max_concurrent_sessions=payload.max_concurrent_sessions,
         expires_at=payload.expires_at,
         permissions=payload.permissions,
+        created_by=uuid.UUID(user["user_id"]),
     )
-
-    # Record which user created the link
-    link.created_by = uuid.UUID(user["user_id"])
-    await db.commit()
-    await db.refresh(link)
 
     return LinkResponse(
         id=link.id,

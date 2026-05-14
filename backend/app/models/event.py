@@ -13,6 +13,7 @@ EVENT_TYPES = (
     "right_click_attempt",
     "download_attempt",
     "completed",
+    "printed",              # successful print (can_print=True)
     "access_denied",
     "password_wrong",
     "expired",
@@ -21,6 +22,17 @@ EVENT_TYPES = (
     "ip_blocked",
     "session_limit_reached",
 )
+
+# Event types that the viewer frontend is permitted to log via POST /api/analytics/events.
+# All other event types are logged exclusively server-side.
+VIEWER_LOGGABLE_EVENTS = frozenset({
+    "print_attempt",
+    "copy_attempt",
+    "right_click_attempt",
+    "download_attempt",
+    "completed",
+    "printed",              # successful print (can_print=True)
+})
 
 
 class AccessEvent(Base):

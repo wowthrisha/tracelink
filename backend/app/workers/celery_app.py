@@ -21,4 +21,10 @@ celery_app.conf.update(
     task_track_started=True,
     task_acks_late=True,
     worker_prefetch_multiplier=1,
+    beat_schedule={
+        "purge-stale-sessions-every-30-min": {
+            "task": "securedoc.purge_stale_sessions",
+            "schedule": 1800,  # seconds (30 minutes)
+        },
+    },
 )

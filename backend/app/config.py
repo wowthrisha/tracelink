@@ -59,6 +59,16 @@ class Settings(BaseSettings):
     # Plan limits
     free_plan_doc_limit: int = 10  # documents allowed on free plan (0 = unlimited)
 
+    # Security
+    # Salt for IP address hashing.  MUST be set to a secret random value in
+    # production — the default is a placeholder that makes hashes reversible.
+    # Generate with: python -c "import secrets; print(secrets.token_hex(32))"
+    ip_hash_salt: str = "securedoc_ip_salt_change_in_production"
+
+    # Rasterizer timeout in seconds per document.  PDFs that take longer than
+    # this are rejected with a deterministic error (prevents PDF-bomb DoS).
+    rasterizer_timeout_sec: int = 300
+
     @property
     def billing_enabled(self) -> bool:
         return bool(self.stripe_secret_key)

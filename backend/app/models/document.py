@@ -1,13 +1,16 @@
 import uuid
 from datetime import datetime
 from typing import Optional, List
-from sqlalchemy import String, Integer, Enum, DateTime, ForeignKey, UniqueConstraint, func
+from sqlalchemy import String, Integer, Enum, DateTime, ForeignKey, UniqueConstraint, Index, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base
 
 
 class Document(Base):
     __tablename__ = "documents"
+    __table_args__ = (
+        Index("ix_documents_user_id", "user_id"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         primary_key=True, default=uuid.uuid4
@@ -25,7 +28,7 @@ class Document(Base):
     group_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         ForeignKey("document_groups.id", ondelete="SET NULL"), nullable=True
     )
-    user_id: Mapped[Optional[uuid.UUID]] = mapped_column(nullable=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=func.now(), nullable=False
     )

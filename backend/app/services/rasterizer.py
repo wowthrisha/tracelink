@@ -53,8 +53,17 @@ class RasterizerService:
                 last_page=last_page,
             )
 
+        timeout = settings.rasterizer_timeout_sec
         try:
-            pil_pages = await loop.run_in_executor(None, _convert)
+            pil_pages = await asyncio.wait_for(
+                loop.run_in_executor(None, _convert),
+                timeout=timeout,
+            )
+        except asyncio.TimeoutError:
+            raise RasterizerError(
+                f"PDF conversion timed out after {timeout}s — file may be too large or malformed",
+                document_id=document_id,
+            )
         except Exception as e:
             raise RasterizerError(f"PDF conversion failed: {e}", document_id=document_id) from e
 

@@ -136,6 +136,7 @@ async def get_gate_requirements(token: str, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/validate")
+@limiter.limit("20/minute")
 async def validate_link(
     request: Request,
     body: dict,
@@ -306,12 +307,12 @@ async def get_page(
     watermark_text = f"anonymous · {now_str} · sess:{session_id[:6]}"
     watermarked = watermark_svc.apply_visible_watermark(image_bytes, watermark_text)
 
-    # Refresh session heartbeat (keeps concurrent-session count accurate)
+    # Refresh session heartbeat (throttled: only writes if >30s since last update)
     if session_id:
         ip_hash = hash_value(ip) if ip else None
         await policy_enforcer.upsert_session(db, session_id, link.id, ip_hash=ip_hash)
 
-    # Log page_viewed event
+    # Log page_viewed event and commit both heartbeat + event in a single round-trip
     await analytics_svc.log_event(
         db,
         link_id=link.id,
@@ -320,8 +321,8 @@ async def get_page(
         session_id=session_id,
         ip=ip,
         user_agent=request.headers.get("user-agent"),
+        commit=True,  # single commit covers session heartbeat + analytics event
     )
-    await db.commit()
 
     return FastAPIResponse(
         content=watermarked,

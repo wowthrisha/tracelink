@@ -10,8 +10,20 @@
 # Services:
 #   db      — PostgreSQL 16 (local only; in production use a managed DB via DATABASE_URL)
 #   redis   — Redis 7       (local only; in production use a managed Redis via REDIS_URL)
+#   migrate — One-shot migration runner; api + worker wait for it to complete
 #   api     — FastAPI backend + static frontend served at http://localhost:8000
 #   worker  — Celery PDF-processing worker
+#
+# Migration safety
+# ----------------
+# The `migrate` service runs `alembic upgrade head` exactly once via migrate.py
+# (which holds a PostgreSQL advisory lock).  api and worker depend on
+# `migrate: service_completed_successfully` so they never start before the
+# schema is ready.  Their own entrypoint.sh also calls migrate.py, but by then
+# migrations are already at head — the advisory lock serialises the no-op call
+# safely.  This belt-and-suspenders design also protects Railway deployments
+# where no dedicated migrate service exists and both api + worker start
+# simultaneously.
 
 services:
 
@@ -43,6 +55,26 @@ services:
       retries: 10
     restart: unless-stopped
 
+  # ── Migration runner (one-shot) ────────────────────────────────────────────
+  # Runs alembic upgrade head under a PostgreSQL advisory lock, then exits.
+  # api and worker will not start until this service exits with code 0.
+  migrate:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    # Override the Dockerfile ENTRYPOINT so we bypass the entrypoint.sh wrapper
+    # and run migrate.py directly (avoids the entrypoint calling migrate.py
+    # which would call alembic inside a shell that itself calls alembic).
+    entrypoint: ["python", "migrate.py"]
+    command: []
+    env_file: ./backend/.env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://securedoc:password@db:5432/securedoc
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
   # ── API (FastAPI + StaticFiles frontend) ───────────────────────────────────
   api:
     build:
@@ -61,6 +93,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://localhost:8000/health"]
       interval: 10s
@@ -85,6 +119,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     restart: unless-stopped
 
 volumes:

@@ -23,6 +23,23 @@ TEST_USER_ID = "550e8400-e29b-41d4-a716-446655440000"
 TEST_USER_B_ID = "660f9500-f3ac-52e5-b827-557766551111"
 
 
+@pytest.fixture(autouse=True)
+def reset_rate_limiter():
+    """Reset slowapi's in-memory rate limit counters between tests.
+
+    Without this, tests that share the FastAPI app instance accumulate hits
+    against rate-limited endpoints (e.g. /api/viewer/validate at 20/min)
+    and start failing with 429 after a few dozen tests within the same minute.
+    """
+    from app.middleware.rate_limit import limiter
+    storage = getattr(limiter, "_storage", None)
+    if storage is not None:
+        try:
+            storage.reset()
+        except Exception:
+            pass  # storage backend may not support reset — silently skip
+
+
 @pytest_asyncio.fixture(scope="function")
 async def db_session():
     engine = create_async_engine(TEST_DB_URL, echo=False, connect_args={"check_same_thread": False})

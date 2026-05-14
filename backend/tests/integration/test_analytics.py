@@ -24,14 +24,53 @@ class TestAnalyticsEndpoints:
 
     @pytest.mark.asyncio
     async def test_log_event_returns_200(self, client, active_link):
+        # Must establish a real viewer session first
+        val = await client.post("/api/viewer/validate", json={"token": active_link.token})
+        session_id = val.json()["session_id"]
+
         r = await client.post("/api/analytics/events", json={
             "token": active_link.token,
-            "session_id": "a" * 16,
+            "session_id": session_id,
             "event_type": "print_attempt",
             "page_number": 3,
         })
         assert r.status_code == 200
         assert r.json()["logged"] is True
+
+    @pytest.mark.asyncio
+    async def test_log_event_requires_valid_session(self, client, active_link):
+        """Sending a fake/unknown session_id must be rejected with 403."""
+        r = await client.post("/api/analytics/events", json={
+            "token": active_link.token,
+            "session_id": "fakesession000000",
+            "event_type": "print_attempt",
+        })
+        assert r.status_code == 403
+
+    @pytest.mark.asyncio
+    async def test_log_event_requires_session_id(self, client, active_link):
+        """Empty session_id must be rejected with 400."""
+        r = await client.post("/api/analytics/events", json={
+            "token": active_link.token,
+            "session_id": "",
+            "event_type": "print_attempt",
+        })
+        assert r.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_log_event_rejects_server_side_event_types(self, client, active_link):
+        """Internal security events must not be loggable via the public endpoint."""
+        val = await client.post("/api/viewer/validate", json={"token": active_link.token})
+        session_id = val.json()["session_id"]
+
+        for bad_event in ("opened", "access_denied", "revoked", "expired", "ip_blocked",
+                          "session_limit_reached", "max_views_reached", "password_wrong"):
+            r = await client.post("/api/analytics/events", json={
+                "token": active_link.token,
+                "session_id": session_id,
+                "event_type": bad_event,
+            })
+            assert r.status_code == 400, f"Expected 400 for {bad_event!r}, got {r.status_code}"
 
     @pytest.mark.asyncio
     async def test_log_event_with_invalid_token_returns_404(self, client):
@@ -44,10 +83,14 @@ class TestAnalyticsEndpoints:
 
     @pytest.mark.asyncio
     async def test_blocked_attempts_counted_correctly(self, client, active_link):
+        # Must establish a real session before logging events
+        val = await client.post("/api/viewer/validate", json={"token": active_link.token})
+        session_id = val.json()["session_id"]
+
         for event_type in ["print_attempt", "copy_attempt", "right_click_attempt"]:
             await client.post("/api/analytics/events", json={
                 "token": active_link.token,
-                "session_id": "b" * 16,
+                "session_id": session_id,
                 "event_type": event_type,
             })
         r = await client.get("/api/analytics/overview")
@@ -61,18 +104,20 @@ class TestAnalyticsEndpoints:
 
     @pytest.mark.asyncio
     async def test_document_analytics_with_events(self, client, active_link):
-        # Generate views and blocked events
-        await client.post("/api/viewer/validate", json={"token": active_link.token})
+        # Generate a view + blocked events with a real session
+        val = await client.post("/api/viewer/validate", json={"token": active_link.token})
+        session_id = val.json()["session_id"]
+
         for et in ["print_attempt", "copy_attempt", "right_click_attempt",
                    "download_attempt", "right_click_attempt", "print_attempt"]:
             await client.post("/api/analytics/events", json={
                 "token": active_link.token,
-                "session_id": "c" * 16,
+                "session_id": session_id,
                 "event_type": et,
             })
         await client.post("/api/analytics/events", json={
             "token": active_link.token,
-            "session_id": "d" * 16,
+            "session_id": session_id,
             "event_type": "completed",
         })
         r = await client.get("/api/analytics/documents")
@@ -86,11 +131,14 @@ class TestAnalyticsEndpoints:
 
     @pytest.mark.asyncio
     async def test_get_events_returns_list(self, client, active_link):
+        # Use validate to get a real session, then log a viewer event
+        val = await client.post("/api/viewer/validate", json={"token": active_link.token})
+        session_id = val.json()["session_id"]
+
         await client.post("/api/analytics/events", json={
             "token": active_link.token,
-            "session_id": "e" * 16,
-            "event_type": "page_viewed",
-            "page_number": 1,
+            "session_id": session_id,
+            "event_type": "completed",
         })
         r = await client.get("/api/analytics/events",
                              params={"document_id": str(active_link.document_id)})
@@ -100,10 +148,13 @@ class TestAnalyticsEndpoints:
 
     @pytest.mark.asyncio
     async def test_get_events_without_document_id(self, client, active_link):
+        val = await client.post("/api/viewer/validate", json={"token": active_link.token})
+        session_id = val.json()["session_id"]
+
         await client.post("/api/analytics/events", json={
             "token": active_link.token,
-            "session_id": "f" * 16,
-            "event_type": "page_viewed",
+            "session_id": session_id,
+            "event_type": "completed",
         })
         r = await client.get("/api/analytics/events")
         assert r.status_code == 200

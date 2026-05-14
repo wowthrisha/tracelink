@@ -137,26 +137,50 @@ async def get_events(
 
 
 @router.post("/events")
-@limiter.limit("200/minute")
-async def log_event(
+@limiter.limit("60/minute")
+async def log_viewer_event(
     request: Request,
     body: dict,
     db: AsyncSession = Depends(get_db),
 ):
-    token = body.get("token", "")
-    session_id = body.get("session_id", "")
-    event_type = body.get("event_type", "")
+    """
+    Client-side event logging for the viewer frontend.
+
+    Requires a valid share-link token AND an active session_id — prevents
+    unauthenticated callers from polluting analytics or inflating event counts.
+    Only viewer-initiated events are accepted; server-side security events
+    (revoked, expired, ip_blocked, etc.) cannot be logged through this endpoint.
+    """
+    from app.models.event import VIEWER_LOGGABLE_EVENTS
+    from app.services.policy import enforcer
+
+    token = body.get("token", "").strip()
+    session_id = body.get("session_id", "").strip()
+    event_type = body.get("event_type", "").strip()
     page_number = body.get("page_number")
     metadata = body.get("metadata")
+
+    if not token:
+        raise HTTPException(status_code=400, detail="token is required")
+    if not session_id:
+        raise HTTPException(status_code=400, detail="session_id is required")
+
+    # Restrict to viewer-side events only
+    if event_type not in VIEWER_LOGGABLE_EVENTS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid event_type. Allowed: {sorted(VIEWER_LOGGABLE_EVENTS)}",
+        )
 
     link_result = await db.execute(select(ShareLink).where(ShareLink.token == token))
     link = link_result.scalar_one_or_none()
     if not link:
         raise HTTPException(status_code=404, detail="Link not found")
 
-    from app.models.event import EVENT_TYPES
-    if event_type not in EVENT_TYPES:
-        raise HTTPException(status_code=400, detail=f"Invalid event_type: {event_type}")
+    # Verify the session is active for this specific link — prevents anyone with
+    # a valid token from logging events without an established viewer session.
+    if not await enforcer.is_active_session(db, link.id, session_id):
+        raise HTTPException(status_code=403, detail="Invalid or expired session")
 
     await analytics_svc.log_event(
         db,
