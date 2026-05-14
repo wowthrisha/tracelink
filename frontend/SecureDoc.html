@@ -225,6 +225,13 @@
       .sidebar-mobile-hidden {
         display: none !important;
       }
+      /* Keep header buttons from overflowing; reduce padding */
+      .header-root {
+        padding: 0 10px !important;
+      }
+      .header-btn-label {
+        display: none !important;
+      }
     }
 
     /* Smooth page transitions */
@@ -1146,22 +1153,22 @@
       const titles = { upload: 'Upload Dashboard', viewer: 'Document Viewer', access: 'Access Control', analytics: 'Analytics' };
       const icons = { upload: '⊕', viewer: '◫', access: '◈', analytics: '▦' };
       return (
-        <div style={{
+        <div className="header-root" style={{
           height: 54, background: C.surfaceAlt, borderBottom: `1px solid ${C.border}`,
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
           padding: '0 20px', flexShrink: 0
         }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <span style={{ fontSize: 14, color: C.textDim }}>{icons[screen]}</span>
-            <span style={{ fontSize: 15, fontWeight: 700, letterSpacing: '-0.4px', color: C.textPrimary }}>{titles[screen]}</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, overflow: 'hidden', flexShrink: 1 }}>
+            <span style={{ fontSize: 14, color: C.textDim, flexShrink: 0 }}>{icons[screen]}</span>
+            <span style={{ fontSize: 15, fontWeight: 700, letterSpacing: '-0.4px', color: C.textPrimary, flexShrink: 0, whiteSpace: 'nowrap' }}>{titles[screen]}</span>
             {breadcrumb && (
               <>
-                <span style={{ color: C.textDim, fontSize: 13 }}>›</span>
-                <span style={{ fontSize: 13, color: C.textMuted }}>{breadcrumb}</span>
+                <span style={{ color: C.textDim, fontSize: 13, flexShrink: 0 }}>›</span>
+                <span style={{ fontSize: 13, color: C.textMuted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{breadcrumb}</span>
               </>
             )}
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>{children}</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>{children}</div>
         </div>
       );
     }
@@ -2098,7 +2105,7 @@
 
           <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
             {/* Thumbnail strip */}
-            <div style={{
+            <div className="sidebar-mobile-hidden" style={{
               width: 82, background: C.surfaceAlt, borderRight: `1px solid ${C.border}`,
               overflow: 'auto', padding: '10px 6px', display: 'flex', flexDirection: 'column', gap: 5, flexShrink: 0
             }}>
@@ -2166,6 +2173,7 @@
                       onLoad={() => setImgLoading(false)} onError={() => setImgLoading(false)}
                       style={{
                         width: '100%', height: '100%', objectFit: 'contain', display: 'block', userSelect: 'none',
+                        WebkitTouchCallout: 'none', WebkitUserSelect: 'none',
                         filter: blurred ? 'blur(14px)' : 'none', transition: 'filter .3s'
                       }} alt={`Page ${page}`} />
                   )}
