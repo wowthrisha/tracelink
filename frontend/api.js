@@ -192,6 +192,15 @@ window.SecureDocAPI = {
     return `${base}/api/viewer/page/${linkToken}/${page}?session_id=${encodeURIComponent(sessionId || '')}`;
   },
 
+  getThumbUrl(linkToken, pageNumber, sessionId) {
+    if (!linkToken || !sessionId) {
+      console.error('[SecureDoc] getThumbUrl: linkToken or sessionId is missing', { linkToken, pageNumber, sessionId });
+    }
+    const base = API_BASE.replace(/\/$/, '');
+    const page = Math.max(1, parseInt(pageNumber, 10) || 1);
+    return `${base}/api/viewer/thumb/${linkToken}/${page}?session_id=${encodeURIComponent(sessionId || '')}`;
+  },
+
   logEvent(token, sessionId, eventType, pageNumber = null, metadata = {}) {
     // Fire-and-forget — public endpoint, never needs auth
     fetch(`${API_BASE}/api/analytics/events`, {

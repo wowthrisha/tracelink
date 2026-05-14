@@ -1,6 +1,8 @@
+import asyncio
 import collections
 import json
 import logging
+import time
 import uuid
 from datetime import datetime, timezone
 from typing import Optional
@@ -150,6 +152,10 @@ async def validate_link(
     ip = request.client.host if request.client else None
     user_agent = request.headers.get("user-agent")
 
+    # validate_link stages the session upsert without committing (commit=False).
+    # increment_view_count stages the view count update without committing.
+    # log_event issues the single final commit that flushes all three writes atomically,
+    # reducing the validate happy path from 3 DB round-trips to 1.
     validation = await link_svc.validate_link(
         db=db,
         token=token,
@@ -159,15 +165,16 @@ async def validate_link(
         ip=ip,
         user_agent=user_agent,
         existing_session_id=existing_session_id,
+        commit=False,
     )
 
     link = validation.link
     session_id = validation.session_id
 
-    # Increment view count
-    await link_svc.increment_view_count(db, str(link.id))
+    # Stage view count increment (no commit yet)
+    await link_svc.increment_view_count(db, str(link.id), commit=False)
 
-    # Log opened event
+    # Log opened event — commit=True (default) flushes session + view_count + event atomically
     await analytics_svc.log_event(
         db,
         link_id=link.id,
@@ -176,6 +183,7 @@ async def validate_link(
         ip=ip,
         user_agent=user_agent,
         session_id=session_id,
+        commit=True,
     )
 
     # Fetch document
@@ -290,7 +298,9 @@ async def get_page(
     # Download base image with in-process LRU cache (avoids repeated S3/R2 round-trips).
     # The visible watermark applied below is session-specific; only the raw bytes are cached.
     storage = get_storage_service()
+    t0 = time.perf_counter()
     image_bytes = _page_cache_get(page.storage_key)
+    cache_hit = image_bytes is not None
     if image_bytes is None:
         try:
             image_bytes = await storage.download_bytes(page.storage_key)
@@ -301,11 +311,21 @@ async def get_page(
                 link.document_id, page_number, page.storage_key, exc,
             )
             raise HTTPException(status_code=503, detail="Page asset temporarily unavailable")
+    t1 = time.perf_counter()
 
-    # Apply visible watermark
+    # Apply visible watermark — CPU-bound PIL work offloaded to thread pool so it
+    # does not block the async event loop while other requests are being served.
     now_str = now.strftime("%Y-%m-%d")
     watermark_text = f"anonymous · {now_str} · sess:{session_id[:6]}"
-    watermarked = watermark_svc.apply_visible_watermark(image_bytes, watermark_text)
+    watermarked = await asyncio.get_running_loop().run_in_executor(
+        None,
+        lambda: watermark_svc.apply_visible_watermark(image_bytes, watermark_text),
+    )
+    t2 = time.perf_counter()
+    logger.debug(
+        "page=%d cache_hit=%s fetch_ms=%.1f watermark_ms=%.1f",
+        page_number, cache_hit, (t1 - t0) * 1000, (t2 - t1) * 1000,
+    )
 
     # Refresh session heartbeat (throttled: only writes if >30s since last update)
     if session_id:

@@ -90,6 +90,7 @@ class LinkService:
         user_agent: Optional[str] = None,
         analytics_svc=None,
         existing_session_id: Optional[str] = None,
+        commit: bool = True,
     ) -> ValidationResult:
         from app.services.analytics_service import AnalyticsService
 
@@ -223,7 +224,8 @@ class LinkService:
         # Create or refresh the session row
         ip_hash = hash_value(ip) if ip else None
         await enforcer.upsert_session(db, session_id, link.id, ip_hash=ip_hash)
-        await db.commit()
+        if commit:
+            await db.commit()
 
         return ValidationResult(link=link, is_valid=True, session_id=session_id)
 
@@ -239,13 +241,14 @@ class LinkService:
         await db.refresh(link)
         return link
 
-    async def increment_view_count(self, db: AsyncSession, link_id: str) -> None:
+    async def increment_view_count(self, db: AsyncSession, link_id: str, commit: bool = True) -> None:
         await db.execute(
             update(ShareLink)
             .where(ShareLink.id == uuid.UUID(link_id))
             .values(view_count=ShareLink.view_count + 1)
         )
-        await db.commit()
+        if commit:
+            await db.commit()
 
     def _generate_session_id(self) -> str:
         return secrets.token_hex(16)  # 32 hex chars = 128-bit entropy
