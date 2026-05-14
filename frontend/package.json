@@ -1,0 +1,11 @@
+{
+  "name": "securedoc-frontend",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "build": "esbuild src/app.jsx --loader:.jsx=jsx --jsx-factory=React.createElement --jsx-fragment=React.Fragment --target=chrome80,firefox78,safari14 --outfile=dist/app.bundle.js --minify"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0"
+  }
+}

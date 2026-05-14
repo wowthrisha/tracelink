@@ -141,6 +141,27 @@ class TestWatermarkOffload:
         assert "no-store" in r.headers.get("cache-control", "")
         assert r.headers.get("x-content-type-options") == "nosniff"
 
+    @pytest.mark.asyncio
+    async def test_watermark_exception_in_executor_propagates(self, client, active_link):
+        """
+        A RuntimeError raised inside run_in_executor must propagate — it must NOT
+        be silently swallowed (which would allow watermark-free pages to be served).
+        httpx ASGITransport re-raises server exceptions in test mode, so we assert
+        the exception escapes rather than checking the HTTP status code.
+        """
+        body = await _validate(client, active_link.token)
+        sid = body["session_id"]
+
+        with patch.object(
+            WatermarkService,
+            "apply_visible_watermark",
+            side_effect=RuntimeError("PIL exploded"),
+        ):
+            with pytest.raises(RuntimeError, match="PIL exploded"):
+                await client.get(
+                    f"/api/viewer/page/{active_link.token}/1?session_id={sid}"
+                )
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # B. VALIDATE BATCH COMMIT
@@ -256,6 +277,83 @@ class TestValidateBatchCommit:
         await db_session.rollback()
         session_row = await db_session.get(ViewerSession, sid)
         assert session_row is None
+
+    @pytest.mark.asyncio
+    async def test_validate_all_three_writes_rollback_atomically(
+        self, db_session, ready_document
+    ):
+        """
+        Stage all three writes (session, view_count, event) with commit=False
+        and then roll back — none must be visible in the DB.
+        """
+        from app.services.analytics_service import AnalyticsService
+        svc = LinkService()
+        analytics_svc = AnalyticsService()
+        link = await svc.create_link(db_session, document_id=str(ready_document.id))
+        initial_views = link.view_count  # 0
+
+        result = await svc.validate_link(
+            db=db_session,
+            token=link.token,
+            analytics_svc=analytics_svc,
+            commit=False,
+        )
+        sid = result.session_id
+
+        await svc.increment_view_count(db_session, str(link.id), commit=False)
+
+        await analytics_svc.log_event(
+            db_session,
+            link_id=link.id,
+            event_type="opened",
+            session_id=sid,
+            commit=False,
+        )
+
+        # Roll back everything — none of the three writes must be durable
+        await db_session.rollback()
+
+        session_row = await db_session.get(ViewerSession, sid)
+        assert session_row is None, "session must not be present after rollback"
+
+        await db_session.refresh(link)
+        assert link.view_count == initial_views, "view_count must not be incremented after rollback"
+
+        ev_result = await db_session.execute(
+            select(AccessEvent).where(
+                AccessEvent.link_id == link.id,
+                AccessEvent.event_type == "opened",
+            )
+        )
+        assert len(ev_result.scalars().all()) == 0, "opened event must not be present after rollback"
+
+    @pytest.mark.asyncio
+    async def test_validate_max_views_enforced_with_batch_commit(
+        self, client, db_session, ready_document
+    ):
+        """
+        With max_views=1: first validate must succeed and commit all three
+        writes atomically; second validate must return 410 Max views reached.
+        """
+        svc = LinkService()
+        link = await svc.create_link(
+            db_session,
+            document_id=str(ready_document.id),
+            max_views=1,
+        )
+
+        # First validate must succeed
+        body = await _validate(client, link.token)
+        assert "session_id" in body
+
+        # Confirm view_count was committed (batch commit path)
+        await db_session.refresh(link)
+        assert link.view_count == 1
+
+        # Second validate must be rejected (max views exhausted)
+        r = await client.post("/api/viewer/validate", json={"token": link.token})
+        assert r.status_code == 410
+        assert "max views" in r.json().get("detail", "").lower()
 
 
 # ══════════════════════════════════════════════════════════════════════════════

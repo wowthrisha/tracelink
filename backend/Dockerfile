@@ -1,3 +1,13 @@
+# ── Stage 1: Frontend build ────────────────────────────────────────────────
+# Compiles JSX → plain JS with esbuild.  No Node.js ends up in the final image.
+FROM node:20-alpine AS frontend-builder
+WORKDIR /frontend-src
+COPY frontend/package.json frontend/package-lock.json* ./
+RUN npm ci --ignore-scripts
+COPY frontend/src ./src
+RUN npm run build
+
+# ── Stage 2: Python runtime ────────────────────────────────────────────────
 FROM python:3.12-slim
 
 # System deps: PDF rasterization (poppler + ghostscript), Postgres client, curl for healthcheck
@@ -18,8 +28,11 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy backend application source
 COPY backend/ .
 
-# Copy frontend so FastAPI StaticFiles can serve it at /static (path /frontend)
-COPY frontend/ /frontend/
+# Copy static frontend files (HTML + api.js)
+COPY frontend/SecureDoc.html /frontend/SecureDoc.html
+COPY frontend/api.js /frontend/api.js
+# Copy compiled JS bundle produced by Stage 1
+COPY --from=frontend-builder /frontend-src/dist/app.bundle.js /frontend/dist/app.bundle.js
 
 RUN chmod +x entrypoint.sh
 
