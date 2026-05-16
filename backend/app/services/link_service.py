@@ -239,6 +239,10 @@ class LinkService:
         link.revoked_at = datetime.now(timezone.utc)
         await db.commit()
         await db.refresh(link)
+        # Immediately evict from the viewer metadata cache so the next page
+        # request does not serve a stale snapshot that still looks active.
+        from app.services.viewer_cache import invalidate_link
+        invalidate_link(link.token)
         return link
 
     async def increment_view_count(self, db: AsyncSession, link_id: str, commit: bool = True) -> None:

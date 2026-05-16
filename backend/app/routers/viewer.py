@@ -19,6 +19,10 @@ from app.services.storage import get_storage_service
 from app.services.watermark import WatermarkService
 from app.services.analytics_service import AnalyticsService
 from app.services.policy import enforcer as policy_enforcer
+from app.services.viewer_cache import (
+    link_cache, doc_cache, page_cache,
+    LinkSnapshot, DocSnapshot, PageSnapshot,
+)
 from app.utils.crypto import hash_value
 from app.middleware.rate_limit import limiter
 
@@ -82,6 +86,12 @@ def clear_page_cache() -> None:
 def clear_thumb_cache() -> None:
     """Flush the in-process thumbnail byte cache.  Called in tests."""
     _THUMB_BYTES_CACHE.clear()
+
+
+def clear_metadata_caches() -> None:
+    """Flush the link/doc/page TTL metadata caches.  Called in tests."""
+    from app.services.viewer_cache import clear_all_caches
+    clear_all_caches()
 
 
 # ── Shared helpers ─────────────────────────────────────────────────────────────
@@ -258,57 +268,85 @@ async def get_page(
     if not session_id:
         raise HTTPException(status_code=400, detail="session_id is required")
 
-    # Re-validate token (do NOT increment view_count)
-    link_result = await db.execute(
-        select(ShareLink).where(ShareLink.token == link_token)
-    )
-    link = link_result.scalar_one_or_none()
-    if not link:
-        raise HTTPException(status_code=404, detail="Link not found")
+    # ── Link metadata (TTL-cached, 10 s) ──────────────────────────────────────
+    # Skips the DB SELECT on cache hits while keeping security checks intact:
+    # revoked_at and expires_at are in the snapshot and verified against the
+    # current clock on every request, even on hits.
+    link_snap: Optional[LinkSnapshot] = link_cache.get(link_token)
+    if link_snap is None:
+        _link_row = await db.execute(
+            select(ShareLink).where(ShareLink.token == link_token)
+        )
+        _link = _link_row.scalar_one_or_none()
+        if _link is None:
+            raise HTTPException(status_code=404, detail="Link not found")
+        link_snap = LinkSnapshot(
+            id=_link.id,
+            token=_link.token,
+            document_id=_link.document_id,
+            revoked_at=_link.revoked_at,
+            expires_at=_link.expires_at,
+            ip_allowlist=_link.ip_allowlist,
+        )
+        link_cache.put(link_token, link_snap)
 
     now = datetime.now(timezone.utc)
-    _check_link_active(link, now)
+    _check_link_active(link_snap, now)
 
     # Re-validate IP on every page request (allowlist may have changed)
     ip = request.client.host if request.client else None
-    if link.ip_allowlist:
-        if not policy_enforcer.ip_is_allowed(ip, link.ip_allowlist):
+    if link_snap.ip_allowlist:
+        if not policy_enforcer.ip_is_allowed(ip, link_snap.ip_allowlist):
             raise HTTPException(status_code=403, detail="Access denied from this IP")
 
-    # Guard: document must be fully processed before pages are accessible
-    doc_result = await db.execute(
-        select(Document).where(Document.id == link.document_id)
-    )
-    doc = doc_result.scalar_one_or_none()
-    if not doc:
-        raise HTTPException(status_code=404, detail="Document not found")
-    _check_doc_ready(doc)
-
-    # Fetch document page
-    page_result = await db.execute(
-        select(DocumentPage).where(
-            DocumentPage.document_id == link.document_id,
-            DocumentPage.page_number == page_number,
+    # ── Document metadata (TTL-cached, 60 s) ──────────────────────────────────
+    _doc_key = str(link_snap.document_id)
+    doc_snap: Optional[DocSnapshot] = doc_cache.get(_doc_key)
+    if doc_snap is None:
+        _doc_row = await db.execute(
+            select(Document).where(Document.id == link_snap.document_id)
         )
-    )
-    page = page_result.scalar_one_or_none()
-    if not page:
-        raise HTTPException(status_code=404, detail="Page not found")
+        _doc = _doc_row.scalar_one_or_none()
+        if _doc is None:
+            raise HTTPException(status_code=404, detail="Document not found")
+        doc_snap = DocSnapshot(id=_doc.id, status=_doc.status)
+        doc_cache.put(_doc_key, doc_snap)
+    _check_doc_ready(doc_snap)
+
+    # ── Page record (TTL-cached, 5 min; immutable after creation) ─────────────
+    _page_key = f"{link_snap.document_id}:{page_number}"
+    page_snap: Optional[PageSnapshot] = page_cache.get(_page_key)
+    if page_snap is None:
+        _page_row = await db.execute(
+            select(DocumentPage).where(
+                DocumentPage.document_id == link_snap.document_id,
+                DocumentPage.page_number == page_number,
+            )
+        )
+        _page = _page_row.scalar_one_or_none()
+        if _page is None:
+            raise HTTPException(status_code=404, detail="Page not found")
+        page_snap = PageSnapshot(
+            storage_key=_page.storage_key,
+            width_px=_page.width_px,
+            height_px=_page.height_px,
+        )
+        page_cache.put(_page_key, page_snap)
 
     # Download base image with in-process LRU cache (avoids repeated S3/R2 round-trips).
     # The visible watermark applied below is session-specific; only the raw bytes are cached.
     storage = get_storage_service()
     t0 = time.perf_counter()
-    image_bytes = _page_cache_get(page.storage_key)
+    image_bytes = _page_cache_get(page_snap.storage_key)
     cache_hit = image_bytes is not None
     if image_bytes is None:
         try:
-            image_bytes = await storage.download_bytes(page.storage_key)
-            _page_cache_put(page.storage_key, image_bytes)
+            image_bytes = await storage.download_bytes(page_snap.storage_key)
+            _page_cache_put(page_snap.storage_key, image_bytes)
         except Exception as exc:
             logger.error(
                 "Storage download failed for document %s page %d key %r: %s",
-                link.document_id, page_number, page.storage_key, exc,
+                link_snap.document_id, page_number, page_snap.storage_key, exc,
             )
             raise HTTPException(status_code=503, detail="Page asset temporarily unavailable")
     t1 = time.perf_counter()
@@ -330,12 +368,12 @@ async def get_page(
     # Refresh session heartbeat (throttled: only writes if >30s since last update)
     if session_id:
         ip_hash = hash_value(ip) if ip else None
-        await policy_enforcer.upsert_session(db, session_id, link.id, ip_hash=ip_hash)
+        await policy_enforcer.upsert_session(db, session_id, link_snap.id, ip_hash=ip_hash)
 
     # Log page_viewed event and commit both heartbeat + event in a single round-trip
     await analytics_svc.log_event(
         db,
-        link_id=link.id,
+        link_id=link_snap.id,
         event_type="page_viewed",
         page_number=page_number,
         session_id=session_id,
@@ -379,38 +417,64 @@ async def get_thumb(
     if not session_id:
         raise HTTPException(status_code=400, detail="session_id is required")
 
-    link_result = await db.execute(
-        select(ShareLink).where(ShareLink.token == link_token)
-    )
-    link = link_result.scalar_one_or_none()
-    if not link:
-        raise HTTPException(status_code=404, detail="Link not found")
+    # ── Link metadata (TTL-cached, 10 s) ──────────────────────────────────────
+    link_snap: Optional[LinkSnapshot] = link_cache.get(link_token)
+    if link_snap is None:
+        _link_row = await db.execute(
+            select(ShareLink).where(ShareLink.token == link_token)
+        )
+        _link = _link_row.scalar_one_or_none()
+        if _link is None:
+            raise HTTPException(status_code=404, detail="Link not found")
+        link_snap = LinkSnapshot(
+            id=_link.id,
+            token=_link.token,
+            document_id=_link.document_id,
+            revoked_at=_link.revoked_at,
+            expires_at=_link.expires_at,
+            ip_allowlist=_link.ip_allowlist,
+        )
+        link_cache.put(link_token, link_snap)
 
     now = datetime.now(timezone.utc)
-    _check_link_active(link, now)
+    _check_link_active(link_snap, now)
 
-    # Document status guard
-    doc_result = await db.execute(
-        select(Document).where(Document.id == link.document_id)
-    )
-    doc = doc_result.scalar_one_or_none()
-    if not doc:
-        raise HTTPException(status_code=404, detail="Document not found")
-    _check_doc_ready(doc)
-
-    # Page existence check
-    page_result = await db.execute(
-        select(DocumentPage).where(
-            DocumentPage.document_id == link.document_id,
-            DocumentPage.page_number == page_number,
+    # ── Document metadata (TTL-cached, 60 s) ──────────────────────────────────
+    _doc_key = str(link_snap.document_id)
+    doc_snap: Optional[DocSnapshot] = doc_cache.get(_doc_key)
+    if doc_snap is None:
+        _doc_row = await db.execute(
+            select(Document).where(Document.id == link_snap.document_id)
         )
-    )
-    page = page_result.scalar_one_or_none()
-    if not page:
-        raise HTTPException(status_code=404, detail="Page not found")
+        _doc = _doc_row.scalar_one_or_none()
+        if _doc is None:
+            raise HTTPException(status_code=404, detail="Document not found")
+        doc_snap = DocSnapshot(id=_doc.id, status=_doc.status)
+        doc_cache.put(_doc_key, doc_snap)
+    _check_doc_ready(doc_snap)
+
+    # ── Page record (TTL-cached, 5 min) ───────────────────────────────────────
+    _page_key = f"{link_snap.document_id}:{page_number}"
+    page_snap: Optional[PageSnapshot] = page_cache.get(_page_key)
+    if page_snap is None:
+        _page_row = await db.execute(
+            select(DocumentPage).where(
+                DocumentPage.document_id == link_snap.document_id,
+                DocumentPage.page_number == page_number,
+            )
+        )
+        _page = _page_row.scalar_one_or_none()
+        if _page is None:
+            raise HTTPException(status_code=404, detail="Page not found")
+        page_snap = PageSnapshot(
+            storage_key=_page.storage_key,
+            width_px=_page.width_px,
+            height_px=_page.height_px,
+        )
+        page_cache.put(_page_key, page_snap)
 
     # Thumbnail key is deterministic: thumbs/{doc_id}/{page:04d}.webp
-    thumb_key = f"thumbs/{link.document_id}/{page_number:04d}.webp"
+    thumb_key = f"thumbs/{link_snap.document_id}/{page_number:04d}.webp"
     storage = get_storage_service()
 
     thumb_bytes = _thumb_cache_get(thumb_key)
@@ -422,17 +486,17 @@ async def get_thumb(
             # Thumbnail absent (pre-thumbnail document) — fall back to full-res page
             logger.debug(
                 "Thumbnail not found for document %s page %d — serving full-res fallback",
-                link.document_id, page_number,
+                link_snap.document_id, page_number,
             )
-            thumb_bytes = _page_cache_get(page.storage_key)
+            thumb_bytes = _page_cache_get(page_snap.storage_key)
             if thumb_bytes is None:
                 try:
-                    thumb_bytes = await storage.download_bytes(page.storage_key)
-                    _page_cache_put(page.storage_key, thumb_bytes)
+                    thumb_bytes = await storage.download_bytes(page_snap.storage_key)
+                    _page_cache_put(page_snap.storage_key, thumb_bytes)
                 except Exception as exc:
                     logger.error(
                         "Storage download failed for fallback thumb key %r: %s",
-                        page.storage_key, exc,
+                        page_snap.storage_key, exc,
                     )
                     raise HTTPException(
                         status_code=503, detail="Thumbnail asset temporarily unavailable"
