@@ -28,6 +28,7 @@ class Document(Base):
     group_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         ForeignKey("document_groups.id", ondelete="SET NULL"), nullable=True
     )
+    file_type: Mapped[str] = mapped_column(String(10), default="pdf", nullable=False)
     user_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=func.now(), nullable=False

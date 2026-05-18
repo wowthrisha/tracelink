@@ -19,9 +19,18 @@ class TestUploadEndpoint:
 
     @pytest.mark.asyncio
     async def test_upload_invalid_file_type_returns_400(self, client):
-        files = {"file": ("test.txt", b"not a pdf", "text/plain")}
+        # DOCX is not supported — must be rejected
+        files = {"file": ("test.docx", b"PK\x03\x04fake-docx-bytes", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")}
         r = await client.post("/api/documents/upload", files=files)
         assert r.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_upload_txt_returns_202(self, client):
+        files = {"file": ("notes.txt", b"Hello\nWorld\n", "text/plain")}
+        r = await client.post("/api/documents/upload", files=files)
+        assert r.status_code == 202
+        body = r.json()
+        assert body["status"] == "uploaded"
 
     @pytest.mark.asyncio
     async def test_upload_non_pdf_bytes_returns_400(self, client, invalid_bytes):

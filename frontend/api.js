@@ -201,6 +201,16 @@ window.SecureDocAPI = {
     return `${base}/api/viewer/thumb/${linkToken}/${page}?session_id=${encodeURIComponent(sessionId || '')}`;
   },
 
+  async getTextChunk(linkToken, chunkNumber, sessionId) {
+    const base = API_BASE.replace(/\/$/, '');
+    const chunk = Math.max(1, parseInt(chunkNumber, 10) || 1);
+    const r = await fetch(
+      `${base}/api/viewer/text/${encodeURIComponent(linkToken)}/${chunk}?session_id=${encodeURIComponent(sessionId || '')}`
+    );
+    if (!r.ok) throw await r.json();
+    return r.json();
+  },
+
   logEvent(token, sessionId, eventType, pageNumber = null, metadata = {}) {
     // Fire-and-forget — public endpoint, never needs auth
     fetch(`${API_BASE}/api/analytics/events`, {

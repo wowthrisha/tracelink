@@ -109,6 +109,7 @@ async def process_document_with_session(
     """
     Core document processing logic — testable without Celery or Redis.
 
+    Dispatches to the PDF or text pipeline based on doc.file_type.
     The caller owns the DB session lifecycle.  On success the session is
     committed; on error the exception propagates (caller decides retry policy).
     """
@@ -154,17 +155,66 @@ async def process_document_with_session(
     await db.commit()
     logger.info("Document %s: status → processing", document_id)
 
-    # 3. Download PDF
+    # 3. Dispatch to the appropriate pipeline based on file type
+    file_type = getattr(doc, "file_type", "pdf") or "pdf"
+    if file_type in ("txt", "md", "log"):
+        return await _process_text_document(db, doc, document_id, storage)
+    else:
+        return await _process_pdf_document(db, doc, document_id, storage, rasterizer, watermark)
+
+
+async def _process_text_document(db, doc, document_id: str, storage) -> dict:
+    """
+    Process a text document (.txt, .md, .log).
+
+    Downloads the raw bytes, decodes safely, counts line-based chunks,
+    then marks the document ready.  No DocumentPage records are created —
+    the viewer fetches raw text chunks directly from storage at serve time.
+    """
+    from app.services.text_processor import decode_text_safe, count_chunks
+    from app.config import settings
+
+    logger.info("Document %s: downloading text from storage key %r", document_id, doc.storage_key)
+    raw_bytes = await storage.download_bytes(doc.storage_key)
+    logger.info("Document %s: downloaded %d bytes", document_id, len(raw_bytes))
+
+    # Decode with safe UTF-8 → latin-1 fallback; raises ValueError on total failure
+    text = decode_text_safe(raw_bytes)
+    chunk_count = count_chunks(text, settings.text_lines_per_chunk)
+    logger.info("Document %s: text decoded, %d chunk(s)", document_id, chunk_count)
+
+    doc.status = "ready"
+    doc.page_count = chunk_count
+    await db.commit()
+    logger.info("Document %s: status → ready (%d text chunks)", document_id, chunk_count)
+
+    return {
+        "document_id": document_id,
+        "page_count": chunk_count,
+        "status": "ready",
+    }
+
+
+async def _process_pdf_document(db, doc, document_id: str, storage, rasterizer, watermark) -> dict:
+    """
+    Process a PDF document — the original pipeline, unchanged.
+
+    Downloads PDF bytes, rasterizes with pdf2image, applies forensic watermark,
+    uploads WEBP page images + thumbnails, inserts DocumentPage records.
+    """
+    from app.models.document import DocumentPage
+
+    # Download PDF
     logger.info("Document %s: downloading from storage key %r", document_id, doc.storage_key)
     pdf_bytes = await storage.download_bytes(doc.storage_key)
     logger.info("Document %s: downloaded %d bytes", document_id, len(pdf_bytes))
 
-    # 4. Rasterize — raises RasterizerError on bad/malicious PDF (permanent failure)
+    # Rasterize — raises RasterizerError on bad/malicious PDF (permanent failure)
     logger.info("Document %s: rasterizing PDF", document_id)
     pages = await rasterizer.rasterize_document(pdf_bytes, document_id)
     logger.info("Document %s: rasterized %d page(s)", document_id, len(pages))
 
-    # 5. Apply forensic stamp, upload each page + thumbnail, insert DB records
+    # Apply forensic stamp, upload each page + thumbnail, insert DB records
     for page in pages:
         stamped = watermark.apply_forensic_stamp(
             page.image_bytes, document_id, page.page_number
@@ -199,7 +249,7 @@ async def process_document_with_session(
         )
         db.add(db_page)
 
-    # 6. Mark ready
+    # Mark ready
     doc.status = "ready"
     doc.page_count = len(pages)
     await db.commit()

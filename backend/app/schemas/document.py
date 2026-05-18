@@ -29,6 +29,7 @@ class DocumentSummary(BaseModel):
     group_id: Optional[uuid.UUID] = None
     group_name: Optional[str] = None
     group_color: Optional[str] = None
+    file_type: str = "pdf"
 
     model_config = {"from_attributes": True}
 

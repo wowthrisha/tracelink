@@ -247,3 +247,52 @@ async def other_document(db_session):
     await db_session.commit()
     await db_session.refresh(doc)
     return doc
+
+
+# ── Phase 5: Text document fixtures ──────────────────────────────────────────
+
+@pytest.fixture
+def sample_txt_bytes() -> bytes:
+    return b"Hello, SecureDoc!\nLine 2\nLine 3\n"
+
+
+@pytest.fixture
+def sample_md_bytes() -> bytes:
+    return b"# Heading\n\nSome **bold** text.\n\n- item 1\n- item 2\n"
+
+
+@pytest.fixture
+def sample_log_bytes() -> bytes:
+    return b"2026-01-01 INFO  Server started\n2026-01-01 DEBUG Request received\n"
+
+
+@pytest_asyncio.fixture
+async def ready_text_document(db_session):
+    """A ready .txt document with 2 chunks (200 lines at 100/chunk)."""
+    lines = "\n".join(f"line {i}" for i in range(1, 201))
+    doc = Document(
+        id=uuid.uuid4(),
+        filename="notes.txt",
+        storage_key=f"originals/{uuid.uuid4()}.txt",
+        status="ready",
+        file_type="txt",
+        page_count=2,  # 200 lines / 100 per chunk = 2 chunks
+        file_size_bytes=len(lines.encode()),
+        user_id=uuid.UUID(TEST_USER_ID),
+    )
+    db_session.add(doc)
+    await db_session.commit()
+    await db_session.refresh(doc)
+    return doc, lines
+
+
+@pytest_asyncio.fixture
+async def active_text_link(db_session, ready_text_document):
+    doc, _ = ready_text_document
+    link_svc = LinkService()
+    link = await link_svc.create_link(
+        db_session,
+        document_id=str(doc.id),
+        label="Text test link",
+    )
+    return link, doc

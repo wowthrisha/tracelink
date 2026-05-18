@@ -137,6 +137,13 @@ link_cache: _TTLCache = _TTLCache(maxsize=2000, ttl_seconds=LINK_TTL_SEC)
 doc_cache: _TTLCache = _TTLCache(maxsize=1000, ttl_seconds=DOC_TTL_SEC)
 page_cache: _TTLCache = _TTLCache(maxsize=10000, ttl_seconds=PAGE_TTL_SEC)
 
+# Text content cache — stores decoded text strings keyed by storage_key.
+# TTL matches PAGE_TTL_SEC (5 min): text content is immutable after processing.
+# Max 100 entries: text files can be large (~MB each); 100 entries is ~100 MB worst-case.
+# Files larger than 5 MB are NOT cached (caller must skip the put call).
+TEXT_CONTENT_MAX_BYTES = 5 * 1024 * 1024  # 5 MB decoded text
+text_content_cache: _TTLCache = _TTLCache(maxsize=100, ttl_seconds=PAGE_TTL_SEC)
+
 
 # ── Public helpers ────────────────────────────────────────────────────────────
 
@@ -160,7 +167,8 @@ def invalidate_doc_entries(doc_id: str) -> None:
 
 
 def clear_all_caches() -> None:
-    """Flush all three caches.  Called in tests to prevent cross-test pollution."""
+    """Flush all caches.  Called in tests to prevent cross-test pollution."""
     link_cache.clear()
     doc_cache.clear()
     page_cache.clear()
+    text_content_cache.clear()

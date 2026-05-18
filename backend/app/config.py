@@ -72,6 +72,16 @@ class Settings(BaseSettings):
     # this are rejected with a deterministic error (prevents PDF-bomb DoS).
     rasterizer_timeout_sec: int = 300
 
+    # Text document settings (Phase 5)
+    # Lines served per chunk in the text viewer. 100 lines ≈ ~8 KB per request.
+    text_lines_per_chunk: int = 100
+    # Maximum size allowed for text file uploads (separate from max_upload_mb).
+    max_text_size_mb: int = 10
+
+    @property
+    def max_text_size_bytes(self) -> int:
+        return self.max_text_size_mb * 1024 * 1024
+
     @property
     def billing_enabled(self) -> bool:
         return bool(self.stripe_secret_key)

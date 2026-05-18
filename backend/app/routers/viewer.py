@@ -21,6 +21,7 @@ from app.services.policy import enforcer as policy_enforcer
 from app.services.viewer_cache import (
     link_cache, doc_cache, page_cache,
     LinkSnapshot, DocSnapshot, PageSnapshot,
+    text_content_cache, TEXT_CONTENT_MAX_BYTES,
 )
 from app.services.page_cache import (
     fetch_page_bytes, store_page_bytes,
@@ -222,6 +223,7 @@ async def validate_link(
         "document_filename": doc.filename,
         "page_count": doc.page_count or 0,
         "doc_status": doc.status,  # lets the viewer show meaningful state when not yet ready
+        "doc_type": getattr(doc, "file_type", "pdf") or "pdf",  # pdf | txt | md | log
         "watermark_text": watermark_text if permissions_dict.get("watermark_enabled", True) else None,
         "link_id": str(link.id),
         "expires_at": link.expires_at.isoformat() if link.expires_at else None,
@@ -499,5 +501,170 @@ async def get_thumb(
             "Cache-Control": "no-store, no-cache, must-revalidate",
             "X-Content-Type-Options": "nosniff",
             "Content-Disposition": "inline",
+        },
+    )
+
+
+@router.get("/text/{link_token}/{chunk_number}")
+@limiter.limit("120/minute")
+async def get_text_chunk(
+    request: Request,
+    link_token: str,
+    chunk_number: int,
+    session_id: Optional[str] = Query(None),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Serve one chunk of a text document (.txt, .md, .log) as JSON.
+
+    Security model mirrors /page:
+      - Requires valid session_id
+      - Validates link revocation and expiry on every request
+      - Enforces IP allowlist
+      - Logs analytics event (page_viewed with chunk_number as page_number)
+      - Never returns raw HTML — content is a plain text string that the React
+        frontend renders via auto-escaping JSX text nodes (no innerHTML)
+
+    Response shape:
+      {
+        "content":      str,   # text content of the requested chunk
+        "chunk_number": int,   # 1-indexed chunk number (echoed back)
+        "total_chunks": int,   # total chunks in this document
+        "doc_type":     str,   # "txt" | "md" | "log"
+        "watermark_text": str  # session-specific watermark string
+      }
+    """
+    from fastapi.responses import JSONResponse
+    from app.services.text_processor import decode_text_safe, chunk_text
+    from app.config import settings
+
+    if not session_id:
+        raise HTTPException(status_code=400, detail="session_id is required")
+
+    if chunk_number < 1:
+        raise HTTPException(status_code=400, detail="chunk_number must be ≥ 1")
+
+    # ── Link metadata (TTL-cached, 10 s) ──────────────────────────────────────
+    link_snap: Optional[LinkSnapshot] = link_cache.get(link_token)
+    if link_snap is None:
+        _link_row = await db.execute(
+            select(ShareLink).where(ShareLink.token == link_token)
+        )
+        _link = _link_row.scalar_one_or_none()
+        if _link is None:
+            raise HTTPException(status_code=404, detail="Link not found")
+        link_snap = LinkSnapshot(
+            id=_link.id,
+            token=_link.token,
+            document_id=_link.document_id,
+            revoked_at=_link.revoked_at,
+            expires_at=_link.expires_at,
+            ip_allowlist=_link.ip_allowlist,
+        )
+        link_cache.put(link_token, link_snap)
+
+    now = datetime.now(timezone.utc)
+    _check_link_active(link_snap, now)
+
+    ip = request.client.host if request.client else None
+    if link_snap.ip_allowlist:
+        if not policy_enforcer.ip_is_allowed(ip, link_snap.ip_allowlist):
+            raise HTTPException(status_code=403, detail="Access denied from this IP")
+
+    # ── Document metadata (TTL-cached, 60 s) ──────────────────────────────────
+    _doc_key = str(link_snap.document_id)
+    doc_snap: Optional[DocSnapshot] = doc_cache.get(_doc_key)
+    if doc_snap is None:
+        _doc_row = await db.execute(
+            select(Document).where(Document.id == link_snap.document_id)
+        )
+        _doc = _doc_row.scalar_one_or_none()
+        if _doc is None:
+            raise HTTPException(status_code=404, detail="Document not found")
+        doc_snap = DocSnapshot(id=_doc.id, status=_doc.status)
+        if _doc.status == "ready":
+            doc_cache.put(_doc_key, doc_snap)
+    _check_doc_ready(doc_snap)
+
+    # ── Verify this is a text document ────────────────────────────────────────
+    # Fetch the full document to get file_type + storage_key + page_count.
+    # This is a small extra DB read compared to the PDF path, but text documents
+    # don't use the DocumentPage table so there's no page-level cache to use.
+    doc_row = await db.execute(
+        select(Document).where(Document.id == link_snap.document_id)
+    )
+    doc = doc_row.scalar_one_or_none()
+    if doc is None:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    file_type = getattr(doc, "file_type", "pdf") or "pdf"
+    if file_type not in ("txt", "md", "log"):
+        raise HTTPException(
+            status_code=400,
+            detail="This endpoint is for text documents only. Use /api/viewer/page for PDFs.",
+        )
+
+    total_chunks = doc.page_count or 1
+    if chunk_number > total_chunks:
+        raise HTTPException(status_code=404, detail="Chunk not found")
+
+    # ── Text content: process-local cache → storage ───────────────────────────
+    # Only raw decoded text is cached — the session-specific watermark_text is
+    # added to the response after the cache hit (same pattern as page images).
+    cached_text: Optional[str] = text_content_cache.get(doc.storage_key)
+    if cached_text is None:
+        storage = get_storage_service()
+        try:
+            raw_bytes = await storage.download_bytes(doc.storage_key)
+        except Exception as exc:
+            logger.error(
+                "text_storage_failed doc=%s key=%r error=%s",
+                doc.id, doc.storage_key, exc,
+            )
+            raise HTTPException(status_code=503, detail="Text content temporarily unavailable")
+        cached_text = decode_text_safe(raw_bytes)
+        # Only cache files within the configured size limit to protect memory
+        if len(cached_text) <= TEXT_CONTENT_MAX_BYTES:
+            text_content_cache.put(doc.storage_key, cached_text)
+
+    # ── Chunk the text and return the requested slice ────────────────────────
+    chunks = chunk_text(cached_text, settings.text_lines_per_chunk)
+    total_chunks = len(chunks)
+    if chunk_number > total_chunks:
+        raise HTTPException(status_code=404, detail="Chunk not found")
+
+    chunk_content = chunks[chunk_number - 1]
+
+    # ── Session heartbeat ─────────────────────────────────────────────────────
+    if session_id:
+        ip_hash = hash_value(ip) if ip else None
+        await policy_enforcer.upsert_session(db, session_id, link_snap.id, ip_hash=ip_hash)
+
+    # ── Analytics event ───────────────────────────────────────────────────────
+    now_str = now.strftime("%Y-%m-%d")
+    watermark_text = f"anonymous · {now_str} · sess:{session_id[:6]}"
+
+    await analytics_svc.log_event(
+        db,
+        link_id=link_snap.id,
+        event_type="page_viewed",
+        page_number=chunk_number,
+        session_id=session_id,
+        ip=ip,
+        user_agent=request.headers.get("user-agent"),
+        commit=True,
+    )
+
+    return JSONResponse(
+        content={
+            "content": chunk_content,
+            "chunk_number": chunk_number,
+            "total_chunks": total_chunks,
+            "doc_type": file_type,
+            "watermark_text": watermark_text,
+        },
+        headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate",
+            "X-Content-Type-Options": "nosniff",
         },
     )

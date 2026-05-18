@@ -29,7 +29,18 @@ from app.models.billing import UserBilling, PLAN_PRO
 
 router = APIRouter(prefix="/api/documents", tags=["documents"])
 
-ALLOWED_CONTENT_TYPES = {"application/pdf"}
+# Content-types accepted at the upload boundary.
+# Extension-based detection (in detect_file_type) is the primary signal.
+ALLOWED_CONTENT_TYPES = {
+    "application/pdf",
+    "text/plain",
+    "text/markdown",
+    "text/x-log",
+    "text/x-log-file",
+    # Some browsers send application/octet-stream for .txt/.md/.log files;
+    # extension + binary-check inside detect_file_type disambiguates them.
+    "application/octet-stream",
+}
 
 
 async def _run_demo_processing(document_id: str) -> None:
@@ -114,25 +125,46 @@ async def upload_document(
     # Check free-plan document quota before accepting the upload
     await _check_upload_quota(db, user_uuid)
 
-    # Validate content type
+    from app.services.text_processor import detect_file_type, SUPPORTED_TEXT_EXTENSIONS
+
+    # Reject obviously unsupported content-types upfront (before reading bytes)
     if file.content_type not in ALLOWED_CONTENT_TYPES:
-        raise HTTPException(status_code=400, detail="File must be a PDF")
+        raise HTTPException(
+            status_code=400,
+            detail="Unsupported file type. Supported: .pdf, .txt, .md, .log",
+        )
 
     file_bytes = await file.read()
 
-    # Size check
-    if len(file_bytes) > settings.max_upload_bytes:
-        raise HTTPException(
-            status_code=413, detail=f"File exceeds {settings.max_upload_mb}MB limit"
-        )
+    # Determine file type — extension-first, content-type fallback
+    original_filename = filename or file.filename or "document"
+    try:
+        file_type = detect_file_type(original_filename, file.content_type or "", file_bytes)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
-    # Magic bytes check
-    if not file_bytes[:5] == b"%PDF-":
-        raise HTTPException(status_code=400, detail="File must be a PDF")
+    # Size checks — text files have their own (smaller) limit
+    if file_type == "pdf":
+        if len(file_bytes) > settings.max_upload_bytes:
+            raise HTTPException(
+                status_code=413, detail=f"File exceeds {settings.max_upload_mb}MB limit"
+            )
+        # PDF magic bytes validation
+        if file_bytes[:5] != b"%PDF-":
+            raise HTTPException(status_code=400, detail="File must be a valid PDF")
+    else:
+        # Text file
+        if len(file_bytes) > settings.max_text_size_bytes:
+            raise HTTPException(
+                status_code=413,
+                detail=f"Text file exceeds {settings.max_text_size_mb}MB limit",
+            )
 
     doc_id = uuid.uuid4()
-    storage_key = f"originals/{doc_id}.pdf"
-    original_filename = filename or file.filename or "document.pdf"
+    storage_key = f"originals/{doc_id}.{file_type}"
+    # Provide sensible default extension in filename if none given
+    if "." not in original_filename:
+        original_filename = f"{original_filename}.{file_type}"
 
     # Validate group_id if provided (must belong to this user)
     resolved_group_id = None
@@ -151,9 +183,17 @@ async def upload_document(
         except ValueError:
             raise HTTPException(status_code=400, detail="Invalid group_id format")
 
+    _ct_map = {
+        "pdf": "application/pdf",
+        "txt": "text/plain",
+        "md": "text/markdown",
+        "log": "text/plain",
+    }
     storage = get_storage_service()
     try:
-        await storage.upload_file(file_bytes, storage_key, content_type="application/pdf")
+        await storage.upload_file(
+            file_bytes, storage_key, content_type=_ct_map.get(file_type, "application/octet-stream")
+        )
     except Exception as exc:
         logger.error("Storage upload failed for key %s: %s", storage_key, exc)
         raise HTTPException(status_code=502, detail="Storage upload failed. Please try again.")
@@ -163,6 +203,7 @@ async def upload_document(
         filename=original_filename,
         storage_key=storage_key,
         status="uploaded",
+        file_type=file_type,
         file_size_bytes=len(file_bytes),
         group_id=resolved_group_id,
         user_id=user_uuid,

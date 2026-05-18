@@ -973,7 +973,7 @@
       useEffect(() => { fetchDocs(); fetchGroups(); }, []);
 
       const MAX_POLL_ATTEMPTS = 150; // 150 × 2s = 5 minutes before giving up
-      const startPoll = useCallback((docId) => {
+      const startPoll = useCallback((docId, fileType = 'pdf') => {
         clearInterval(pollRef.current);
         let attempts = 0;
         pollRef.current = setInterval(async () => {
@@ -990,8 +990,11 @@
               clearInterval(pollRef.current);
               setUploading(false);
               await fetchDocs();
-              if (s.status === 'ready') { setUploadDone(true); toast(`Upload complete — ${s.page_count} pages ready`, 'success'); }
-              else toast(`Processing error: ${s.error_message || 'unknown'}`, 'error');
+              if (s.status === 'ready') {
+                setUploadDone(true);
+                const unit = fileType === 'pdf' ? 'pages' : 'chunks';
+                toast(`Upload complete — ${s.page_count} ${unit} ready`, 'success');
+              } else toast(`Processing error: ${s.error_message || 'unknown'}`, 'error');
             }
           } catch { }
         }, 2000);
@@ -999,20 +1002,32 @@
 
       useEffect(() => () => clearInterval(pollRef.current), []);
 
+      const _detectFileType = (file) => {
+        const name = file.name.toLowerCase();
+        if (name.endsWith('.pdf')) return 'pdf';
+        if (name.endsWith('.txt')) return 'txt';
+        if (name.endsWith('.md')) return 'md';
+        if (name.endsWith('.log')) return 'log';
+        return null;
+      };
+
       const simulate = async (file) => {
         if (!file) return;
-        if (!file.name.toLowerCase().endsWith('.pdf') && file.type !== 'application/pdf') {
-          toast('Only PDF files are supported', 'error'); return;
+        const fileType = _detectFileType(file);
+        if (!fileType) {
+          toast('Supported formats: PDF, TXT, MD, LOG', 'error'); return;
         }
-        if (file.size > 100 * 1024 * 1024) {
-          toast('File exceeds 100 MB limit.', 'error'); return;
+        const sizeLimit = fileType === 'pdf' ? 100 * 1024 * 1024 : 10 * 1024 * 1024;
+        const sizeLabelMB = fileType === 'pdf' ? 100 : 10;
+        if (file.size > sizeLimit) {
+          toast(`File exceeds ${sizeLabelMB} MB limit.`, 'error'); return;
         }
         setUploading(true); setProgress(0); setUploadDone(false);
         try {
           const res = await window.SecureDocAPI.uploadDocument(file, p => setProgress(p), selectedGroupId || null);
           setUploadedDoc(res);
-          toast('Upload complete — converting pages to images', 'info');
-          startPoll(res.id);
+          toast(fileType === 'pdf' ? 'Upload complete — converting pages to images' : 'Upload complete — preparing text document', 'info');
+          startPoll(res.id, fileType);
           await fetchDocs();
         } catch (e) { setUploading(false); toast(e.detail || 'Upload failed', 'error'); }
       };
@@ -1108,16 +1123,16 @@
                     background: dragging ? C.accentBg : 'transparent',
                     cursor: 'pointer', transition: 'all .15s'
                   }}>
-                  <input ref={fileRef} type="file" accept=".pdf" style={{ display: 'none' }} onChange={e => simulate(e.target.files[0])} />
+                  <input ref={fileRef} type="file" accept=".pdf,.txt,.md,.log" style={{ display: 'none' }} onChange={e => simulate(e.target.files[0])} />
                   <div style={{
                     width: 36, height: 36, borderRadius: 8, background: C.accentBg,
                     border: `1px solid ${C.borderMed}`, display: 'flex', alignItems: 'center',
                     justifyContent: 'center', margin: '0 auto 10px', fontSize: 16, color: C.teal2
                   }}>⊕</div>
                   <div style={{ fontSize: 13, color: C.textSecondary, fontWeight: 600, marginBottom: 4 }}>
-                    Drop PDF here or <span style={{ color: C.teal2 }}>click to browse</span>
+                    Drop file here or <span style={{ color: C.teal2 }}>click to browse</span>
                   </div>
-                  <div style={{ ...mono, fontSize: 10, color: C.textMuted }}>PDF · Max 50 MB · Converted to images server-side</div>
+                  <div style={{ ...mono, fontSize: 10, color: C.textMuted }}>PDF · TXT · MD · LOG · PDF max 100 MB · Text max 10 MB</div>
                 </div>
                 {/* Group selector for upload */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -1594,6 +1609,9 @@
       const [gateInfo, setGateInfo] = useState(null);
       const [gateError, setGateError] = useState(null);
       const [pendingToken, setPendingToken] = useState(null);
+      const [textContent, setTextContent] = useState('');
+      const [textLoading, setTextLoading] = useState(false);
+      const [textError, setTextError] = useState(null);
 
       // ── Page image cache ─────────────────────────────────────────────────────
       // Blob URLs are stored per "token:page" key so navigating back to a page
@@ -1676,9 +1694,24 @@
           .catch(() => {});
       }, []);
 
+      const loadTextChunk = useCallback(async (token, chunkNum, sessionId) => {
+        if (!token || !sessionId) return;
+        setTextLoading(true);
+        setTextError(null);
+        try {
+          const data = await window.SecureDocAPI.getTextChunk(token, chunkNum, sessionId);
+          setTextContent(data.content);
+        } catch (e) {
+          setTextError(e?.detail || 'Unable to load content');
+        } finally {
+          setTextLoading(false);
+        }
+      }, []);
+
       const docName = doc?.filename || doc?.name || session?.document_filename || 'Document';
       const docId = doc?.id || '';
       const PAGE_COUNT = session?.page_count || 1;
+      const isTextDoc = !!(session?.doc_type && session.doc_type !== 'pdf');
 
       const doValidate = async (token, email, password) => {
         setInit(true);
@@ -1782,6 +1815,7 @@
       // the frontend only logs client-side events (print_attempt, copy_attempt, etc.)
       useEffect(() => {
         if (!session) return;
+        if (session.doc_type && session.doc_type !== 'pdf') return; // handled by text effect
         // Skip network call entirely when document isn't ready yet — show status inline
         if (session.doc_status && session.doc_status !== 'ready') {
           const msgs = {
@@ -1798,23 +1832,42 @@
         if (page === session.page_count) {
           window.SecureDocAPI?.logEvent(session.link_token, session.session_id, 'completed');
         }
-      }, [session?.link_token, session?.session_id, page, session?.doc_status, loadPage]);
+      }, [session?.link_token, session?.session_id, page, session?.doc_status, session?.doc_type, loadPage]);
 
       // Prefetch the next and previous pages in the background as soon as the
       // current page has finished loading, so navigation feels instantaneous.
       useEffect(() => {
-        if (!session || imgLoading) return;
+        if (!session || imgLoading || isTextDoc) return;
         prefetchPage(session.link_token, page + 1, session.session_id, PAGE_COUNT);
         if (page > 1) prefetchPage(session.link_token, page - 1, session.session_id, PAGE_COUNT);
-      }, [session?.link_token, session?.session_id, page, imgLoading, PAGE_COUNT, prefetchPage]);
+      }, [session?.link_token, session?.session_id, page, imgLoading, PAGE_COUNT, prefetchPage, isTextDoc]);
 
       // Eagerly prefetch page 2 in parallel with page 1 the moment a session
       // is established, so forward navigation feels instant on page 1.
       useEffect(() => {
-        if (!session) return;
+        if (!session || isTextDoc) return;
         const pc = session.page_count || 1;
         if (pc >= 2) prefetchPage(session.link_token, 2, session.session_id, pc);
-      }, [session?.link_token, session?.session_id]); // intentionally omit prefetchPage — stable ref
+      }, [session?.link_token, session?.session_id, session?.doc_type]); // intentionally omit prefetchPage — stable ref
+
+      // Load text chunk — only runs for text documents (txt/md/log)
+      useEffect(() => {
+        if (!session || !isTextDoc) return;
+        if (session.doc_status && session.doc_status !== 'ready') {
+          const msgs = {
+            uploaded: 'Document is queued for processing — please wait and refresh.',
+            processing: 'Document is still processing — please wait a moment and refresh.',
+            error: 'Document processing failed. Please contact the document owner.',
+          };
+          setTextError(msgs[session.doc_status] || `Document not available (${session.doc_status})`);
+          return;
+        }
+        setTextError(null);
+        loadTextChunk(session.link_token, page, session.session_id);
+        if (page === session.page_count) {
+          window.SecureDocAPI?.logEvent(session.link_token, session.session_id, 'completed');
+        }
+      }, [session?.link_token, session?.session_id, page, session?.doc_status, session?.doc_type, loadTextChunk]);
 
       const goNext = useCallback(() => setPage(p => Math.min(p + 1, PAGE_COUNT)), [PAGE_COUNT]);
       const goPrev = useCallback(() => setPage(p => Math.max(p - 1, 1)), []);
@@ -1871,19 +1924,21 @@
           </Header>
 
           <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
-            {/* Thumbnail strip */}
-            <div className="sidebar-mobile-hidden" style={{
-              width: 82, background: C.surfaceAlt, borderRight: `1px solid ${C.border}`,
-              overflow: 'auto', padding: '10px 6px', display: 'flex', flexDirection: 'column', gap: 5, flexShrink: 0
-            }}>
-              {Array.from({ length: PAGE_COUNT }, (_, i) => i + 1).map(p => (
-                <PageThumb
-                  key={p} p={p} active={page === p} onClick={() => setPage(p)}
-                  token={session?.link_token} sessionId={session?.session_id}
-                  docReady={session?.doc_status === 'ready'}
-                />
-              ))}
-            </div>
+            {/* Thumbnail strip — PDF only */}
+            {!isTextDoc && (
+              <div className="sidebar-mobile-hidden" style={{
+                width: 82, background: C.surfaceAlt, borderRight: `1px solid ${C.border}`,
+                overflow: 'auto', padding: '10px 6px', display: 'flex', flexDirection: 'column', gap: 5, flexShrink: 0
+              }}>
+                {Array.from({ length: PAGE_COUNT }, (_, i) => i + 1).map(p => (
+                  <PageThumb
+                    key={p} p={p} active={page === p} onClick={() => setPage(p)}
+                    token={session?.link_token} sessionId={session?.session_id}
+                    docReady={session?.doc_status === 'ready'}
+                  />
+                ))}
+              </div>
+            )}
 
             {/* Main canvas */}
             <div style={{
@@ -1926,7 +1981,7 @@
                   Opening secure viewer…
                 </div>
               )}
-              {!initializing && session && (
+              {!initializing && session && !isTextDoc && (
                 <div className="viewer-page" style={{
                   position: 'relative', width: `${zoom * 5.9}px`, maxWidth: '100%',
                   aspectRatio: '8.5/11', flexShrink: 0, transition: 'width .25s ease',
@@ -1965,6 +2020,63 @@
                   }} />
                 </div>
               )}
+
+              {!initializing && session && isTextDoc && (
+                <div className="viewer-page" style={{
+                  position: 'relative', width: '100%', maxWidth: 800, flexShrink: 0,
+                  borderRadius: 2, overflow: 'hidden', boxShadow: '0 8px 48px rgba(0,0,0,0.7)',
+                  background: C.surface
+                }}
+                  onContextMenu={e => e.preventDefault()}>
+                  {textLoading && (
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '40px 24px', flexDirection: 'column', gap: 10 }}>
+                      <span style={{ display: 'inline-block', width: 22, height: 22, border: `1.5px solid ${C.border}`, borderTop: `1.5px solid ${C.teal2}`, borderRadius: '50%', animation: 'spin .65s linear infinite' }} />
+                      <span style={{ ...mono, fontSize: 10, color: C.textMuted }}>Loading chunk {page}…</span>
+                    </div>
+                  )}
+                  {!textLoading && textError && (
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '40px 24px', flexDirection: 'column', gap: 10 }}>
+                      <span style={{ fontSize: 22, color: 'rgba(224,154,69,0.7)' }}>⚠</span>
+                      <span style={{ ...mono, fontSize: 11, color: C.textMuted, textAlign: 'center', lineHeight: 1.5 }}>{textError}</span>
+                    </div>
+                  )}
+                  {!textLoading && !textError && (
+                    <pre style={{
+                      margin: 0, padding: '20px 24px',
+                      fontFamily: 'ui-monospace, "SFMono-Regular", Consolas, monospace',
+                      fontSize: 13, lineHeight: 1.7, color: '#e2e8f0',
+                      whiteSpace: 'pre-wrap', wordBreak: 'break-word', overflowX: 'hidden',
+                      userSelect: session?.permissions?.can_copy ? 'text' : 'none',
+                      WebkitUserSelect: session?.permissions?.can_copy ? 'text' : 'none',
+                      filter: blurred ? 'blur(14px)' : 'none', transition: 'filter .3s',
+                      minHeight: 200
+                    }}>
+                      {textContent}
+                    </pre>
+                  )}
+                  {/* watermark overlay — pointer-events:none so it doesn't block selection */}
+                  {session?.watermark_text && (
+                    <div style={{
+                      position: 'absolute', inset: 0, pointerEvents: 'none',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      overflow: 'hidden', userSelect: 'none'
+                    }}>
+                      <div style={{
+                        ...mono, fontSize: 16, fontWeight: 700,
+                        color: 'rgba(90,200,208,0.18)',
+                        transform: 'rotate(-30deg)', whiteSpace: 'nowrap', letterSpacing: '0.05em'
+                      }}>
+                        {session.watermark_text}
+                      </div>
+                    </div>
+                  )}
+                  {blurred && (
+                    <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(6,8,9,0.4)' }}>
+                      <div style={{ ...mono, fontSize: 11, color: C.teal2, padding: '8px 16px', background: 'rgba(6,8,9,0.85)', borderRadius: 6, border: `1px solid ${C.borderMed}` }}>Focus window to resume</div>
+                    </div>
+                  )}
+                </div>
+              )}
               {!initializing && !session && (
                 <div style={{ textAlign: 'center', color: C.textMuted, marginTop: 40 }}>
                   <div style={{ fontSize: 13, marginBottom: 8 }}>Document not ready for viewing</div>
@@ -1989,23 +2101,27 @@
                 </div>
                 <Btn variant="ghost" size="sm" onClick={goNext}
                   style={{ opacity: page === PAGE_COUNT ? 0.3 : 1, padding: '5px 10px', fontSize: 13 }}>›</Btn>
-                <div style={{ width: 1, height: 18, background: C.border, margin: '0 4px' }} />
-                <Btn variant="ghost" size="sm" onClick={() => setZoom(z => Math.max(50, z - 15))}
-                  style={{ padding: '5px 9px', fontSize: 14 }}>−</Btn>
-                <div style={{
-                  ...mono, fontSize: 11, color: C.textMuted,
-                  minWidth: 40, textAlign: 'center', cursor: 'pointer'
-                }}
-                  onClick={() => setZoom(100)}>{zoom}%</div>
-                <Btn variant="ghost" size="sm" onClick={() => setZoom(z => Math.min(200, z + 15))}
-                  style={{ padding: '5px 9px', fontSize: 14 }}>+</Btn>
-                <Btn variant="ghost" size="sm" onClick={() => setZoom(100)}
-                  style={{ fontSize: 10, padding: '5px 8px', color: C.teal3 }}>FIT</Btn>
+                {!isTextDoc && (
+                  <>
+                    <div style={{ width: 1, height: 18, background: C.border, margin: '0 4px' }} />
+                    <Btn variant="ghost" size="sm" onClick={() => setZoom(z => Math.max(50, z - 15))}
+                      style={{ padding: '5px 9px', fontSize: 14 }}>−</Btn>
+                    <div style={{
+                      ...mono, fontSize: 11, color: C.textMuted,
+                      minWidth: 40, textAlign: 'center', cursor: 'pointer'
+                    }}
+                      onClick={() => setZoom(100)}>{zoom}%</div>
+                    <Btn variant="ghost" size="sm" onClick={() => setZoom(z => Math.min(200, z + 15))}
+                      style={{ padding: '5px 9px', fontSize: 14 }}>+</Btn>
+                    <Btn variant="ghost" size="sm" onClick={() => setZoom(100)}
+                      style={{ fontSize: 10, padding: '5px 8px', color: C.teal3 }}>FIT</Btn>
+                  </>
+                )}
               </div>
 
               {/* Keyboard hint */}
               <div style={{ ...mono, fontSize: 9, color: C.textDim, letterSpacing: '0.5px' }}>
-                ← → arrow keys to navigate pages
+                {isTextDoc ? '← → arrow keys to navigate chunks' : '← → arrow keys to navigate pages'}
               </div>
             </div>
 
