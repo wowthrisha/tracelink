@@ -20,11 +20,18 @@ celery_app.conf.update(
     enable_utc=True,
     task_track_started=True,
     task_acks_late=True,
+    # Re-queue task if the worker process is killed mid-execution so the document
+    # does not remain stuck in "processing" permanently (pairs with acks_late=True).
+    task_reject_on_worker_lost=True,
     worker_prefetch_multiplier=1,
     beat_schedule={
         "purge-stale-sessions-every-30-min": {
             "task": "securedoc.purge_stale_sessions",
             "schedule": 1800,  # seconds (30 minutes)
+        },
+        "requeue-orphaned-uploads-every-5-min": {
+            "task": "securedoc.requeue_orphaned_uploads",
+            "schedule": 300,  # seconds (5 minutes)
         },
     },
 )

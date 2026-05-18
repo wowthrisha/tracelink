@@ -1880,6 +1880,7 @@
                 <PageThumb
                   key={p} p={p} active={page === p} onClick={() => setPage(p)}
                   token={session?.link_token} sessionId={session?.session_id}
+                  docReady={session?.doc_status === 'ready'}
                 />
               ))}
             </div>
@@ -2048,7 +2049,7 @@
       return { acquire: () => new Promise(resolve => { pending.push({ resolve }); drain(); }) };
     })();
 
-    function PageThumb({ p, active, onClick, token, sessionId }) {
+    function PageThumb({ p, active, onClick, token, sessionId, docReady }) {
       const [hov, setHov] = useState(false);
       const [thumbSrc, setThumbSrc] = useState(null);
       const [thumbError, setThumbError] = useState(false);
@@ -2058,7 +2059,7 @@
       // browser has finished loading (or erroring), preventing the queue from
       // overflowing the backend with back-to-back requests.
       React.useEffect(() => {
-        if (!token || !sessionId) return;
+        if (!token || !sessionId || !docReady) return;
         let cancelled = false;
         setThumbError(false);
         setThumbSrc(null);

@@ -832,6 +832,96 @@ class TestEndpointRegressions:
         await engine.dispose()
         assert result["deleted"] >= 1
 
+    async def test_requeue_orphaned_uploads_requeues_stale_uploaded_doc(
+        self, db_session
+    ):
+        """requeue_orphaned_uploads must re-queue process_document for any document
+        that has been stuck in 'uploaded' status for longer than 10 minutes."""
+        from app.workers.tasks import _requeue_orphaned_uploads_async
+
+        orphan = Document(
+            id=uuid.uuid4(),
+            filename="orphan.pdf",
+            storage_key=f"originals/{uuid.uuid4()}.pdf",
+            status="uploaded",
+            file_size_bytes=1024,
+            user_id=uuid.UUID(TEST_USER_ID),
+            updated_at=datetime.now(timezone.utc) - timedelta(minutes=15),
+        )
+        db_session.add(orphan)
+        await db_session.commit()
+
+        engine = create_async_engine(
+            "sqlite+aiosqlite:///./test_securedoc.db",
+            echo=False,
+            connect_args={"check_same_thread": False},
+        )
+        factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+
+        queued_ids = []
+        with patch("app.workers.tasks._get_db_session_factory", return_value=factory), \
+             patch("app.workers.tasks.process_document") as mock_task:
+            mock_task.delay = MagicMock(side_effect=lambda doc_id: queued_ids.append(doc_id))
+            result = await _requeue_orphaned_uploads_async()
+
+        await engine.dispose()
+        assert result["requeued"] >= 1
+        assert str(orphan.id) in queued_ids
+
+    async def test_requeue_orphaned_uploads_skips_recent_uploaded_doc(
+        self, db_session
+    ):
+        """Documents uploaded < 10 minutes ago must NOT be re-queued (still being processed)."""
+        from app.workers.tasks import _requeue_orphaned_uploads_async
+
+        recent = Document(
+            id=uuid.uuid4(),
+            filename="recent_upload.pdf",
+            storage_key=f"originals/{uuid.uuid4()}.pdf",
+            status="uploaded",
+            file_size_bytes=1024,
+            user_id=uuid.UUID(TEST_USER_ID),
+            updated_at=datetime.now(timezone.utc) - timedelta(minutes=2),
+        )
+        db_session.add(recent)
+        await db_session.commit()
+
+        engine = create_async_engine(
+            "sqlite+aiosqlite:///./test_securedoc.db",
+            echo=False,
+            connect_args={"check_same_thread": False},
+        )
+        factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+
+        queued_ids = []
+        with patch("app.workers.tasks._get_db_session_factory", return_value=factory), \
+             patch("app.workers.tasks.process_document") as mock_task:
+            mock_task.delay = MagicMock(side_effect=lambda doc_id: queued_ids.append(doc_id))
+            result = await _requeue_orphaned_uploads_async()
+
+        await engine.dispose()
+        assert str(recent.id) not in queued_ids
+
+    async def test_requeue_orphaned_uploads_skips_ready_doc(self, db_session, ready_document):
+        """Ready documents must never be re-queued."""
+        from app.workers.tasks import _requeue_orphaned_uploads_async
+
+        engine = create_async_engine(
+            "sqlite+aiosqlite:///./test_securedoc.db",
+            echo=False,
+            connect_args={"check_same_thread": False},
+        )
+        factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+
+        queued_ids = []
+        with patch("app.workers.tasks._get_db_session_factory", return_value=factory), \
+             patch("app.workers.tasks.process_document") as mock_task:
+            mock_task.delay = MagicMock(side_effect=lambda doc_id: queued_ids.append(doc_id))
+            await _requeue_orphaned_uploads_async()
+
+        await engine.dispose()
+        assert str(ready_document.id) not in queued_ids
+
     async def test_make_engine_sqlite_no_pool_settings(self):
         """SQLite engine must not set pool_pre_ping (not supported)."""
         engine = make_engine("sqlite+aiosqlite:///./test_engine.db")

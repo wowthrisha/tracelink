@@ -252,6 +252,57 @@ async def _purge_stale_sessions_async() -> dict:
     return {"deleted": deleted}
 
 
+@celery_app.task(name="securedoc.requeue_orphaned_uploads")
+def requeue_orphaned_uploads() -> dict:
+    """
+    Periodic safety-net task: re-queue process_document for any document that
+    has been stuck in 'uploaded' status for longer than 10 minutes.
+
+    This covers two failure modes:
+      1. The process_document.delay() call at upload time failed (e.g. Redis was
+         temporarily unreachable) — the document stays 'uploaded' forever.
+      2. The task was in-flight when the worker container was replaced (deploy),
+         and despite acks_late=True the task was not redelivered.
+
+    Run every 5 minutes via Celery Beat.  Safe to call concurrently — the worker
+    that picks up the re-queued task will see status='uploaded' and proceed
+    normally, or status='processing' (not yet stale) and skip.
+    """
+    return _run_async(_requeue_orphaned_uploads_async())
+
+
+async def _requeue_orphaned_uploads_async() -> dict:
+    from sqlalchemy import select
+    from app.models.document import Document
+
+    cutoff = datetime.now(timezone.utc) - timedelta(minutes=10)
+    session_factory = _get_db_session_factory()
+    requeued = 0
+    async with session_factory() as db:
+        result = await db.execute(
+            select(Document.id).where(
+                Document.status == "uploaded",
+                Document.updated_at < cutoff,
+            )
+        )
+        orphan_ids = [str(row[0]) for row in result.all()]
+
+    for doc_id in orphan_ids:
+        try:
+            process_document.delay(doc_id)  # process_document is defined below in this module
+            logger.info("requeue_orphaned_uploads: re-queued doc_id=%s", doc_id)
+            requeued += 1
+        except Exception as exc:
+            logger.error(
+                "requeue_orphaned_uploads: failed to re-queue doc_id=%s: %s",
+                doc_id, exc,
+            )
+
+    if requeued:
+        logger.info("requeue_orphaned_uploads: re-queued %d orphaned upload(s)", requeued)
+    return {"requeued": requeued}
+
+
 @celery_app.task(
     bind=True,
     max_retries=3,
