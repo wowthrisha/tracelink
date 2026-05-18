@@ -1,5 +1,4 @@
 import asyncio
-import collections
 import json
 import logging
 import time
@@ -23,6 +22,12 @@ from app.services.viewer_cache import (
     link_cache, doc_cache, page_cache,
     LinkSnapshot, DocSnapshot, PageSnapshot,
 )
+from app.services.page_cache import (
+    fetch_page_bytes, store_page_bytes,
+    fetch_thumb_bytes, store_thumb_bytes,
+    clear_local_page_cache, clear_local_thumb_cache,
+    clear_doc_from_local_cache,
+)
 from app.utils.crypto import hash_value
 from app.middleware.rate_limit import limiter
 
@@ -33,65 +38,30 @@ analytics_svc = AnalyticsService()
 
 logger = logging.getLogger(__name__)
 
-# ── In-process LRU cache for raw page bytes ────────────────────────────────────
-# Page bytes from storage are deterministic per storage_key.  Caching them avoids
-# a round-trip to S3/R2 on every viewer page request.  The visible watermark
-# (which embeds session_id / viewer email) is applied *after* the cache hit, so
-# no per-viewer data is ever stored here.
-#
-# Sizing: 50 docs × 60 pages × ~50 KB ≈ 150 MB worst-case; with LRU eviction at
-# 600 entries we keep only the hottest pages in memory.
-_PAGE_BYTES_CACHE: collections.OrderedDict = collections.OrderedDict()
-_PAGE_BYTES_CACHE_MAX = 600
 
-# Thumbnails are ~5 KB each; 2 000 entries ≈ 10 MB.  Larger cache budget because
-# thumbnails are loaded on every sidebar render for every page of every document.
-_THUMB_BYTES_CACHE: collections.OrderedDict = collections.OrderedDict()
-_THUMB_BYTES_CACHE_MAX = 2000
-
-
-def _page_cache_get(key: str) -> Optional[bytes]:
-    if key not in _PAGE_BYTES_CACHE:
-        return None
-    _PAGE_BYTES_CACHE.move_to_end(key)
-    return _PAGE_BYTES_CACHE[key]
-
-
-def _page_cache_put(key: str, value: bytes) -> None:
-    _PAGE_BYTES_CACHE[key] = value
-    _PAGE_BYTES_CACHE.move_to_end(key)
-    if len(_PAGE_BYTES_CACHE) > _PAGE_BYTES_CACHE_MAX:
-        _PAGE_BYTES_CACHE.popitem(last=False)
-
-
-def _thumb_cache_get(key: str) -> Optional[bytes]:
-    if key not in _THUMB_BYTES_CACHE:
-        return None
-    _THUMB_BYTES_CACHE.move_to_end(key)
-    return _THUMB_BYTES_CACHE[key]
-
-
-def _thumb_cache_put(key: str, value: bytes) -> None:
-    _THUMB_BYTES_CACHE[key] = value
-    _THUMB_BYTES_CACHE.move_to_end(key)
-    if len(_THUMB_BYTES_CACHE) > _THUMB_BYTES_CACHE_MAX:
-        _THUMB_BYTES_CACHE.popitem(last=False)
-
+# ── Cache helpers (backward-compatible wrappers for Phase 3 tests) ─────────────
+# The actual L1 byte caches live in app.services.page_cache (Phase 4).
+# These wrappers keep Phase 1/3 test imports working without change.
 
 def clear_page_cache() -> None:
-    """Flush the in-process page byte cache.  Called in tests to prevent cross-test pollution."""
-    _PAGE_BYTES_CACHE.clear()
+    """Flush the process-local page byte cache.  Called in tests."""
+    clear_local_page_cache()
 
 
 def clear_thumb_cache() -> None:
-    """Flush the in-process thumbnail byte cache.  Called in tests."""
-    _THUMB_BYTES_CACHE.clear()
+    """Flush the process-local thumbnail byte cache.  Called in tests."""
+    clear_local_thumb_cache()
 
 
 def clear_metadata_caches() -> None:
     """Flush the link/doc/page TTL metadata caches.  Called in tests."""
     from app.services.viewer_cache import clear_all_caches
     clear_all_caches()
+
+
+def clear_doc_bytes_cache(doc_id: str) -> None:
+    """Remove all L1 byte cache entries for a document.  Called on document delete."""
+    clear_doc_from_local_cache(doc_id)
 
 
 # ── Shared helpers ─────────────────────────────────────────────────────────────
@@ -333,22 +303,27 @@ async def get_page(
         )
         page_cache.put(_page_key, page_snap)
 
-    # Download base image with in-process LRU cache (avoids repeated S3/R2 round-trips).
-    # The visible watermark applied below is session-specific; only the raw bytes are cached.
+    # ── Page bytes: L1 (local) → L2 (Redis) → Storage ────────────────────────
+    # Security: all auth checks above are complete before any cache access.
+    # Only raw bytes (pre-watermark) are cached; the session-specific visible
+    # watermark is applied below, after the cache hit.
     storage = get_storage_service()
     t0 = time.perf_counter()
-    image_bytes = _page_cache_get(page_snap.storage_key)
-    cache_hit = image_bytes is not None
+
+    image_bytes, cache_source = await fetch_page_bytes(page_snap.storage_key)
+
     if image_bytes is None:
+        # Both L1 and L2 missed — fetch from storage, then populate both.
         try:
             image_bytes = await storage.download_bytes(page_snap.storage_key)
-            _page_cache_put(page_snap.storage_key, image_bytes)
+            await store_page_bytes(page_snap.storage_key, image_bytes)
         except Exception as exc:
             logger.error(
-                "Storage download failed for document %s page %d key %r: %s",
+                "storage_fallback_failed doc=%s page=%d key=%r error=%s",
                 link_snap.document_id, page_number, page_snap.storage_key, exc,
             )
             raise HTTPException(status_code=503, detail="Page asset temporarily unavailable")
+
     t1 = time.perf_counter()
 
     # Apply visible watermark — CPU-bound PIL work offloaded to thread pool so it
@@ -361,8 +336,8 @@ async def get_page(
     )
     t2 = time.perf_counter()
     logger.debug(
-        "page=%d cache_hit=%s fetch_ms=%.1f watermark_ms=%.1f",
-        page_number, cache_hit, (t1 - t0) * 1000, (t2 - t1) * 1000,
+        "page=%d cache_source=%s fetch_ms=%.1f watermark_ms=%.1f",
+        page_number, cache_source, (t1 - t0) * 1000, (t2 - t1) * 1000,
     )
 
     # Refresh session heartbeat (throttled: only writes if >30s since last update)
@@ -473,34 +448,40 @@ async def get_thumb(
         )
         page_cache.put(_page_key, page_snap)
 
-    # Thumbnail key is deterministic: thumbs/{doc_id}/{page:04d}.webp
+    # ── Thumbnail bytes: L1 → L2 → Storage ───────────────────────────────────
     thumb_key = f"thumbs/{link_snap.document_id}/{page_number:04d}.webp"
     storage = get_storage_service()
 
-    thumb_bytes = _thumb_cache_get(thumb_key)
+    thumb_bytes, thumb_source = await fetch_thumb_bytes(thumb_key)
     if thumb_bytes is None:
         try:
             thumb_bytes = await storage.download_bytes(thumb_key)
-            _thumb_cache_put(thumb_key, thumb_bytes)
+            await store_thumb_bytes(thumb_key, thumb_bytes)
+            thumb_source = "storage"
         except Exception:
-            # Thumbnail absent (pre-thumbnail document) — fall back to full-res page
+            # Thumbnail absent (pre-thumbnail document) — fall back to full-res page bytes.
             logger.debug(
-                "Thumbnail not found for document %s page %d — serving full-res fallback",
+                "thumb_missing doc=%s page=%d — serving full-res fallback",
                 link_snap.document_id, page_number,
             )
-            thumb_bytes = _page_cache_get(page_snap.storage_key)
+            thumb_bytes, thumb_source = await fetch_page_bytes(page_snap.storage_key)
             if thumb_bytes is None:
                 try:
                     thumb_bytes = await storage.download_bytes(page_snap.storage_key)
-                    _page_cache_put(page_snap.storage_key, thumb_bytes)
+                    await store_page_bytes(page_snap.storage_key, thumb_bytes)
+                    thumb_source = "storage"
                 except Exception as exc:
                     logger.error(
-                        "Storage download failed for fallback thumb key %r: %s",
+                        "storage_fallback_failed type=thumb key=%r error=%s",
                         page_snap.storage_key, exc,
                     )
                     raise HTTPException(
                         status_code=503, detail="Thumbnail asset temporarily unavailable"
                     )
+
+    logger.debug(
+        "thumb=%d cache_source=%s", page_number, thumb_source
+    )
 
     return FastAPIResponse(
         content=thumb_bytes,

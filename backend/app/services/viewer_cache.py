@@ -114,6 +114,13 @@ class _TTLCache:
     def invalidate(self, key: str) -> None:
         self._data.pop(key, None)
 
+    def invalidate_prefix(self, prefix: str) -> int:
+        """Remove all entries whose key starts with prefix. Returns count deleted."""
+        keys = [k for k in self._data if k.startswith(prefix)]
+        for k in keys:
+            del self._data[k]
+        return len(keys)
+
     def clear(self) -> None:
         self._data.clear()
 
@@ -140,6 +147,16 @@ def invalidate_link(token: str) -> None:
     serve from a stale cached entry that still looks active.
     """
     link_cache.invalidate(token)
+
+
+def invalidate_doc_entries(doc_id: str) -> None:
+    """Evict the doc snapshot and all page-metadata snapshots for a document.
+
+    Call this on document delete or reprocess so metadata caches do not
+    serve stale status/storage-key information.
+    """
+    doc_cache.invalidate(str(doc_id))
+    page_cache.invalidate_prefix(f"{doc_id}:")
 
 
 def clear_all_caches() -> None:

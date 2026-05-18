@@ -2,6 +2,7 @@ import asyncio
 import uuid
 import logging
 from datetime import datetime, timedelta, timezone
+from typing import Optional
 from app.workers.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
@@ -11,20 +12,37 @@ logger = logging.getLogger(__name__)
 _STALE_PROCESSING_THRESHOLD = timedelta(minutes=15)
 _THUMBNAIL_WIDTH_PX = 200
 
-# ── Module-level async engine ───────────────────────────────────────────────
-# Created once when the first task runs; reused for all subsequent tasks in
-# the same worker process.  This avoids creating a new connection pool per task
-# (which exhausts PostgreSQL connections under load).
+# ── Module-level async engine and event loop ────────────────────────────────
+# Both are created once per worker *process* and reused across all tasks.
+#
+# WHY A PERSISTENT LOOP:
+#   asyncpg connections are bound to the asyncio event loop on which they were
+#   created.  The original code called asyncio.new_event_loop() per task and
+#   then closed it, but the module-level _engine kept its connection pool alive.
+#   On the second task (new loop) asyncpg tried to use connections from the
+#   first (closed) loop → "cannot perform operation: another operation is in
+#   progress".  A persistent per-process loop ensures connections are always
+#   used on the loop they were created on.
 _engine = None
 _session_factory = None
+_worker_loop: Optional[asyncio.AbstractEventLoop] = None
+
+
+def _get_worker_loop() -> asyncio.AbstractEventLoop:
+    """Return (and lazily create) the persistent async event loop for this worker process."""
+    global _worker_loop
+    if _worker_loop is None or _worker_loop.is_closed():
+        _worker_loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(_worker_loop)
+        logger.info("Worker async event loop created (pid=%d)", __import__("os").getpid())
+    return _worker_loop
 
 
 def _get_db_session_factory():
     """Return the module-level async session factory, initialising it on first call."""
     global _engine, _session_factory
     if _session_factory is None:
-        from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
-        from sqlalchemy.orm import sessionmaker
+        from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
         from app.config import settings
         from app.database import _normalize_db_url
         _engine = create_async_engine(
@@ -32,8 +50,12 @@ def _get_db_session_factory():
             echo=False,
             pool_size=5,
             max_overflow=10,
+            pool_pre_ping=True,    # validate connections before checkout
+            pool_recycle=1800,     # discard stale connections every 30 min
         )
-        _session_factory = sessionmaker(_engine, class_=AsyncSession, expire_on_commit=False)
+        _session_factory = async_sessionmaker(
+            _engine, class_=AsyncSession, expire_on_commit=False
+        )
         logger.info("Worker DB engine initialised")
     return _session_factory
 
@@ -118,6 +140,14 @@ async def process_document_with_session(
             )
         )
         await db.flush()
+        # Invalidate L2 (Redis) byte cache so API replicas don't serve stale bytes
+        # after reprocess.  L1 (in-process on the API server) cannot be cleared from
+        # the worker but will repopulate from fresh storage after its next eviction.
+        from app.services.page_cache import clear_doc_bytes_redis
+        from app.services.viewer_cache import invalidate_doc_entries
+        await clear_doc_bytes_redis(document_id)
+        invalidate_doc_entries(document_id)
+        logger.info("cache_invalidate doc_id=%s source=worker type=reprocess", document_id)
 
     # 2. Set processing
     doc.status = "processing"
@@ -183,12 +213,15 @@ async def process_document_with_session(
 
 
 def _run_async(coro):
-    """Run an async coroutine from sync Celery task context."""
-    loop = asyncio.new_event_loop()
-    try:
-        return loop.run_until_complete(coro)
-    finally:
-        loop.close()
+    """Run an async coroutine from sync Celery task context.
+
+    Uses a persistent per-process event loop so asyncpg connection-pool
+    connections are always executed on the loop they were created on.
+    Creating a new loop per task (the previous approach) caused the pool to
+    accumulate connections bound to closed loops, triggering asyncpg's
+    "another operation is in progress" InterfaceError on the second task.
+    """
+    return _get_worker_loop().run_until_complete(coro)
 
 
 @celery_app.task(name="securedoc.purge_stale_sessions")

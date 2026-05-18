@@ -27,6 +27,9 @@ class Settings(BaseSettings):
 
     # Redis / Celery
     redis_url: str = "redis://localhost:6379/0"
+    # TTL for the Phase 4 Redis-backed page/thumbnail byte cache (seconds).
+    # 3600 s = 1 hour; keeps hot pages in Redis well beyond typical session length.
+    redis_page_cache_ttl_sec: int = 3600
 
     # JWT (internal share-link tokens)
     jwt_secret: str = "change_me_to_a_long_random_string_in_production"

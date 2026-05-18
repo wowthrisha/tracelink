@@ -1,4 +1,5 @@
 import asyncio
+import concurrent.futures
 import io
 from functools import partial
 from typing import Optional
@@ -7,6 +8,17 @@ import boto3.exceptions
 from botocore.config import Config as BotocoreConfig
 from botocore.exceptions import ClientError
 from app.config import settings
+
+# Dedicated bounded thread pool for S3/R2 I/O operations.
+# Keeping storage I/O separate from the default asyncio executor prevents
+# S3 network waits from competing with CPU-bound tasks (e.g. watermarking)
+# that share the default thread pool.
+# 16 threads: comfortably handles burst page / thumbnail fetches under load.
+_STORAGE_EXECUTOR: concurrent.futures.ThreadPoolExecutor = (
+    concurrent.futures.ThreadPoolExecutor(
+        max_workers=16, thread_name_prefix="storage-io"
+    )
+)
 
 # Fail fast: 2 attempts, 30 s connect, 60 s read.  Without this boto3 retries
 # 5 times with exponential backoff, blocking the request for 3+ minutes before
@@ -102,7 +114,7 @@ class StorageService:
             response = client.get_object(Bucket=self._bucket, Key=storage_key)
             return response["Body"].read()
 
-        return await loop.run_in_executor(None, _get)
+        return await loop.run_in_executor(_STORAGE_EXECUTOR, _get)
 
     async def delete_file(self, storage_key: str) -> None:
         loop = asyncio.get_running_loop()

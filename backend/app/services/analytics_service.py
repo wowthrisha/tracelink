@@ -51,7 +51,10 @@ class AnalyticsService:
         db.add(event)
         if commit:
             await db.commit()
-            await db.refresh(event)
+            # db.refresh(event) is intentionally omitted: no caller uses server-
+            # generated fields from the returned event (id is client-side UUID4;
+            # return value is ignored at every call site).  Removing this SELECT
+            # eliminates one extra DB round-trip per page request under load.
         return event
 
     async def get_overview(

@@ -2002,17 +2002,63 @@
       );
     }
 
+    // ── Thumbnail fetch semaphore ──────────────────────────────────────────────
+    // Without throttling, the sidebar mounts all PAGE_COUNT PageThumb components
+    // simultaneously the moment a session is established.  Each sets an <img>
+    // src, firing every thumbnail request at once.  For a 60-page document that
+    // is 60 simultaneous HTTP requests — even with the browser's 6-conn/domain
+    // limit that is 10 sequential rounds that hammer the backend connection pool.
+    //
+    // The semaphore limits how many thumbnail fetches are in-flight at once.
+    // We use a hidden Image preloader so the queue slot is released only after
+    // the browser has fully loaded (or errored on) the image, not just when the
+    // HTTP request fires.  This prevents the queue from draining faster than the
+    // backend can serve responses.
+    const _THUMB_CONCURRENCY = 6;
+    const _thumbQueue = (() => {
+      let running = 0;
+      const pending = [];
+      function drain() {
+        while (running < _THUMB_CONCURRENCY && pending.length > 0) {
+          const { resolve } = pending.shift();
+          running++;
+          resolve(() => { running--; drain(); });
+        }
+      }
+      return { acquire: () => new Promise(resolve => { pending.push({ resolve }); drain(); }) };
+    })();
+
     function PageThumb({ p, active, onClick, token, sessionId }) {
       const [hov, setHov] = useState(false);
       const [thumbSrc, setThumbSrc] = useState(null);
       const [thumbError, setThumbError] = useState(false);
 
-      // Set the thumb URL whenever the session becomes available.
-      // Relies on the browser's native img loading — no extra fetch needed.
+      // Load thumbnail through the concurrency-limited queue.
+      // A hidden Image object is used so the semaphore slot is held until the
+      // browser has finished loading (or erroring), preventing the queue from
+      // overflowing the backend with back-to-back requests.
       React.useEffect(() => {
         if (!token || !sessionId) return;
+        let cancelled = false;
         setThumbError(false);
-        setThumbSrc(window.SecureDocAPI.getThumbUrl(token, p, sessionId));
+        setThumbSrc(null);
+
+        _thumbQueue.acquire().then(release => {
+          if (cancelled) { release(); return; }
+          const url = window.SecureDocAPI.getThumbUrl(token, p, sessionId);
+          const img = new Image();
+          img.onload = () => {
+            if (!cancelled) setThumbSrc(url);
+            release();
+          };
+          img.onerror = () => {
+            if (!cancelled) setThumbError(true);
+            release();
+          };
+          img.src = url;
+        });
+
+        return () => { cancelled = true; };
       }, [token, sessionId, p]);
 
       const showImg = thumbSrc && !thumbError;
