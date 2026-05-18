@@ -78,15 +78,18 @@ def _check_link_active(link: ShareLink, now: datetime) -> None:
             raise HTTPException(status_code=410, detail="Link expired")
 
 
-def _check_doc_ready(doc: Document) -> None:
+def _check_doc_ready(doc) -> None:
     """Raise 503 with a descriptive message if the document is not yet ready."""
     if doc.status == "uploaded":
+        logger.warning("doc_not_ready status=uploaded doc_id=%s", getattr(doc, 'id', '?'))
         raise HTTPException(status_code=503, detail="Document is queued for processing")
     if doc.status == "processing":
+        logger.warning("doc_not_ready status=processing doc_id=%s", getattr(doc, 'id', '?'))
         raise HTTPException(
             status_code=503, detail="Document is still processing, please try again shortly"
         )
     if doc.status == "error":
+        logger.warning("doc_not_ready status=error doc_id=%s", getattr(doc, 'id', '?'))
         raise HTTPException(status_code=503, detail="Document processing failed")
 
 
@@ -218,6 +221,7 @@ async def validate_link(
         "document_id": str(doc.id),
         "document_filename": doc.filename,
         "page_count": doc.page_count or 0,
+        "doc_status": doc.status,  # lets the viewer show meaningful state when not yet ready
         "watermark_text": watermark_text if permissions_dict.get("watermark_enabled", True) else None,
         "link_id": str(link.id),
         "expires_at": link.expires_at.isoformat() if link.expires_at else None,
@@ -280,7 +284,11 @@ async def get_page(
         if _doc is None:
             raise HTTPException(status_code=404, detail="Document not found")
         doc_snap = DocSnapshot(id=_doc.id, status=_doc.status)
-        doc_cache.put(_doc_key, doc_snap)
+        # Only cache ready documents — caching non-ready statuses would lock
+        # clients out for up to DOC_TTL_SEC (60 s) after the doc finishes
+        # processing, because subsequent requests would hit the stale snapshot.
+        if _doc.status == "ready":
+            doc_cache.put(_doc_key, doc_snap)
     _check_doc_ready(doc_snap)
 
     # ── Page record (TTL-cached, 5 min; immutable after creation) ─────────────
@@ -425,7 +433,8 @@ async def get_thumb(
         if _doc is None:
             raise HTTPException(status_code=404, detail="Document not found")
         doc_snap = DocSnapshot(id=_doc.id, status=_doc.status)
-        doc_cache.put(_doc_key, doc_snap)
+        if _doc.status == "ready":
+            doc_cache.put(_doc_key, doc_snap)
     _check_doc_ready(doc_snap)
 
     # ── Page record (TTL-cached, 5 min) ───────────────────────────────────────

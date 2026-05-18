@@ -1588,6 +1588,7 @@
       const [session, setSession] = useState(null);
       const [imgSrc, setImgSrc] = useState('');
       const [imgLoading, setImgLoading] = useState(false);
+      const [pageError, setPageError] = useState(null);
       const [blurred, setBlurred] = useState(false);
       const [initializing, setInit] = useState(true);
       const [gateInfo, setGateInfo] = useState(null);
@@ -1638,20 +1639,22 @@
           return;
         }
         setImgLoading(true);
+        setPageError(null);
         const url = window.SecureDocAPI.getPageUrl(token, pageNum, sessionId);
         try {
           const r = await fetch(url);
           if (!r.ok) {
-            // HTTP error (e.g. 404 Page not found, 410 expired, 403 IP blocked).
-            // Do NOT fall through to the img-src fallback — the same URL will return
-            // the same error and trigger a duplicate request in the network tab.
-            console.error('[SecureDoc] page fetch HTTP error', r.status, url);
+            let detail = null;
+            try { detail = (await r.json()).detail; } catch {}
+            console.error('[SecureDoc] page fetch HTTP error', r.status, url, detail);
+            setPageError(detail || `Unable to load page (${r.status})`);
             setImgLoading(false);
             return;
           }
           const blobUrl = URL.createObjectURL(await r.blob());
           _cacheSet(key, blobUrl);
           setImgSrc(blobUrl);
+          setPageError(null);
         } catch {
           // Network-level failure (no response at all).
           // Fall back to a direct img src as a last resort — the browser may
@@ -1779,12 +1782,23 @@
       // the frontend only logs client-side events (print_attempt, copy_attempt, etc.)
       useEffect(() => {
         if (!session) return;
+        // Skip network call entirely when document isn't ready yet — show status inline
+        if (session.doc_status && session.doc_status !== 'ready') {
+          const msgs = {
+            uploaded: 'Document is queued for processing — please wait and refresh.',
+            processing: 'Document is still processing — please wait a moment and refresh.',
+            error: 'Document processing failed. Please contact the document owner.',
+          };
+          setPageError(msgs[session.doc_status] || `Document not available (${session.doc_status})`);
+          return;
+        }
+        setPageError(null);
         loadPage(session.link_token, page, session.session_id);
         // Log completion when the viewer reaches the last page (client-side event)
         if (page === session.page_count) {
           window.SecureDocAPI?.logEvent(session.link_token, session.session_id, 'completed');
         }
-      }, [session?.link_token, session?.session_id, page, loadPage]);
+      }, [session?.link_token, session?.session_id, page, session?.doc_status, loadPage]);
 
       // Prefetch the next and previous pages in the background as soon as the
       // current page has finished loading, so navigation feels instantaneous.
@@ -1924,6 +1938,12 @@
                       <span style={{ ...mono, fontSize: 10, color: C.textMuted }}>Loading page {page}…</span>
                     </div>
                   )}
+                  {!imgLoading && pageError && (
+                    <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: C.surface, flexDirection: 'column', gap: 10, padding: '20px 24px' }}>
+                      <span style={{ fontSize: 22, color: 'rgba(224,154,69,0.7)' }}>⚠</span>
+                      <span style={{ ...mono, fontSize: 11, color: C.textMuted, textAlign: 'center', lineHeight: 1.5 }}>{pageError}</span>
+                    </div>
+                  )}
                   {imgSrc && (
                     <img src={imgSrc} draggable={false}
                       onLoad={() => setImgLoading(false)} onError={() => setImgLoading(false)}
@@ -2056,7 +2076,7 @@
             release();
           };
           img.src = url;
-        });
+        }).catch(() => {});
 
         return () => { cancelled = true; };
       }, [token, sessionId, p]);

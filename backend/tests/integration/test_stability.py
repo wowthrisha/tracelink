@@ -14,12 +14,16 @@ Covers:
 import asyncio
 import uuid
 import pytest
+import pytest_asyncio
 from datetime import datetime, timedelta, timezone
 from unittest.mock import patch, AsyncMock, MagicMock, call
 
+from httpx import AsyncClient, ASGITransport
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 
 from app.database import Base, get_db, make_engine
+from app.main import app
+from app.auth import get_current_user
 from app.models.document import Document, DocumentPage
 from app.models.link import ShareLink
 from app.models.event import AccessEvent
@@ -30,6 +34,8 @@ from app.workers.tasks import _should_process, _get_worker_loop, process_documen
 from app.routers.viewer import clear_page_cache, clear_thumb_cache, clear_metadata_caches
 
 from tests.conftest import TEST_USER_ID, _make_webp_bytes
+
+TEST_DB_URL = "sqlite+aiosqlite:///./test_securedoc.db"
 
 
 # ── shared helpers ─────────────────────────────────────────────────────────────
@@ -839,3 +845,446 @@ class TestEndpointRegressions:
         assert _normalize_db_url("postgresql://u:p@h/db").startswith("postgresql+asyncpg://")
         assert _normalize_db_url("postgres://u:p@h/db").startswith("postgresql+asyncpg://")
         assert _normalize_db_url("postgresql+asyncpg://u:p@h/db").startswith("postgresql+asyncpg://")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# I. doc_status in validate response
+# ══════════════════════════════════════════════════════════════════════════════
+
+class TestDocStatusInValidateResponse:
+    """validate endpoint must include doc_status in every response."""
+
+    @pytest.fixture(autouse=True)
+    def _clear_caches(self):
+        clear_page_cache()
+        clear_thumb_cache()
+        clear_metadata_caches()
+        yield
+        clear_page_cache()
+        clear_thumb_cache()
+        clear_metadata_caches()
+
+    async def test_validate_includes_doc_status_field(self, client, active_link):
+        body = await _validate(client, active_link.token)
+        assert "doc_status" in body, "validate response must include doc_status"
+
+    async def test_validate_doc_status_ready_for_ready_document(self, client, active_link):
+        body = await _validate(client, active_link.token)
+        assert body["doc_status"] == "ready"
+
+    async def test_validate_doc_status_uploaded_for_unprocessed_document(
+        self, client, db_session
+    ):
+        """A freshly uploaded document must return doc_status='uploaded'."""
+        doc = Document(
+            id=uuid.uuid4(),
+            filename="pending.pdf",
+            storage_key=f"originals/{uuid.uuid4()}.pdf",
+            status="uploaded",
+            file_size_bytes=1024,
+            user_id=uuid.UUID(TEST_USER_ID),
+        )
+        db_session.add(doc)
+        await db_session.flush()
+        link = await _make_active_link(db_session, doc)
+        await db_session.commit()
+
+        body = await _validate(client, link.token)
+        assert body["doc_status"] == "uploaded"
+        assert body["page_count"] == 0  # no pages yet
+
+    async def test_validate_doc_status_processing_for_in_progress_document(
+        self, client, db_session
+    ):
+        doc = Document(
+            id=uuid.uuid4(),
+            filename="processing.pdf",
+            storage_key=f"originals/{uuid.uuid4()}.pdf",
+            status="processing",
+            file_size_bytes=2048,
+            user_id=uuid.UUID(TEST_USER_ID),
+        )
+        db_session.add(doc)
+        await db_session.flush()
+        link = await _make_active_link(db_session, doc)
+        await db_session.commit()
+
+        body = await _validate(client, link.token)
+        assert body["doc_status"] == "processing"
+
+    async def test_validate_doc_status_error_for_failed_document(
+        self, client, db_session
+    ):
+        doc = Document(
+            id=uuid.uuid4(),
+            filename="failed.pdf",
+            storage_key=f"originals/{uuid.uuid4()}.pdf",
+            status="error",
+            file_size_bytes=512,
+            user_id=uuid.UUID(TEST_USER_ID),
+        )
+        db_session.add(doc)
+        await db_session.flush()
+        link = await _make_active_link(db_session, doc)
+        await db_session.commit()
+
+        body = await _validate(client, link.token)
+        assert body["doc_status"] == "error"
+
+    async def test_validate_returns_empty_pages_for_non_ready_document(
+        self, client, db_session
+    ):
+        """pages metadata list must be empty when document is not yet ready."""
+        doc = Document(
+            id=uuid.uuid4(),
+            filename="queued.pdf",
+            storage_key=f"originals/{uuid.uuid4()}.pdf",
+            status="uploaded",
+            file_size_bytes=1024,
+            user_id=uuid.UUID(TEST_USER_ID),
+        )
+        db_session.add(doc)
+        await db_session.flush()
+        link = await _make_active_link(db_session, doc)
+        await db_session.commit()
+
+        body = await _validate(client, link.token)
+        assert body["pages"] == []
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# J. Not-ready document handling — page and thumb return 503
+# ══════════════════════════════════════════════════════════════════════════════
+
+class TestNotReadyDocumentHandling:
+    """page and thumb endpoints must return 503 with descriptive detail for non-ready docs."""
+
+    @pytest.fixture(autouse=True)
+    def _clear_caches(self):
+        clear_page_cache()
+        clear_thumb_cache()
+        clear_metadata_caches()
+        yield
+        clear_page_cache()
+        clear_thumb_cache()
+        clear_metadata_caches()
+
+    async def _make_link_for_doc_status(self, db_session, status: str):
+        doc = Document(
+            id=uuid.uuid4(),
+            filename=f"{status}.pdf",
+            storage_key=f"originals/{uuid.uuid4()}.pdf",
+            status=status,
+            file_size_bytes=1024,
+            user_id=uuid.UUID(TEST_USER_ID),
+        )
+        db_session.add(doc)
+        await db_session.flush()
+        link = await _make_active_link(db_session, doc)
+        await db_session.commit()
+        return doc, link
+
+    async def test_page_returns_503_for_uploaded_doc(self, client, db_session):
+        _, link = await self._make_link_for_doc_status(db_session, "uploaded")
+        body = await _validate(client, link.token)
+        sid = body["session_id"]
+
+        r = await client.get(f"/api/viewer/page/{link.token}/1?session_id={sid}")
+        assert r.status_code == 503
+        assert "queued" in r.json()["detail"].lower()
+
+    async def test_page_returns_503_for_processing_doc(self, client, db_session):
+        _, link = await self._make_link_for_doc_status(db_session, "processing")
+        body = await _validate(client, link.token)
+        sid = body["session_id"]
+
+        r = await client.get(f"/api/viewer/page/{link.token}/1?session_id={sid}")
+        assert r.status_code == 503
+        assert "processing" in r.json()["detail"].lower()
+
+    async def test_page_returns_503_for_error_doc(self, client, db_session):
+        _, link = await self._make_link_for_doc_status(db_session, "error")
+        body = await _validate(client, link.token)
+        sid = body["session_id"]
+
+        r = await client.get(f"/api/viewer/page/{link.token}/1?session_id={sid}")
+        assert r.status_code == 503
+        assert "failed" in r.json()["detail"].lower()
+
+    async def test_thumb_returns_503_for_not_ready_doc(self, client, db_session):
+        _, link = await self._make_link_for_doc_status(db_session, "uploaded")
+        body = await _validate(client, link.token)
+        sid = body["session_id"]
+
+        r = await client.get(f"/api/viewer/thumb/{link.token}/1?session_id={sid}")
+        assert r.status_code == 503
+
+    async def test_page_serves_after_doc_transitions_to_ready(
+        self, client, db_session
+    ):
+        """After doc status changes from 'uploaded' to 'ready', the next page
+        request must succeed immediately (no stale 503 from cached non-ready snapshot)."""
+        doc, link = await self._make_link_for_doc_status(db_session, "uploaded")
+        body = await _validate(client, link.token)
+        sid = body["session_id"]
+
+        # First request — doc is still "uploaded" → 503
+        r1 = await client.get(f"/api/viewer/page/{link.token}/1?session_id={sid}")
+        assert r1.status_code == 503
+
+        # Simulate worker completing: transition doc to "ready" and add a page record
+        doc.status = "ready"
+        doc.page_count = 1
+        db_session.add(DocumentPage(
+            document_id=doc.id,
+            page_number=1,
+            storage_key=f"pages/{doc.id}/0001.webp",
+            width_px=595,
+            height_px=842,
+        ))
+        await db_session.commit()
+
+        # Second request — doc is now "ready".  Must return 200, not 503 from stale cache.
+        r2 = await client.get(f"/api/viewer/page/{link.token}/1?session_id={sid}")
+        assert r2.status_code == 200, (
+            "page request returned 503 after doc became ready — stale non-ready snapshot was cached"
+        )
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# K. doc_cache only stores ready snapshots (Phase 4 cache correctness)
+# ══════════════════════════════════════════════════════════════════════════════
+
+class TestDocCacheOnlyStoresReadySnapshots:
+    """Non-ready doc statuses must NOT be stored in doc_cache."""
+
+    @pytest.fixture(autouse=True)
+    def _clear_caches(self):
+        clear_page_cache()
+        clear_thumb_cache()
+        clear_metadata_caches()
+        yield
+        clear_page_cache()
+        clear_thumb_cache()
+        clear_metadata_caches()
+
+    async def test_uploaded_doc_not_stored_in_doc_cache(self, client, db_session):
+        from app.services.viewer_cache import doc_cache
+        doc, link = await _make_non_ready_doc_and_link(db_session, "uploaded")
+        body = await _validate(client, link.token)
+        sid = body["session_id"]
+        doc_key = str(doc.id)
+
+        await client.get(f"/api/viewer/page/{link.token}/1?session_id={sid}")
+
+        assert doc_cache.get(doc_key) is None, (
+            "uploaded doc snapshot must not be cached — would lock clients out after doc becomes ready"
+        )
+
+    async def test_processing_doc_not_stored_in_doc_cache(self, client, db_session):
+        from app.services.viewer_cache import doc_cache
+        doc, link = await _make_non_ready_doc_and_link(db_session, "processing")
+        body = await _validate(client, link.token)
+        sid = body["session_id"]
+        doc_key = str(doc.id)
+
+        await client.get(f"/api/viewer/page/{link.token}/1?session_id={sid}")
+
+        assert doc_cache.get(doc_key) is None
+
+    async def test_error_doc_not_stored_in_doc_cache(self, client, db_session):
+        from app.services.viewer_cache import doc_cache
+        doc, link = await _make_non_ready_doc_and_link(db_session, "error")
+        body = await _validate(client, link.token)
+        sid = body["session_id"]
+        doc_key = str(doc.id)
+
+        await client.get(f"/api/viewer/page/{link.token}/1?session_id={sid}")
+
+        assert doc_cache.get(doc_key) is None
+
+    async def test_ready_doc_is_stored_in_doc_cache(self, client, active_link, ready_document):
+        from app.services.viewer_cache import doc_cache
+        body = await _validate(client, active_link.token)
+        sid = body["session_id"]
+        doc_key = str(ready_document.id)
+
+        r = await client.get(f"/api/viewer/page/{active_link.token}/1?session_id={sid}")
+        assert r.status_code == 200
+
+        snap = doc_cache.get(doc_key)
+        assert snap is not None, "ready doc snapshot must be cached for performance"
+        assert snap.status == "ready"
+
+
+async def _make_non_ready_doc_and_link(db_session, status: str):
+    """Helper shared by TestNotReadyDocumentHandling and TestDocCacheOnlyStoresReadySnapshots."""
+    doc = Document(
+        id=uuid.uuid4(),
+        filename=f"{status}_cache_test.pdf",
+        storage_key=f"originals/{uuid.uuid4()}.pdf",
+        status=status,
+        file_size_bytes=1024,
+        user_id=uuid.UUID(TEST_USER_ID),
+    )
+    db_session.add(doc)
+    await db_session.flush()
+    link = await _make_active_link(db_session, doc)
+    await db_session.commit()
+    return doc, link
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# L. Concurrent page / thumb requests (Phase 4 scale-out correctness)
+# ══════════════════════════════════════════════════════════════════════════════
+
+@pytest_asyncio.fixture
+async def concurrent_client(db_session, ready_document, active_link):
+    """
+    HTTP test client that creates a NEW DB session per request, matching production
+    behavior where each FastAPI request gets its own session via async_sessionmaker.
+
+    The default `client` fixture injects the SAME db_session into all requests.
+    When asyncio.gather fires multiple requests concurrently, they all try to
+    commit the shared session simultaneously — causing SQLAlchemy session state
+    errors that don't exist in production.  This fixture eliminates that
+    test-infrastructure artifact so true concurrent correctness can be verified.
+    """
+    engine = create_async_engine(
+        TEST_DB_URL,
+        echo=False,
+        connect_args={"check_same_thread": False},
+    )
+    per_req_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+
+    async def _per_request_db():
+        async with per_req_factory() as session:
+            yield session
+
+    app.dependency_overrides[get_db] = _per_request_db
+    app.dependency_overrides[get_current_user] = lambda: {
+        "user_id": TEST_USER_ID, "email": "test@example.com", "role": "authenticated"
+    }
+
+    with patch("app.services.storage.StorageService.download_bytes", new_callable=AsyncMock) as mock_dl, \
+         patch("app.services.storage.StorageService.upload_file", new_callable=AsyncMock), \
+         patch("app.services.storage.StorageService.delete_file", new_callable=AsyncMock), \
+         patch("app.services.storage.StorageService.list_keys_with_prefix", new_callable=AsyncMock) as mock_list, \
+         patch("app.workers.tasks.process_document.delay"):
+        mock_dl.return_value = _make_webp_bytes()
+        mock_list.return_value = []
+
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            yield c, active_link, ready_document
+
+    app.dependency_overrides.clear()
+    await engine.dispose()
+
+
+class TestConcurrentPageRequests:
+    """
+    Multiple concurrent page/thumb requests must all succeed without session errors.
+
+    Uses `concurrent_client` which creates a new DB session per request, matching
+    production behavior.  The standard `client` fixture reuses one session for all
+    requests; asyncio.gather would race that shared session, masking real bugs with
+    false negatives.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _clear_caches(self):
+        clear_page_cache()
+        clear_thumb_cache()
+        clear_metadata_caches()
+        yield
+        clear_page_cache()
+        clear_thumb_cache()
+        clear_metadata_caches()
+
+    async def test_concurrent_requests_for_same_page_all_succeed(
+        self, concurrent_client
+    ):
+        """Firing 8 requests for the same page concurrently must all return 200."""
+        c, active_link, _ = concurrent_client
+        body = await _validate(c, active_link.token)
+        sid = body["session_id"]
+        url = f"/api/viewer/page/{active_link.token}/1?session_id={sid}"
+
+        results = await asyncio.gather(
+            *[c.get(url) for _ in range(8)],
+            return_exceptions=True,
+        )
+
+        statuses = [r.status_code if not isinstance(r, Exception) else 500 for r in results]
+        assert all(s == 200 for s in statuses), (
+            f"Some concurrent page requests failed: {statuses}"
+        )
+
+    async def test_concurrent_requests_for_different_pages_all_succeed(
+        self, concurrent_client
+    ):
+        """Concurrent requests across all pages of a document must all return 200."""
+        c, active_link, ready_document = concurrent_client
+        body = await _validate(c, active_link.token)
+        sid = body["session_id"]
+
+        urls = [
+            f"/api/viewer/page/{active_link.token}/{p}?session_id={sid}"
+            for p in range(1, ready_document.page_count + 1)
+        ]
+
+        results = await asyncio.gather(
+            *[c.get(url) for url in urls],
+            return_exceptions=True,
+        )
+
+        statuses = [r.status_code if not isinstance(r, Exception) else 500 for r in results]
+        assert all(s == 200 for s in statuses), (
+            f"Concurrent multi-page requests failed: {statuses}"
+        )
+
+    async def test_concurrent_thumb_requests_all_succeed(
+        self, concurrent_client
+    ):
+        """Concurrent thumbnail requests must all return 200."""
+        c, active_link, _ = concurrent_client
+        body = await _validate(c, active_link.token)
+        sid = body["session_id"]
+        url = f"/api/viewer/thumb/{active_link.token}/1?session_id={sid}"
+
+        results = await asyncio.gather(
+            *[c.get(url) for _ in range(8)],
+            return_exceptions=True,
+        )
+
+        statuses = [r.status_code if not isinstance(r, Exception) else 500 for r in results]
+        assert all(s == 200 for s in statuses), (
+            f"Some concurrent thumb requests failed: {statuses}"
+        )
+
+    async def test_concurrent_mixed_page_and_thumb_requests(
+        self, concurrent_client
+    ):
+        """Simultaneous page and thumb requests must not interfere with each other."""
+        c, active_link, ready_document = concurrent_client
+        body = await _validate(c, active_link.token)
+        sid = body["session_id"]
+
+        page_urls = [
+            f"/api/viewer/page/{active_link.token}/{p}?session_id={sid}"
+            for p in range(1, ready_document.page_count + 1)
+        ]
+        thumb_urls = [
+            f"/api/viewer/thumb/{active_link.token}/{p}?session_id={sid}"
+            for p in range(1, ready_document.page_count + 1)
+        ]
+
+        results = await asyncio.gather(
+            *[c.get(u) for u in page_urls + thumb_urls],
+            return_exceptions=True,
+        )
+
+        statuses = [r.status_code if not isinstance(r, Exception) else 500 for r in results]
+        assert all(s == 200 for s in statuses), (
+            f"Concurrent mixed requests failed: {statuses}"
+        )
