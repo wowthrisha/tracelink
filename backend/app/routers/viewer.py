@@ -133,7 +133,7 @@ async def validate_link(
     viewer_email = body.get("email")
     existing_session_id = body.get("session_id") or None  # reuse existing session if supplied
 
-    ip = request.client.host if request.client else None
+    ip = getattr(request.state, "client_ip", None) or (request.client.host if request.client else None)
     user_agent = request.headers.get("user-agent")
 
     # validate_link stages the session upsert without committing (commit=False).
@@ -270,7 +270,7 @@ async def get_page(
     _check_link_active(link_snap, now)
 
     # Re-validate IP on every page request (allowlist may have changed)
-    ip = request.client.host if request.client else None
+    ip = getattr(request.state, "client_ip", None) or (request.client.host if request.client else None)
     if link_snap.ip_allowlist:
         if not policy_enforcer.ip_is_allowed(ip, link_snap.ip_allowlist):
             raise HTTPException(status_code=403, detail="Access denied from this IP")
@@ -566,7 +566,7 @@ async def get_text_chunk(
     now = datetime.now(timezone.utc)
     _check_link_active(link_snap, now)
 
-    ip = request.client.host if request.client else None
+    ip = getattr(request.state, "client_ip", None) or (request.client.host if request.client else None)
     if link_snap.ip_allowlist:
         if not policy_enforcer.ip_is_allowed(ip, link_snap.ip_allowlist):
             raise HTTPException(status_code=403, detail="Access denied from this IP")

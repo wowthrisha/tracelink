@@ -20,20 +20,6 @@
   <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"
     integrity="sha384-gTGxhz21lVGYNMcdJOyq01Edg0jhn/c22nsx0kyqP0TxaV5WVdsSH1fSDUf5YJj1"
     crossorigin="anonymous"></script>
-  <script>
-    (function () {
-      const hash = window.location.hash;
-      const params = new URLSearchParams(window.location.search);
-
-      if (hash.startsWith('#view/')) {
-        window.__PUBLIC_TOKEN = hash.slice(6);
-        window.__INITIAL_SCREEN = 'viewer';
-      } else if (params.has('token')) {
-        window.__PUBLIC_TOKEN = params.get('token');
-        window.__INITIAL_SCREEN = 'viewer';
-      }
-    })();
-  </script>
   <script src="api.js"></script>
   <style>
     *,

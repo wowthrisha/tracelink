@@ -10,6 +10,9 @@ from slowapi.errors import RateLimitExceeded
 
 from app.config import settings
 from app.middleware.rate_limit import limiter
+from app.middleware.trusted_proxy import TrustedProxyMiddleware
+from app.middleware.security_headers import SecurityHeadersMiddleware
+from app.middleware.request_id import RequestIDMiddleware
 from app.routers import documents, links, viewer, analytics, groups, billing
 from app.auth import _fetch_jwks
 
@@ -68,9 +71,26 @@ async def startup():
     except Exception as e:
         _log.warning("AUTH: JWKS preload failed (will retry on first request): %s", e)
 
+
+@app.on_event("shutdown")
+async def shutdown():
+    _shutdown_log = logging.getLogger("securedoc.shutdown")
+    from app.database import engine as _db_engine
+    if _db_engine is not None:
+        await _db_engine.dispose()
+        _shutdown_log.info("DB engine disposed on shutdown")
+
 # Rate limiter
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+app.add_middleware(SecurityHeadersMiddleware)
+app.add_middleware(RequestIDMiddleware)
+app.add_middleware(
+    TrustedProxyMiddleware,
+    real_ip_header=settings.real_ip_header,
+    trusted_proxy_depth=settings.trusted_proxy_depth,
+)
 
 # CORS
 # Development: allow all origins (Bearer token auth doesn't need allow_credentials=True)

@@ -72,6 +72,13 @@ class Settings(BaseSettings):
     # this are rejected with a deterministic error (prevents PDF-bomb DoS).
     rasterizer_timeout_sec: int = 300
 
+    # Trusted proxy / Cloudflare settings
+    # Set real_ip_header = "CF-Connecting-IP" when all traffic comes through Cloudflare.
+    # Set trusted_proxy_depth = 1 for generic reverse proxies using X-Forwarded-For.
+    # Leave both at defaults when running without a proxy.
+    real_ip_header: str = ""
+    trusted_proxy_depth: int = 0
+
     # Text document settings (Phase 5)
     # Lines served per chunk in the text viewer. 100 lines ≈ ~8 KB per request.
     text_lines_per_chunk: int = 100

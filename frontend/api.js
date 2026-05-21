@@ -1,3 +1,16 @@
+// Extract share token and initial screen from URL — must run before React mounts.
+(function () {
+  var hash = window.location.hash;
+  var params = new URLSearchParams(window.location.search);
+  if (hash.startsWith('#view/')) {
+    window.__PUBLIC_TOKEN = hash.slice(6);
+    window.__INITIAL_SCREEN = 'viewer';
+  } else if (params.has('token')) {
+    window.__PUBLIC_TOKEN = params.get('token');
+    window.__INITIAL_SCREEN = 'viewer';
+  }
+})();
+
 const _apiMeta = document.querySelector('meta[name="api-base"]');
 const _explicitBase = (_apiMeta && _apiMeta.content.trim()) ? _apiMeta.content.trim() : '';
 // Auto-detect: when served from localhost:5500/5501 (local dev), route to backend on :8000.
