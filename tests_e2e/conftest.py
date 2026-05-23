@@ -1,16 +1,22 @@
 """
 Shared fixtures for the E2E test suite.
-Tests run against the live stack on localhost:8000.
+Tests run against the live stack.
 No mocks — real HTTP calls only.
+
+Set E2E_BASE_URL to target a different host, e.g.:
+  E2E_BASE_URL=https://secure.wowmyspace.com pytest api/
+  E2E_AUTH_TOKEN=<supabase_jwt> pytest api/
 """
 import io
+import os
 import time
 import pytest
 import httpx
 from PIL import Image
 
 
-BASE_URL = "http://localhost:8000"
+BASE_URL = os.environ.get("E2E_BASE_URL", "http://localhost:8000").rstrip("/")
+_AUTH_TOKEN = os.environ.get("E2E_AUTH_TOKEN", "")
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -86,17 +92,23 @@ def minimal_pdf_bytes() -> bytes:
     return make_minimal_pdf()
 
 
+def _build_headers() -> dict:
+    if _AUTH_TOKEN:
+        return {"Authorization": f"Bearer {_AUTH_TOKEN}"}
+    return {}
+
+
 @pytest.fixture(scope="session")
 def api_client() -> httpx.Client:
     """Synchronous httpx client against live stack."""
-    with httpx.Client(base_url=BASE_URL, timeout=30.0) as client:
+    with httpx.Client(base_url=BASE_URL, timeout=30.0, headers=_build_headers()) as client:
         yield client
 
 
 @pytest.fixture(scope="session")
 async def async_client():
     """Async httpx client against live stack."""
-    async with httpx.AsyncClient(base_url=BASE_URL, timeout=30.0) as client:
+    async with httpx.AsyncClient(base_url=BASE_URL, timeout=30.0, headers=_build_headers()) as client:
         yield client
 
 

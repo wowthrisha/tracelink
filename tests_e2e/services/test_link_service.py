@@ -42,6 +42,7 @@ async def db():
 async def document(db):
     doc = Document(
         id=uuid.uuid4(),
+        user_id=uuid.uuid4(),
         filename="test.pdf",
         storage_key="originals/test.pdf",
         status="ready",
@@ -124,10 +125,10 @@ class TestValidateLink:
         assert result.is_valid is True
         assert result.link.id == link.id
 
-    async def test_session_id_is_16_hex_chars(self, svc, db, document):
+    async def test_session_id_is_32_hex_chars(self, svc, db, document):
         link = await svc.create_link(db, document_id=str(document.id))
         result = await svc.validate_link(db, token=link.token)
-        assert len(result.session_id) == 16
+        assert len(result.session_id) == 32
         int(result.session_id, 16)  # must be valid hex
 
     async def test_invalid_token_raises_404(self, svc, db):

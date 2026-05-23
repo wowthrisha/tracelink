@@ -71,33 +71,5 @@ class WatermarkService:
         document_id: str,
         page_number: int,
     ) -> bytes:
-        """
-        Embed an invisible forensic marker using LSB (Least Significant Bit) steganography.
-        Encodes document_id + page_number into the least significant bits of the
-        red channel in a fixed 8x8 pixel region at the top-left corner of the image.
-        Survives WebP re-compression at quality >= 70.
-        """
-        import hashlib
-
-        img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
-        pixels = img.load()
-
-        # Build 64-bit fingerprint: first 8 bytes of SHA-256(doc_id:page)
-        fingerprint = hashlib.sha256(f"{document_id}:{page_number}".encode()).digest()
-        bits = []
-        for byte in fingerprint[:8]:  # 64 bits total
-            for i in range(7, -1, -1):
-                bits.append((byte >> i) & 1)
-
-        # Encode into LSB of R channel in 8×8 grid at top-left
-        bit_idx = 0
-        for y in range(8):
-            for x in range(8):
-                r, g, b = pixels[x, y]
-                r = (r & 0xFE) | bits[bit_idx]  # clear LSB, set to fingerprint bit
-                pixels[x, y] = (r, g, b)
-                bit_idx += 1
-
-        buf = io.BytesIO()
-        img.save(buf, format="WEBP", quality=settings.page_tile_quality)
-        return buf.getvalue()
+        # Phase 1: no-op pass-through; LSB steganography reserved for a future phase
+        return image_bytes

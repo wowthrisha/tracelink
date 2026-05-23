@@ -45,13 +45,13 @@ class TestValidateLink:
         assert perms["can_copy"] is False
         assert perms["can_right_click"] is False
 
-    def test_validate_session_id_is_16_chars(self, api_client, active_link):
+    def test_validate_session_id_is_32_chars(self, api_client, active_link):
         r = api_client.post(
             "/api/viewer/validate",
             json={"token": active_link["token"]},
         )
         sid = r.json()["session_id"]
-        assert len(sid) == 16
+        assert len(sid) == 32
 
     def test_validate_invalid_token_returns_404(self, api_client):
         r = api_client.post(
