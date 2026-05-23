@@ -1909,7 +1909,16 @@
         <div data-testid="viewer-screen" style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }} className="fade-in">
           <Header screen="viewer" breadcrumb={docName.length > 30 ? docName.slice(0, 30) + '…' : docName}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <Btn disabled={!session?.permissions?.can_download} onClick={() => { if (session?.permissions?.can_download) toast('Download initiated', 'success'); }} size="sm">⬇ Download</Btn>
+              <Btn disabled={!session?.permissions?.can_download} onClick={async () => {
+                if (!session?.permissions?.can_download) return;
+                toast('Preparing download…', 'info');
+                try {
+                  await window.SecureDocAPI.downloadDocument(session.link_token, session.session_id, session.document_filename);
+                  toast('Download complete', 'success');
+                } catch (e) {
+                  toast(e?.detail || 'Download failed', 'error');
+                }
+              }} size="sm">⬇ Download</Btn>
               <Btn disabled={!session?.permissions?.can_print} onClick={() => { if (session?.permissions?.can_print) { window.print(); window.SecureDocAPI?.logEvent(session.link_token, session.session_id, 'printed'); } }} size="sm">⎙ Print</Btn>
               <Btn disabled={!session?.permissions?.can_copy} onClick={() => { if (session?.permissions?.can_copy) { navigator.clipboard.writeText('Text copied from SecureDoc'); toast('Text copied', 'success'); } }} size="sm">⧉ Copy</Btn>
               <div style={{ width: 1, height: 20, background: C.border }} />

@@ -505,6 +505,115 @@ async def get_thumb(
     )
 
 
+@router.get("/download/{link_token}")
+@limiter.limit("10/minute")
+async def download_document(
+    request: Request,
+    link_token: str,
+    session_id: Optional[str] = Query(None),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Download the document as a watermarked PDF (PDF docs) or plain text file (text docs).
+    Requires an active session with can_download=true on the link.
+    """
+    import io as _io
+    from PIL import Image as _Image
+
+    if not session_id:
+        raise HTTPException(status_code=400, detail="session_id is required")
+
+    # Validate link
+    _link_row = await db.execute(select(ShareLink).where(ShareLink.token == link_token))
+    link = _link_row.scalar_one_or_none()
+    if link is None:
+        raise HTTPException(status_code=404, detail="Link not found")
+
+    now = datetime.now(timezone.utc)
+    if link.revoked_at:
+        raise HTTPException(status_code=410, detail="Link revoked")
+    if link.expires_at and link.expires_at < now:
+        raise HTTPException(status_code=410, detail="Link expired")
+
+    # Check download permission
+    perms = json.loads(link.permissions) if link.permissions else {}
+    if not perms.get("can_download", False):
+        raise HTTPException(status_code=403, detail="Download not permitted on this link")
+
+    # Validate active session
+    if not await policy_enforcer.is_active_session(db, link.id, session_id):
+        raise HTTPException(status_code=401, detail="Session expired or invalid")
+
+    # Fetch document
+    _doc_row = await db.execute(select(Document).where(Document.id == link.document_id))
+    doc = _doc_row.scalar_one_or_none()
+    if doc is None or doc.status != "ready":
+        raise HTTPException(status_code=404, detail="Document not ready")
+
+    storage = get_storage_service()
+    now_str = now.strftime("%Y-%m-%d")
+    watermark_text = f"downloaded · {now_str} · sess:{session_id[:6]}"
+    ip = getattr(request.state, "client_ip", None) or (request.client.host if request.client else None)
+
+    await analytics_svc.log_event(
+        db, link_id=link.id, event_type="download_attempt",
+        session_id=session_id, ip=ip,
+        user_agent=request.headers.get("user-agent"), commit=True,
+    )
+
+    # ── Text document ──────────────────────────────────────────────────────────
+    if doc.file_type in ("txt", "md", "log"):
+        raw = await storage.download_bytes(doc.storage_key)
+        ext = doc.file_type
+        filename = doc.filename or f"document.{ext}"
+        return FastAPIResponse(
+            content=raw,
+            media_type="text/plain; charset=utf-8",
+            headers={
+                "Content-Disposition": f'attachment; filename="{filename}"',
+                "Cache-Control": "no-store",
+            },
+        )
+
+    # ── PDF document: fetch all pages, watermark, assemble PDF via PIL ─────────
+    if not doc.page_count:
+        raise HTTPException(status_code=404, detail="Document has no pages")
+
+    pages_result = await db.execute(
+        select(DocumentPage)
+        .where(DocumentPage.document_id == doc.id)
+        .order_by(DocumentPage.page_number)
+    )
+    page_rows = pages_result.scalars().all()
+    if not page_rows:
+        raise HTTPException(status_code=404, detail="Pages not found")
+
+    pil_images = []
+    loop = asyncio.get_running_loop()
+    for page_row in page_rows:
+        raw_bytes, _ = await fetch_page_bytes(page_row.storage_key)
+        if raw_bytes is None:
+            raw_bytes = await storage.download_bytes(page_row.storage_key)
+        watermarked = await loop.run_in_executor(
+            None, lambda b=raw_bytes: watermark_svc.apply_visible_watermark(b, watermark_text)
+        )
+        pil_images.append(_Image.open(_io.BytesIO(watermarked)).convert("RGB"))
+
+    buf = _io.BytesIO()
+    pil_images[0].save(buf, format="PDF", save_all=True, append_images=pil_images[1:])
+    pdf_bytes = buf.getvalue()
+
+    filename = (doc.filename or "document").rsplit(".", 1)[0] + "_watermarked.pdf"
+    return FastAPIResponse(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Cache-Control": "no-store",
+        },
+    )
+
+
 @router.get("/text/{link_token}/{chunk_number}")
 @limiter.limit("120/minute")
 async def get_text_chunk(

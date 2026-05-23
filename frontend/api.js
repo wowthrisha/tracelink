@@ -224,6 +224,23 @@ window.SecureDocAPI = {
     return r.json();
   },
 
+  async downloadDocument(linkToken, sessionId, filename) {
+    const base = API_BASE.replace(/\/$/, '');
+    const r = await fetch(
+      `${base}/api/viewer/download/${encodeURIComponent(linkToken)}?session_id=${encodeURIComponent(sessionId || '')}`
+    );
+    if (!r.ok) throw await r.json().catch(() => ({ detail: 'Download failed' }));
+    const blob = await r.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename || 'document.pdf';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  },
+
   logEvent(token, sessionId, eventType, pageNumber = null, metadata = {}) {
     // Fire-and-forget — public endpoint, never needs auth
     fetch(`${API_BASE}/api/analytics/events`, {
