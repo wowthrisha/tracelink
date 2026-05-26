@@ -85,6 +85,16 @@ class Settings(BaseSettings):
     # Maximum size allowed for text file uploads (separate from max_upload_mb).
     max_text_size_mb: int = 10
 
+    # Phase 7 — enterprise / performance / observability
+    # Log a warning when a single share link has more than this many concurrent sessions.
+    # This is detection-only — it never blocks access.
+    max_concurrent_sessions_per_link: int = 50
+    # Set True in production to emit JSON log lines for Grafana Loki / Datadog / CloudWatch.
+    enable_json_logging: bool = False
+    # Watermark angle variation per session: ±this many degrees from the base -32°.
+    # Randomises placement slightly per session to deter composite-removal attacks.
+    watermark_angle_jitter_deg: float = 5.0
+
     @property
     def max_text_size_bytes(self) -> int:
         return self.max_text_size_mb * 1024 * 1024

@@ -1,5 +1,5 @@
 """
-Text document processing utilities — Phase 5.
+Text document processing utilities — Phase 5 + Phase 7 (TOC extraction).
 
 Handles file-type detection, safe UTF-8 decoding, binary rejection, and
 line-based chunking for .txt, .md, and .log uploads.
@@ -17,6 +17,8 @@ Supported types
   md  — Markdown (rendered safely client-side with React elements)
   log — log files (rendered as plain text)
 """
+
+import re
 
 # Extensions that this module can process
 SUPPORTED_TEXT_EXTENSIONS: frozenset[str] = frozenset({"txt", "md", "log"})
@@ -125,3 +127,68 @@ def count_chunks(text: str, lines_per_chunk: int) -> int:
         return 1
     line_count = text.count("\n") + 1
     return max(1, (line_count + lines_per_chunk - 1) // lines_per_chunk)
+
+
+def extract_toc(text: str, file_type: str, lines_per_chunk: int = 100) -> list[dict]:
+    """
+    Extract table of contents entries from a text document.
+
+    Returns a list of dicts: {level, title, chunk, line}
+      level — heading depth (1–6 for Markdown; 1 or 2 for plain text)
+      title — heading text (stripped)
+      chunk — 1-indexed chunk number where this heading appears
+      line  — 1-indexed line number within the document
+
+    For PDFs this always returns an empty list (no text extraction yet).
+    For .md: extracts ATX-style Markdown headings (# … ######).
+    For .txt/.log: heuristically detects ALL-CAPS section titles and
+      "Label:" style sub-headings (≤5 words, ends with colon).
+
+    At most 200 entries are returned to avoid sending huge payloads.
+    """
+    if file_type == "pdf" or not text:
+        return []
+
+    lines = text.split("\n")
+    toc: list[dict] = []
+    _MD_HEADING = re.compile(r"^(#{1,6})\s+(.+)$")
+    _MAX_TOC = 200
+
+    if file_type == "md":
+        for i, raw_line in enumerate(lines):
+            m = _MD_HEADING.match(raw_line.strip())
+            if m:
+                level = len(m.group(1))
+                title = m.group(2).strip()
+                chunk = (i // lines_per_chunk) + 1
+                toc.append({"level": level, "title": title, "chunk": chunk, "line": i + 1})
+                if len(toc) >= _MAX_TOC:
+                    break
+    else:
+        # Plain text / log heuristics
+        for i, raw_line in enumerate(lines):
+            stripped = raw_line.strip()
+            if not stripped or len(stripped) < 3:
+                continue
+            words = stripped.split()
+            # ALL-CAPS section title: ≤8 words, no leading digit, pure uppercase
+            if (
+                stripped.isupper()
+                and not stripped[0].isdigit()
+                and len(words) <= 8
+            ):
+                chunk = (i // lines_per_chunk) + 1
+                toc.append({"level": 1, "title": stripped, "chunk": chunk, "line": i + 1})
+            # "Label:" sub-heading: ends with ':', ≤5 words, no tab indent
+            elif (
+                stripped.endswith(":")
+                and len(words) <= 5
+                and "\t" not in raw_line
+                and not raw_line.startswith(" ")
+            ):
+                chunk = (i // lines_per_chunk) + 1
+                toc.append({"level": 2, "title": stripped[:-1], "chunk": chunk, "line": i + 1})
+            if len(toc) >= _MAX_TOC:
+                break
+
+    return toc

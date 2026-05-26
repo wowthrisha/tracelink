@@ -1612,6 +1612,21 @@
       const [textContent, setTextContent] = useState('');
       const [textLoading, setTextLoading] = useState(false);
       const [textError, setTextError] = useState(null);
+      // Phase 7: smooth transitions — keep prev image visible while next loads
+      const [prevImgSrc, setPrevImgSrc] = useState('');
+      const [imgReady, setImgReady] = useState(false);
+      // Phase 7: in-viewer search
+      const [showSearch, setShowSearch] = useState(false);
+      // Phase 7: TOC sidebar for text/md documents
+      const [showToc, setShowToc] = useState(false);
+      // Phase 7: mobile/touch support
+      const touchRef = useRef({ x: null, y: null });
+
+      // ── Phase 7: request deduplication — one inflight fetch per page key ─────
+      const inflightRef = useRef(new Map());
+      // Ref tracks the currently displayed imgSrc so loadPage (empty-deps callback)
+      // can capture it for the crossfade background without a stale closure.
+      const imgSrcRef = useRef('');
 
       // ── Page image cache ─────────────────────────────────────────────────────
       // Blob URLs are stored per "token:page" key so navigating back to a page
@@ -1645,43 +1660,72 @@
 
       const loadPage = useCallback(async (token, pageNum, sessionId) => {
         if (!token || !sessionId) {
-          console.error('[SecureDoc] loadPage: token or sessionId missing — cannot construct page URL',
+          console.error('[SecureDoc] loadPage: token or sessionId missing',
             { token: token ? '[set]' : '[missing]', pageNum, sessionId: sessionId ? '[set]' : '[missing]' });
           setImgLoading(false);
           return;
         }
         const key = `${token}:${pageNum}`;
+
+        // Cache hit — instant display (no network round-trip; crossfade from current page)
         if (pageCache.current.has(key)) {
-          setImgSrc(pageCache.current.get(key));
+          const cached = pageCache.current.get(key);
+          setPrevImgSrc(imgSrcRef.current);
+          setImgSrc(cached);
+          setImgReady(true);
           setImgLoading(false);
           return;
         }
+
+        // Phase 7: request deduplication — if this page is already being fetched,
+        // wait for the existing promise instead of firing a second request.
+        if (inflightRef.current.has(key)) {
+          try { await inflightRef.current.get(key); } catch {}
+          if (pageCache.current.has(key)) {
+            const cached = pageCache.current.get(key);
+            setImgSrc(cached);
+            setImgReady(true);
+          }
+          setImgLoading(false);
+          return;
+        }
+
+        // Phase 7: smooth transition — save current page as background, keep it visible
+        // while the new page fetches. imgReady controls crossfade opacity.
+        setPrevImgSrc(imgSrcRef.current);
+        setImgReady(false);
         setImgLoading(true);
         setPageError(null);
+
         const url = window.SecureDocAPI.getPageUrl(token, pageNum, sessionId);
-        try {
-          const r = await fetch(url);
-          if (!r.ok) {
-            let detail = null;
-            try { detail = (await r.json()).detail; } catch {}
-            console.error('[SecureDoc] page fetch HTTP error', r.status, url, detail);
-            setPageError(detail || `Unable to load page (${r.status})`);
+        const fetchPromise = (async () => {
+          try {
+            const r = await fetch(url);
+            if (!r.ok) {
+              let detail = null;
+              try { detail = (await r.json()).detail; } catch {}
+              console.error('[SecureDoc] page fetch HTTP error', r.status, url, detail);
+              setPageError(detail || `Unable to load page (${r.status})`);
+              setImgReady(true);
+              return;
+            }
+            const blobUrl = URL.createObjectURL(await r.blob());
+            _cacheSet(key, blobUrl);
+            setImgSrc(blobUrl);
+            setPageError(null);
+            // imgReady set by onLoad handler to trigger crossfade after browser decodes image
+          } catch {
+            console.warn('[SecureDoc] page fetch network error, falling back to img src', url);
+            setImgSrc(url);
+            setImgReady(true);
+          } finally {
             setImgLoading(false);
-            return;
+            inflightRef.current.delete(key);
           }
-          const blobUrl = URL.createObjectURL(await r.blob());
-          _cacheSet(key, blobUrl);
-          setImgSrc(blobUrl);
-          setPageError(null);
-        } catch {
-          // Network-level failure (no response at all).
-          // Fall back to a direct img src as a last resort — the browser may
-          // succeed where fetch failed (e.g. different cache path).
-          console.warn('[SecureDoc] page fetch network error, falling back to img src', url);
-          setImgSrc(url);
-        } finally {
-          setImgLoading(false);
-        }
+        })();
+
+        inflightRef.current.set(key, fetchPromise);
+        await fetchPromise;
       }, []);
 
       const prefetchPage = useCallback((token, pageNum, sessionId, total) => {
@@ -1876,10 +1920,53 @@
         const h = e => {
           if (e.key === 'ArrowRight' || e.key === 'ArrowDown') goNext();
           if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') goPrev();
+          // Phase 7: Ctrl+F / Cmd+F opens in-viewer search
+          if ((e.ctrlKey || e.metaKey) && e.key === 'f' && session) {
+            e.preventDefault();
+            setShowSearch(v => !v);
+          }
         };
         window.addEventListener('keydown', h);
         return () => window.removeEventListener('keydown', h);
-      }, [goNext, goPrev]);
+      }, [goNext, goPrev, session]);
+
+      // Phase 7: viewer state persistence — restore page/zoom from sessionStorage
+      useEffect(() => {
+        if (!session?.session_id) return;
+        try {
+          const saved = sessionStorage.getItem(`securedoc_vstate_${session.session_id}`);
+          if (saved) {
+            const { pg, zm } = JSON.parse(saved);
+            if (pg && pg >= 1 && pg <= (session.page_count || 1)) setPage(pg);
+            if (zm && zm >= 50 && zm <= 200) setZoom(zm);
+          }
+        } catch {}
+      }, [session?.session_id]);
+
+      // Phase 7: save viewer state on change
+      useEffect(() => {
+        if (!session?.session_id) return;
+        try {
+          sessionStorage.setItem(
+            `securedoc_vstate_${session.session_id}`,
+            JSON.stringify({ pg: page, zm: zoom })
+          );
+        } catch {}
+      }, [session?.session_id, page, zoom]);
+
+      // Phase 7: keep imgSrcRef in sync so loadPage (empty-deps callback) can
+      // capture the current page URL for the crossfade background layer.
+      useEffect(() => { imgSrcRef.current = imgSrc; }, [imgSrc]);
+
+      // Phase 7: tab visibility — blur document when tab loses focus (already
+      // handled by blur/focus events), but also handle visibilitychange for
+      // more reliable mobile tab-switch detection
+      useEffect(() => {
+        if (!session) return;
+        const onVis = () => setBlurred(document.hidden);
+        document.addEventListener('visibilitychange', onVis);
+        return () => document.removeEventListener('visibilitychange', onVis);
+      }, [session]);
 
       // All hooks have run — safe to conditionally return now
       if (gateInfo && !session) {
@@ -1922,6 +2009,17 @@
               <Btn disabled={!session?.permissions?.can_print} onClick={() => { if (session?.permissions?.can_print) { window.print(); window.SecureDocAPI?.logEvent(session.link_token, session.session_id, 'printed'); } }} size="sm">⎙ Print</Btn>
               <Btn disabled={!session?.permissions?.can_copy} onClick={() => { if (session?.permissions?.can_copy) { navigator.clipboard.writeText('Text copied from SecureDoc'); toast('Text copied', 'success'); } }} size="sm">⧉ Copy</Btn>
               <div style={{ width: 1, height: 20, background: C.border }} />
+              {isTextDoc && (
+                <Btn variant="secondary" size="sm" onClick={() => setShowToc(v => !v)}
+                  style={{ background: showToc ? C.accentBg : undefined, color: showToc ? C.teal1 : undefined }}>
+                  ≡ TOC
+                </Btn>
+              )}
+              <Btn variant="secondary" size="sm" onClick={() => setShowSearch(v => !v)}
+                style={{ background: showSearch ? C.accentBg : undefined, color: showSearch ? C.teal1 : undefined }}
+                title="Search (Ctrl+F)">
+                ⌕ Search
+              </Btn>
               <Btn variant="secondary" size="sm" onClick={() => setShowInfo(v => !v)}
                 style={{
                   background: showInfo ? C.accentBg : undefined,
@@ -1933,6 +2031,17 @@
           </Header>
 
           <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
+            {/* Phase 7: TOC sidebar for text/md documents */}
+            {isTextDoc && showToc && session && (
+              <TocSidebar
+                linkToken={session.link_token}
+                sessionId={session.session_id}
+                currentChunk={page}
+                onNavigate={p => { setPage(p); setShowToc(false); }}
+                onClose={() => setShowToc(false)}
+              />
+            )}
+
             {/* Thumbnail strip — PDF only */}
             {!isTextDoc && (
               <div className="sidebar-mobile-hidden" style={{
@@ -1952,8 +2061,28 @@
             {/* Main canvas */}
             <div style={{
               flex: 1, overflow: 'auto', background: '#060809',
-              display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '20px 16px', gap: 12
-            }}>
+              display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '20px 16px', gap: 12,
+              position: 'relative'
+            }}
+              onTouchStart={e => { touchRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY }; }}
+              onTouchEnd={e => {
+                if (!touchRef.current.x) return;
+                const dx = e.changedTouches[0].clientX - touchRef.current.x;
+                const dy = e.changedTouches[0].clientY - touchRef.current.y;
+                if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 45) {
+                  if (dx < 0) goNext(); else goPrev();
+                }
+                touchRef.current = { x: null, y: null };
+              }}
+            >
+              {/* Phase 7: In-viewer search panel */}
+              {showSearch && session && (
+                <SearchPanel
+                  content={isTextDoc ? textContent : ''}
+                  onClose={() => setShowSearch(false)}
+                  onJumpToChunk={p => setPage(p)}
+                />
+              )}
 
               {/* Security badges */}
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'center' }}>
@@ -1997,27 +2126,59 @@
                   borderRadius: 2, overflow: 'hidden', boxShadow: '0 8px 48px rgba(0,0,0,0.7)'
                 }}
                   onContextMenu={e => e.preventDefault()}>
+
+                  {/* Phase 7 crossfade: background layer holds previous page while next loads */}
+                  {prevImgSrc && prevImgSrc !== imgSrc && (
+                    <img
+                      src={prevImgSrc}
+                      draggable={false}
+                      style={{
+                        position: 'absolute', inset: 0,
+                        width: '100%', height: '100%', objectFit: 'contain', display: 'block',
+                        userSelect: 'none', pointerEvents: 'none',
+                        filter: blurred ? 'blur(14px)' : 'none',
+                        opacity: imgReady ? 0 : 1,
+                        transition: 'opacity .22s ease, filter .3s',
+                      }}
+                      alt=""
+                    />
+                  )}
+
+                  {/* Current page — fades in when browser has decoded the new image */}
+                  {imgSrc && (
+                    <img src={imgSrc} draggable={false}
+                      onLoad={() => setImgReady(true)}
+                      onError={() => setImgReady(true)}
+                      style={{
+                        width: '100%', height: '100%', objectFit: 'contain', display: 'block',
+                        userSelect: 'none', WebkitTouchCallout: 'none', WebkitUserSelect: 'none',
+                        filter: blurred ? 'blur(14px)' : 'none',
+                        opacity: imgReady ? 1 : 0,
+                        transition: 'opacity .22s ease, filter .3s',
+                      }}
+                      alt={`Page ${page}`}
+                    />
+                  )}
+
+                  {/* Non-blocking loading badge — floats over image, doesn't obscure previous page */}
                   {imgLoading && (
-                    <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: C.surface, flexDirection: 'column', gap: 10 }}>
-                      <span style={{ display: 'inline-block', width: 22, height: 22, border: `1.5px solid ${C.border}`, borderTop: `1.5px solid ${C.teal2}`, borderRadius: '50%', animation: 'spin .65s linear infinite' }} />
-                      <span style={{ ...mono, fontSize: 10, color: C.textMuted }}>Loading page {page}…</span>
+                    <div style={{
+                      position: 'absolute', bottom: 8, right: 8, zIndex: 2, pointerEvents: 'none',
+                      display: 'flex', alignItems: 'center', gap: 5,
+                      background: 'rgba(6,8,9,0.72)', borderRadius: 20, padding: '4px 10px'
+                    }}>
+                      <span style={{ display: 'inline-block', width: 12, height: 12, border: `1.5px solid ${C.border}`, borderTop: `1.5px solid ${C.teal2}`, borderRadius: '50%', animation: 'spin .65s linear infinite' }} />
+                      <span style={{ ...mono, fontSize: 10, color: C.textMuted }}>p.{page}</span>
                     </div>
                   )}
-                  {!imgLoading && pageError && (
+
+                  {pageError && (
                     <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: C.surface, flexDirection: 'column', gap: 10, padding: '20px 24px' }}>
                       <span style={{ fontSize: 22, color: 'rgba(224,154,69,0.7)' }}>⚠</span>
                       <span style={{ ...mono, fontSize: 11, color: C.textMuted, textAlign: 'center', lineHeight: 1.5 }}>{pageError}</span>
                     </div>
                   )}
-                  {imgSrc && (
-                    <img src={imgSrc} draggable={false}
-                      onLoad={() => setImgLoading(false)} onError={() => setImgLoading(false)}
-                      style={{
-                        width: '100%', height: '100%', objectFit: 'contain', display: 'block', userSelect: 'none',
-                        WebkitTouchCallout: 'none', WebkitUserSelect: 'none',
-                        filter: blurred ? 'blur(14px)' : 'none', transition: 'filter .3s'
-                      }} alt={`Page ${page}`} />
-                  )}
+
                   {blurred && (
                     <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(6,8,9,0.4)' }}>
                       <div style={{ ...mono, fontSize: 11, color: C.teal2, padding: '8px 16px', background: 'rgba(6,8,9,0.85)', borderRadius: 6, border: `1px solid ${C.borderMed}` }}>Focus window to resume</div>
@@ -2148,6 +2309,134 @@
       );
     }
 
+    // ── Phase 7: In-viewer search panel ───────────────────────────────────────
+    function SearchPanel({ content, onClose, onJumpToChunk }) {
+      const [query, setQuery] = useState('');
+      const [matchCount, setMatchCount] = useState(0);
+      const [matchIdx, setMatchIdx] = useState(0);
+      const [matches, setMatches] = useState([]);
+      const inputRef = useRef(null);
+
+      useEffect(() => { if (inputRef.current) inputRef.current.focus(); }, []);
+
+      // Debounced search across loaded text content
+      useEffect(() => {
+        if (!query.trim() || !content) { setMatches([]); setMatchCount(0); return; }
+        const timer = setTimeout(() => {
+          const q = query.toLowerCase();
+          const lines = content.split('\n');
+          const found = [];
+          lines.forEach((line, li) => {
+            let idx = 0;
+            while ((idx = line.toLowerCase().indexOf(q, idx)) !== -1) {
+              found.push({ line: li, col: idx, text: line.slice(Math.max(0, idx - 30), idx + query.length + 30) });
+              idx += q.length;
+            }
+          });
+          setMatches(found);
+          setMatchCount(found.length);
+          setMatchIdx(0);
+        }, 250);
+        return () => clearTimeout(timer);
+      }, [query, content]);
+
+      const goNext = () => setMatchIdx(i => (i + 1) % Math.max(1, matchCount));
+      const goPrev = () => setMatchIdx(i => (i - 1 + Math.max(1, matchCount)) % Math.max(1, matchCount));
+
+      return (
+        <div style={{
+          position: 'absolute', top: 10, right: 10, zIndex: 200,
+          background: C.surface2, border: `1px solid ${C.borderMed}`,
+          borderRadius: 9, padding: '10px 14px', width: 320,
+          boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
+          display: 'flex', flexDirection: 'column', gap: 8
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 11, color: C.teal2 }}>⌕</span>
+            <input
+              ref={inputRef}
+              value={query}
+              onChange={e => setQuery(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') { e.shiftKey ? goPrev() : goNext(); } if (e.key === 'Escape') onClose(); }}
+              placeholder="Search in document…"
+              style={{
+                flex: 1, background: 'transparent', border: 'none', outline: 'none',
+                fontSize: 12, color: C.textPrimary, fontFamily: "'DM Sans',sans-serif"
+              }}
+            />
+            <span style={{ ...mono, fontSize: 10, color: C.textMuted, flexShrink: 0 }}>
+              {matchCount > 0 ? `${matchIdx + 1}/${matchCount}` : query ? '0/0' : ''}
+            </span>
+            <button onClick={goPrev} disabled={matchCount === 0} title="Previous (Shift+Enter)"
+              style={{ background: 'none', border: 'none', color: C.textMuted, cursor: 'pointer', fontSize: 12, padding: '2px 4px' }}>↑</button>
+            <button onClick={goNext} disabled={matchCount === 0} title="Next (Enter)"
+              style={{ background: 'none', border: 'none', color: C.textMuted, cursor: 'pointer', fontSize: 12, padding: '2px 4px' }}>↓</button>
+            <button onClick={onClose}
+              style={{ background: 'none', border: 'none', color: C.textMuted, cursor: 'pointer', fontSize: 14, lineHeight: 1, padding: '2px 4px' }}>✕</button>
+          </div>
+          {matches.length > 0 && matches[matchIdx] && (
+            <div style={{ ...mono, fontSize: 10, color: C.textSecondary, background: C.surfaceAlt, borderRadius: 5, padding: '5px 8px', lineHeight: 1.5 }}>
+              <span style={{ color: C.textDim }}>Line {matches[matchIdx].line + 1}: </span>
+              {matches[matchIdx].text.replace(new RegExp(query, 'gi'), m => `[${m}]`).replace(/\[/g, '').replace(/\]/g, '')}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // ── Phase 7: Table of contents sidebar ────────────────────────────────────
+    function TocSidebar({ linkToken, sessionId, currentChunk, onNavigate, onClose }) {
+      const [toc, setToc] = useState([]);
+      const [loading, setLoading] = useState(true);
+
+      useEffect(() => {
+        if (!linkToken || !sessionId) return;
+        window.SecureDocAPI.getToc(linkToken, sessionId)
+          .then(data => setToc(data.toc || []))
+          .catch(() => setToc([]))
+          .finally(() => setLoading(false));
+      }, [linkToken, sessionId]);
+
+      return (
+        <div style={{
+          width: 220, background: C.surfaceAlt, borderRight: `1px solid ${C.border}`,
+          display: 'flex', flexDirection: 'column', overflow: 'hidden', flexShrink: 0
+        }}>
+          <div style={{
+            padding: '10px 12px', borderBottom: `1px solid ${C.border}`,
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0
+          }}>
+            <span style={{ ...mono, fontSize: 10, color: C.teal2, letterSpacing: '0.6px' }}>TABLE OF CONTENTS</span>
+            <button onClick={onClose} style={{ background: 'none', border: 'none', color: C.textMuted, cursor: 'pointer', fontSize: 14 }}>✕</button>
+          </div>
+          <div style={{ flex: 1, overflow: 'auto', padding: '6px 0' }}>
+            {loading ? (
+              <div style={{ padding: '16px 12px', color: C.textMuted, fontSize: 11 }}>Loading…</div>
+            ) : toc.length === 0 ? (
+              <div style={{ padding: '16px 12px', color: C.textDim, fontSize: 11 }}>No headings found</div>
+            ) : toc.map((entry, i) => (
+              <div key={i} onClick={() => onNavigate(entry.chunk)}
+                style={{
+                  padding: `6px ${12 + (entry.level - 1) * 12}px`,
+                  cursor: 'pointer', fontSize: 11, lineHeight: 1.4,
+                  color: entry.chunk === currentChunk ? C.teal1 : C.textSecondary,
+                  background: entry.chunk === currentChunk ? C.accentBg : 'transparent',
+                  borderLeft: entry.chunk === currentChunk ? `2px solid ${C.teal2}` : '2px solid transparent',
+                  transition: 'all .1s',
+                  fontWeight: entry.level === 1 ? 600 : 400,
+                  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap'
+                }}
+                onMouseEnter={e => { if (entry.chunk !== currentChunk) e.currentTarget.style.background = 'rgba(90,200,208,0.05)'; }}
+                onMouseLeave={e => { if (entry.chunk !== currentChunk) e.currentTarget.style.background = 'transparent'; }}>
+                {entry.level > 1 && <span style={{ color: C.textDim, marginRight: 4 }}>{Array(entry.level - 1).fill('·').join('')}</span>}
+                {entry.title}
+              </div>
+            ))}
+          </div>
+        </div>
+      );
+    }
+
     // ── Thumbnail fetch semaphore ──────────────────────────────────────────────
     // Without throttling, the sidebar mounts all PAGE_COUNT PageThumb components
     // simultaneously the moment a session is established.  Each sets an <img>
@@ -2178,39 +2467,52 @@
       const [hov, setHov] = useState(false);
       const [thumbSrc, setThumbSrc] = useState(null);
       const [thumbError, setThumbError] = useState(false);
+      const containerRef = useRef(null);
 
-      // Load thumbnail through the concurrency-limited queue.
-      // A hidden Image object is used so the semaphore slot is held until the
-      // browser has finished loading (or erroring), preventing the queue from
-      // overflowing the backend with back-to-back requests.
+      // Phase 7: IntersectionObserver lazy loading.
+      // Thumbnails only enter the semaphore queue when they are scrolled into
+      // the visible area of the sidebar — prevents loading 500 thumbnails at
+      // once for large documents where most pages are off-screen.
       React.useEffect(() => {
         if (!token || !sessionId || !docReady) return;
         let cancelled = false;
-        setThumbError(false);
-        setThumbSrc(null);
+        let observer = null;
 
-        _thumbQueue.acquire().then(release => {
-          if (cancelled) { release(); return; }
-          const url = window.SecureDocAPI.getThumbUrl(token, p, sessionId);
-          const img = new Image();
-          img.onload = () => {
-            if (!cancelled) setThumbSrc(url);
-            release();
-          };
-          img.onerror = () => {
-            if (!cancelled) setThumbError(true);
-            release();
-          };
-          img.src = url;
-        }).catch(() => {});
+        const startLoad = () => {
+          if (cancelled || thumbSrc) return;
+          setThumbError(false);
 
-        return () => { cancelled = true; };
-      }, [token, sessionId, p]);
+          _thumbQueue.acquire().then(release => {
+            if (cancelled) { release(); return; }
+            const url = window.SecureDocAPI.getThumbUrl(token, p, sessionId);
+            const img = new Image();
+            img.onload = () => { if (!cancelled) setThumbSrc(url); release(); };
+            img.onerror = () => { if (!cancelled) setThumbError(true); release(); };
+            img.src = url;
+          }).catch(() => {});
+        };
+
+        if (typeof IntersectionObserver !== 'undefined' && containerRef.current) {
+          observer = new IntersectionObserver(
+            entries => { if (entries[0].isIntersecting) { startLoad(); observer.disconnect(); } },
+            { rootMargin: '200px' }  // start loading 200px before entering viewport
+          );
+          observer.observe(containerRef.current);
+        } else {
+          // Fallback for environments without IntersectionObserver
+          startLoad();
+        }
+
+        return () => {
+          cancelled = true;
+          if (observer) observer.disconnect();
+        };
+      }, [token, sessionId, p, docReady]);
 
       const showImg = thumbSrc && !thumbError;
 
       return (
-        <div onClick={onClick} onMouseEnter={() => setHov(true)} onMouseLeave={() => setHov(false)}
+        <div ref={containerRef} onClick={onClick} onMouseEnter={() => setHov(true)} onMouseLeave={() => setHov(false)}
           style={{
             width: '100%', aspectRatio: '8.5/11', background: C.surface2,
             border: `1px solid ${active ? C.teal2 : hov ? C.borderMed : C.border}`,

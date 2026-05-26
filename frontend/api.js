@@ -214,6 +214,15 @@ window.SecureDocAPI = {
     return `${base}/api/viewer/thumb/${linkToken}/${page}?session_id=${encodeURIComponent(sessionId || '')}`;
   },
 
+  async getToc(linkToken, sessionId) {
+    const base = API_BASE.replace(/\/$/, '');
+    const r = await fetch(
+      `${base}/api/viewer/toc/${encodeURIComponent(linkToken)}?session_id=${encodeURIComponent(sessionId || '')}`
+    );
+    if (!r.ok) throw await r.json();
+    return r.json();
+  },
+
   async getTextChunk(linkToken, chunkNumber, sessionId) {
     const base = API_BASE.replace(/\/$/, '');
     const chunk = Math.max(1, parseInt(chunkNumber, 10) || 1);

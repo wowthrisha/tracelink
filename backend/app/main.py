@@ -1,14 +1,16 @@
 import logging
 import os
 
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
+from app.database import get_db
 from app.middleware.rate_limit import limiter
 from app.middleware.trusted_proxy import TrustedProxyMiddleware
 from app.middleware.security_headers import SecurityHeadersMiddleware
@@ -54,6 +56,12 @@ app = FastAPI(title="SecureDoc API", version="1.0.0")
 async def startup():
     import logging
     _log = logging.getLogger("securedoc.startup")
+
+    # Phase 7: switch to JSON log format in production when configured
+    if settings.enable_json_logging:
+        from app.middleware.json_logging import configure_json_logging
+        configure_json_logging()
+        _log.info("LOGGING: JSON structured logging enabled")
 
     # Log which storage backend is active
     from app.services.storage import _storage_service
@@ -133,8 +141,62 @@ app.include_router(billing.router)
 
 
 @app.get("/health")
-async def health():
-    return {"status": "ok"}
+async def health(db: AsyncSession = Depends(get_db)):
+    """
+    Health check endpoint.  Always returns HTTP 200 so load-balancers and
+    tunnels can verify reachability.  The 'status' field is 'ok' when all
+    components are healthy, 'degraded' when one or more checks fail.
+
+    Checks: db (SELECT 1), redis (PING), storage (service instantiation)
+    """
+    from sqlalchemy import text as _sql_text
+    checks: dict = {}
+    overall = "ok"
+
+    # DB — uses the injected session (override-friendly in tests)
+    try:
+        await db.execute(_sql_text("SELECT 1"))
+        checks["db"] = "ok"
+    except Exception:
+        checks["db"] = "error"
+        overall = "degraded"
+
+    # Redis — PING the shared async client
+    try:
+        from app.services.page_cache import get_redis_page_cache
+        _rc = get_redis_page_cache()
+        if _rc is not None:
+            await _rc._r.ping()
+            checks["redis"] = "ok"
+        else:
+            checks["redis"] = "not_configured"
+    except Exception:
+        checks["redis"] = "error"
+        overall = "degraded"
+
+    # Storage — just verify the service is instantiated (no remote call)
+    try:
+        from app.services.storage import get_storage_service
+        _svc = get_storage_service()
+        checks["storage"] = type(_svc).__name__
+    except Exception:
+        checks["storage"] = "error"
+        overall = "degraded"
+
+    # Worker — check Celery worker availability via Redis inspect
+    try:
+        from app.services.page_cache import get_redis_page_cache
+        _rc = get_redis_page_cache()
+        if _rc is not None:
+            # Check for Celery worker heartbeats in Redis
+            _worker_keys = await _rc._r.keys("_kombu.binding.*")
+            checks["worker"] = "ok" if _worker_keys else "no_workers_detected"
+        else:
+            checks["worker"] = "redis_unavailable"
+    except Exception:
+        checks["worker"] = "unknown"
+
+    return {"status": overall, "checks": checks, "version": "7.0.0"}
 
 frontend_dir = "/frontend"  # mounted in Docker; fallback for local dev
 if not os.path.exists(frontend_dir):

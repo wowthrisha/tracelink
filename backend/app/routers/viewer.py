@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import json
 import logging
 import time
@@ -17,6 +18,7 @@ from app.services.link_service import LinkService
 from app.services.storage import get_storage_service
 from app.services.watermark import WatermarkService
 from app.services.analytics_service import AnalyticsService
+from app.config import settings
 from app.services.policy import enforcer as policy_enforcer
 from app.services.viewer_cache import (
     link_cache, doc_cache, page_cache,
@@ -38,6 +40,22 @@ watermark_svc = WatermarkService()
 analytics_svc = AnalyticsService()
 
 logger = logging.getLogger(__name__)
+
+
+# ── Phase 7: session-specific watermark angle jitter ─────────────────────────
+
+def _session_watermark_angle(session_id: str, base: float = -32.0) -> float:
+    """Derive a deterministic but session-unique watermark tilt angle.
+
+    Same session always produces the same angle (stable across page loads),
+    but different sessions get slightly different angles within ±jitter_deg
+    of the base.  This makes composite-removal attacks harder — an attacker
+    would need to align multiple differently-angled watermark layers.
+    """
+    h = int(hashlib.sha256(session_id.encode()).hexdigest()[:8], 16)
+    norm = (h % 10000) / 10000.0           # 0.0 – 1.0, uniform
+    jitter = settings.watermark_angle_jitter_deg
+    return base + (norm - 0.5) * 2.0 * jitter  # base ± jitter_deg
 
 
 # ── Cache helpers (backward-compatible wrappers for Phase 3 tests) ─────────────
@@ -169,6 +187,20 @@ async def validate_link(
         session_id=session_id,
         commit=True,
     )
+
+    # Phase 7: concurrency detection — log a warning when concurrent sessions exceed
+    # the configured threshold.  Detection-only: never blocks legitimate access.
+    try:
+        from app.config import settings as _settings
+        if _settings.max_concurrent_sessions_per_link > 0:
+            _count = await policy_enforcer.active_session_count(db, link.id)
+            if _count > _settings.max_concurrent_sessions_per_link:
+                logger.warning(
+                    "high_concurrent_sessions link_id=%s count=%d threshold=%d",
+                    link.id, _count, _settings.max_concurrent_sessions_per_link,
+                )
+    except Exception:
+        pass  # concurrency check must never block the validate response
 
     # Fetch document
     doc_result = await db.execute(
@@ -338,11 +370,14 @@ async def get_page(
 
     # Apply visible watermark — CPU-bound PIL work offloaded to thread pool so it
     # does not block the async event loop while other requests are being served.
+    # Phase 7: angle is session-specific (deterministic per session, varies across
+    # sessions) to deter composite-removal attacks.
     now_str = now.strftime("%Y-%m-%d")
     watermark_text = f"anonymous · {now_str} · sess:{session_id[:6]}"
+    _wm_angle = _session_watermark_angle(session_id)
     watermarked = await asyncio.get_running_loop().run_in_executor(
         None,
-        lambda: watermark_svc.apply_visible_watermark(image_bytes, watermark_text),
+        lambda: watermark_svc.apply_visible_watermark(image_bytes, watermark_text, angle=_wm_angle),
     )
     t2 = time.perf_counter()
     logger.debug(
@@ -502,6 +537,96 @@ async def get_thumb(
             "X-Content-Type-Options": "nosniff",
             "Content-Disposition": "inline",
         },
+    )
+
+
+@router.get("/toc/{link_token}")
+@limiter.limit("60/minute")
+async def get_toc(
+    request: Request,
+    link_token: str,
+    session_id: Optional[str] = Query(None),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Return a table of contents (section headings) for the document.
+
+    Security model mirrors /text: requires valid session, validates link
+    revocation and expiry, enforces IP allowlist.
+
+    Response shape:
+      {
+        "toc":       [...],  # list of {level, title, chunk, line} entries
+        "doc_type":  str,    # "pdf" | "txt" | "md" | "log"
+        "supported": bool    # False for PDFs (no text extraction yet)
+      }
+    """
+    from fastapi.responses import JSONResponse as _JSONResponse
+    from app.services.text_processor import decode_text_safe, extract_toc
+    from app.config import settings as _settings
+
+    if not session_id:
+        raise HTTPException(status_code=400, detail="session_id is required")
+
+    # ── Link metadata (TTL-cached, 10 s) ──────────────────────────────────────
+    link_snap: Optional[LinkSnapshot] = link_cache.get(link_token)
+    if link_snap is None:
+        _link_row = await db.execute(select(ShareLink).where(ShareLink.token == link_token))
+        _link = _link_row.scalar_one_or_none()
+        if _link is None:
+            raise HTTPException(status_code=404, detail="Link not found")
+        link_snap = LinkSnapshot(
+            id=_link.id, token=_link.token, document_id=_link.document_id,
+            revoked_at=_link.revoked_at, expires_at=_link.expires_at,
+            ip_allowlist=_link.ip_allowlist,
+        )
+        link_cache.put(link_token, link_snap)
+
+    now = datetime.now(timezone.utc)
+    _check_link_active(link_snap, now)
+
+    ip = getattr(request.state, "client_ip", None) or (request.client.host if request.client else None)
+    if link_snap.ip_allowlist:
+        if not policy_enforcer.ip_is_allowed(ip, link_snap.ip_allowlist):
+            raise HTTPException(status_code=403, detail="Access denied from this IP")
+
+    # ── Document metadata ──────────────────────────────────────────────────────
+    doc_row = await db.execute(select(Document).where(Document.id == link_snap.document_id))
+    doc = doc_row.scalar_one_or_none()
+    if doc is None:
+        raise HTTPException(status_code=404, detail="Document not found")
+    _check_doc_ready(doc)
+
+    file_type = getattr(doc, "file_type", "pdf") or "pdf"
+
+    # PDFs return empty TOC (no text extraction available)
+    if file_type == "pdf":
+        return _JSONResponse(
+            content={"toc": [], "doc_type": "pdf", "supported": False},
+            headers={"Cache-Control": "no-store"},
+        )
+
+    # ── Fetch and decode text content ─────────────────────────────────────────
+    cached_text: Optional[str] = text_content_cache.get(doc.storage_key)
+    if cached_text is None:
+        storage = get_storage_service()
+        try:
+            raw_bytes = await storage.download_bytes(doc.storage_key)
+        except Exception as exc:
+            logger.error("toc_storage_failed doc=%s key=%r error=%s", doc.id, doc.storage_key, exc)
+            raise HTTPException(status_code=503, detail="Document content temporarily unavailable")
+        cached_text = decode_text_safe(raw_bytes)
+        if len(cached_text) <= TEXT_CONTENT_MAX_BYTES:
+            text_content_cache.put(doc.storage_key, cached_text)
+
+    toc_entries = extract_toc(
+        cached_text, file_type,
+        lines_per_chunk=_settings.text_lines_per_chunk,
+    )
+
+    return _JSONResponse(
+        content={"toc": toc_entries, "doc_type": file_type, "supported": True},
+        headers={"Cache-Control": "no-store"},
     )
 
 
