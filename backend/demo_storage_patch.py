@@ -48,6 +48,9 @@ class DemoStorageService:
         if p.exists():
             p.unlink()
 
+    async def file_exists(self, storage_key: str) -> bool:
+        return self._path(storage_key).exists()
+
     async def list_keys_with_prefix(self, prefix: str) -> list:
         prefix_flat = prefix.replace("/", "_")
         return [

@@ -31,13 +31,19 @@ class RequestIDMiddleware(BaseHTTPMiddleware):
         t0 = time.perf_counter()
         response = await call_next(request)
         ms = (time.perf_counter() - t0) * 1000
+        # Phase 8: include resolved client IP (set by TrustedProxyMiddleware)
+        # so access logs show the real visitor IP even behind Cloudflare.
+        client_ip = getattr(request.state, "client_ip", None) or (
+            request.client.host if request.client else "-"
+        )
         logger.info(
-            "access method=%s path=%s status=%d ms=%.1f req_id=%s",
+            "access method=%s path=%s status=%d ms=%.1f req_id=%s ip=%s",
             request.method,
             _sanitize_path(request.url.path),
             response.status_code,
             ms,
             request_id,
+            client_ip,
         )
         response.headers["X-Request-ID"] = request_id
         return response

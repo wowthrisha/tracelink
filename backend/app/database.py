@@ -86,13 +86,13 @@ def make_engine(url: str | None = None):
         #   managed Postgres closes idle connections server-side; without recycle
         #   the pool would hand out a TCP-alive-but-DB-dead connection.
         #
-        # pool_size / max_overflow: sized for ~10 concurrent viewers each
-        #   fetching 6 thumbnails + page simultaneously (≈70 requests).
-        #   30 total connections leaves headroom for the Celery worker pool.
+        # pool_size / max_overflow: tunable via DB_POOL_SIZE / DB_MAX_OVERFLOW env vars.
+        # Defaults: 10+20=30 total connections, headroom for Celery worker pool.
         kwargs["pool_pre_ping"] = True
-        kwargs["pool_recycle"] = 1800
-        kwargs["pool_size"] = 10
-        kwargs["max_overflow"] = 20
+        kwargs["pool_recycle"] = settings.db_pool_recycle
+        kwargs["pool_size"] = settings.db_pool_size
+        kwargs["max_overflow"] = settings.db_max_overflow
+        kwargs["pool_timeout"] = settings.db_pool_timeout
     return create_async_engine(db_url, **kwargs)
 
 

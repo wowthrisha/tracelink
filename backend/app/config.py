@@ -95,6 +95,28 @@ class Settings(BaseSettings):
     # Randomises placement slightly per session to deter composite-removal attacks.
     watermark_angle_jitter_deg: float = 5.0
 
+    # Phase 8 — Cloudflare / CDN / deployment hardening
+    # Redirect HTTP → HTTPS by checking X-Forwarded-Proto header from the proxy.
+    # Enable when the app is behind Cloudflare or another TLS-terminating proxy.
+    https_redirect: bool = False
+    # HSTS max-age in seconds.  0 = disabled (default for new deployments).
+    # Set to 31536000 (1 year) once HTTPS is confirmed stable.
+    # Only injected when > 0; never injected in development.
+    hsts_max_age: int = 0
+    # Cache-Control max-age for static JS/CSS assets served by /static/*.
+    # Set higher (e.g. 86400) when assets are fingerprinted (hash in filename).
+    static_asset_max_age: int = 3600
+    # Force path-style S3 URLs (required for MinIO and some Cloudflare R2 configs).
+    # Leave False for AWS S3 and standard R2 which use virtual-hosted style.
+    storage_path_style: bool = False
+
+    # Phase 8 — DB connection pool (extracted from hardcoded values so they are
+    # tunable via environment without rebuilding the image)
+    db_pool_size: int = 10
+    db_max_overflow: int = 20
+    db_pool_timeout: int = 30
+    db_pool_recycle: int = 1800
+
     @property
     def max_text_size_bytes(self) -> int:
         return self.max_text_size_mb * 1024 * 1024

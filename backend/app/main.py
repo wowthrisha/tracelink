@@ -18,6 +18,8 @@ from app.middleware.request_id import RequestIDMiddleware
 from app.routers import documents, links, viewer, analytics, groups, billing
 from app.auth import _fetch_jwks
 
+_IP_SALT_DEFAULT = "securedoc_ip_salt_change_in_production"
+
 _UNSAFE_DEFAULTS = {
     "jwt_secret": "change_me_to_a_long_random_string_in_production",
 }
@@ -35,6 +37,13 @@ if settings.app_env == "production":
         _errors.append("  FRONTEND_BASE_URL still points to localhost")
     if not settings.app_public_base_url.startswith("https://"):
         _errors.append("  APP_PUBLIC_BASE_URL must use HTTPS in production")
+    # Phase 8: IP hash salt must be changed from default in production.
+    # Leaving it at the default makes IP hashes effectively reversible.
+    if settings.ip_hash_salt == _IP_SALT_DEFAULT:
+        _errors.append(
+            "  IP_HASH_SALT is still set to the default placeholder value "
+            "(generate with: python -c \"import secrets; print(secrets.token_hex(32))\")"
+        )
     # Warn (not block) if ALLOWED_ORIGINS still has localhost
     _localhost_origins = [o for o in settings.allowed_origins_list if "localhost" in o or "127.0.0.1" in o]
     if _localhost_origins:
@@ -49,7 +58,7 @@ if settings.app_env == "production":
             + "\n".join(_errors)
         )
 
-app = FastAPI(title="SecureDoc API", version="1.0.0")
+app = FastAPI(title="SecureDoc API", version="8.0.0")
 
 
 @app.on_event("startup")
@@ -68,9 +77,22 @@ async def startup():
     if _storage_service is not None and type(_storage_service).__name__ == "DemoStorageService":
         _log.warning("STORAGE: demo/local-disk mode active (/tmp/securedoc_storage/)")
     elif settings.storage_endpoint_url:
-        _log.info("STORAGE: S3-compatible backend — %s", settings.storage_endpoint_url)
+        _log.info(
+            "STORAGE: S3-compatible backend — %s (path_style=%s)",
+            settings.storage_endpoint_url, settings.storage_path_style,
+        )
     else:
         _log.info("STORAGE: AWS S3 (no custom endpoint)")
+
+    # Phase 8: log active CDN/proxy configuration for operator visibility
+    if settings.https_redirect:
+        _log.info("PROXY: HTTPS redirect active (checking X-Forwarded-Proto)")
+    if settings.hsts_max_age > 0:
+        _log.info("SECURITY: HSTS enabled max-age=%d", settings.hsts_max_age)
+    if settings.real_ip_header:
+        _log.info("PROXY: real_ip_header=%r", settings.real_ip_header)
+    elif settings.trusted_proxy_depth > 0:
+        _log.info("PROXY: trusted_proxy_depth=%d", settings.trusted_proxy_depth)
 
     # Preload Supabase JWKS public keys
     try:
@@ -92,7 +114,17 @@ async def shutdown():
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-app.add_middleware(SecurityHeadersMiddleware)
+# Phase 8: HTTPS redirect — outermost middleware so it runs before any other
+# processing.  Only active when HTTPS_REDIRECT=true in .env.
+if settings.https_redirect:
+    from app.middleware.https_redirect import HTTPSRedirectMiddleware
+    app.add_middleware(HTTPSRedirectMiddleware)
+
+app.add_middleware(
+    SecurityHeadersMiddleware,
+    hsts_max_age=settings.hsts_max_age,
+    static_asset_max_age=settings.static_asset_max_age,
+)
 app.add_middleware(RequestIDMiddleware)
 app.add_middleware(
     TrustedProxyMiddleware,
@@ -147,7 +179,7 @@ async def health(db: AsyncSession = Depends(get_db)):
     tunnels can verify reachability.  The 'status' field is 'ok' when all
     components are healthy, 'degraded' when one or more checks fail.
 
-    Checks: db (SELECT 1), redis (PING), storage (service instantiation)
+    Checks: db (SELECT 1), redis (PING), storage (service instantiation), worker
     """
     from sqlalchemy import text as _sql_text
     checks: dict = {}
@@ -196,7 +228,15 @@ async def health(db: AsyncSession = Depends(get_db)):
     except Exception:
         checks["worker"] = "unknown"
 
-    return {"status": overall, "checks": checks, "version": "7.0.0"}
+    # Phase 8: expose proxy/CDN configuration state for ops visibility
+    checks["proxy"] = {
+        "https_redirect": settings.https_redirect,
+        "real_ip_header": settings.real_ip_header or None,
+        "trusted_proxy_depth": settings.trusted_proxy_depth,
+        "hsts_max_age": settings.hsts_max_age,
+    }
+
+    return {"status": overall, "checks": checks, "version": "8.0.0"}
 
 frontend_dir = "/frontend"  # mounted in Docker; fallback for local dev
 if not os.path.exists(frontend_dir):

@@ -380,9 +380,12 @@ async def get_page(
         lambda: watermark_svc.apply_visible_watermark(image_bytes, watermark_text, angle=_wm_angle),
     )
     t2 = time.perf_counter()
-    logger.debug(
-        "page=%d cache_source=%s fetch_ms=%.1f watermark_ms=%.1f",
-        page_number, cache_source, (t1 - t0) * 1000, (t2 - t1) * 1000,
+    # Phase 8: structured log with doc_id, cache source, and latency breakdown
+    logger.info(
+        "page_served doc=%s page=%d cache=%s fetch_ms=%.1f watermark_ms=%.1f req_id=%s",
+        link_snap.document_id, page_number, cache_source,
+        (t1 - t0) * 1000, (t2 - t1) * 1000,
+        getattr(request.state, "request_id", "-"),
     )
 
     # Refresh session heartbeat (throttled: only writes if >30s since last update)
@@ -402,6 +405,10 @@ async def get_page(
         commit=True,  # single commit covers session heartbeat + analytics event
     )
 
+    # Phase 8: X-Cache-Status header lets CDN operators see hit/miss without
+    # parsing logs.  "HIT" = served from L1/L2 cache; "MISS" = fetched from storage.
+    cache_status = "HIT" if cache_source in ("local", "redis") else "MISS"
+
     return FastAPIResponse(
         content=watermarked,
         media_type="image/webp",
@@ -410,6 +417,7 @@ async def get_page(
             "X-Content-Type-Options": "nosniff",
             "Content-Disposition": "inline",
             "X-Frame-Options": "SAMEORIGIN",
+            "X-Cache-Status": cache_status,
         },
     )
 
@@ -526,8 +534,13 @@ async def get_thumb(
                     )
 
     logger.debug(
-        "thumb=%d cache_source=%s", page_number, thumb_source
+        "thumb_served doc=%s page=%d cache=%s req_id=%s",
+        link_snap.document_id, page_number, thumb_source,
+        getattr(request.state, "request_id", "-"),
     )
+
+    # Phase 8: X-Cache-Status for CDN/ops visibility
+    thumb_cache_status = "HIT" if thumb_source in ("local", "redis") else "MISS"
 
     return FastAPIResponse(
         content=thumb_bytes,
@@ -536,6 +549,7 @@ async def get_thumb(
             "Cache-Control": "no-store, no-cache, must-revalidate",
             "X-Content-Type-Options": "nosniff",
             "Content-Disposition": "inline",
+            "X-Cache-Status": thumb_cache_status,
         },
     )
 

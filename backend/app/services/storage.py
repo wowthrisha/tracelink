@@ -1,6 +1,28 @@
+"""
+Storage service — S3/R2-compatible document asset store.
+
+Wraps boto3 S3 client calls in asyncio executor calls so they do not block
+the async event loop.  Uses a dedicated bounded thread pool (_STORAGE_EXECUTOR)
+separate from the default asyncio pool to prevent S3 network waits from
+competing with CPU-bound tasks (e.g. watermarking).
+
+Phase 8 additions:
+  - file_exists() method for safe pre-existence checks
+  - storage_path_style config support (MinIO, some Cloudflare R2 configs)
+  - Consistent use of _STORAGE_EXECUTOR for all S3 operations
+  - StorageBackend abstract base for testability / future backends
+
+Cloudflare R2 compatibility:
+  - Set STORAGE_ENDPOINT_URL to your R2 endpoint
+    (e.g. https://<account-id>.r2.cloudflarestorage.com)
+  - Set STORAGE_ACCESS_KEY_ID / STORAGE_SECRET_ACCESS_KEY to R2 API tokens
+  - Leave STORAGE_PATH_STYLE=false (R2 uses virtual-hosted style by default)
+  - Set STORAGE_REGION to "auto"
+"""
 import asyncio
 import concurrent.futures
 import io
+from abc import ABC, abstractmethod
 from functools import partial
 from typing import Optional
 import boto3
@@ -30,7 +52,34 @@ _BOTO_CONFIG = BotocoreConfig(
 )
 
 
-class StorageService:
+class StorageBackend(ABC):
+    """Abstract storage backend.  All concrete backends must implement these methods."""
+
+    @abstractmethod
+    async def upload_file(
+        self, file_bytes: bytes, storage_key: str, content_type: str = "application/pdf"
+    ) -> str: ...
+
+    @abstractmethod
+    async def download_bytes(self, storage_key: str) -> bytes: ...
+
+    @abstractmethod
+    async def delete_file(self, storage_key: str) -> None: ...
+
+    @abstractmethod
+    async def list_keys_with_prefix(self, prefix: str) -> list[str]: ...
+
+    @abstractmethod
+    async def file_exists(self, storage_key: str) -> bool: ...
+
+    # generate_presigned_url is optional (not all backends support it)
+    async def generate_presigned_url(
+        self, storage_key: str, expires_in_seconds: int = 60
+    ) -> str:
+        raise NotImplementedError("This storage backend does not support presigned URLs")
+
+
+class StorageService(StorageBackend):
     def __init__(self):
         kwargs: dict = {
             "aws_access_key_id": settings.storage_access_key_id,
@@ -40,10 +89,15 @@ class StorageService:
         if settings.storage_endpoint_url:
             kwargs["endpoint_url"] = settings.storage_endpoint_url
             kwargs["region_name"] = settings.storage_region
-            # Merge signature version into the existing config object
-            kwargs["config"] = _BOTO_CONFIG.merge(
-                BotocoreConfig(signature_version="s3v4")
-            )
+            # Phase 8: path-style addressing required for MinIO and some R2 setups.
+            # Virtual-hosted style (default) requires the bucket name in the hostname;
+            # path-style puts it in the URL path instead.
+            cfg_overrides: dict = {"signature_version": "s3v4"}
+            if settings.storage_path_style:
+                cfg_overrides["s3"] = {"addressing_style": "path"}
+            kwargs["config"] = _BOTO_CONFIG.merge(BotocoreConfig(**cfg_overrides))
+        elif settings.storage_region:
+            kwargs["region_name"] = settings.storage_region
 
         self._client = boto3.client("s3", **kwargs)
         self._bucket = settings.storage_bucket_name
@@ -85,7 +139,7 @@ class StorageService:
                 # unwrap and re-raise so callers get a consistent ClientError.
                 raise e.__cause__ or e
 
-        await loop.run_in_executor(None, _upload)
+        await loop.run_in_executor(_STORAGE_EXECUTOR, _upload)
         return storage_key
 
     async def generate_presigned_url(
@@ -96,7 +150,7 @@ class StorageService:
         loop = asyncio.get_running_loop()
         client = self._get_client()
         url = await loop.run_in_executor(
-            None,
+            _STORAGE_EXECUTOR,
             partial(
                 client.generate_presigned_url,
                 "get_object",
@@ -128,7 +182,7 @@ class StorageService:
                     return  # already gone — that's fine
                 raise
 
-        await loop.run_in_executor(None, _delete)
+        await loop.run_in_executor(_STORAGE_EXECUTOR, _delete)
 
     async def list_keys_with_prefix(self, prefix: str) -> list[str]:
         loop = asyncio.get_running_loop()
@@ -142,7 +196,24 @@ class StorageService:
                     keys.append(obj["Key"])
             return keys
 
-        return await loop.run_in_executor(None, _list)
+        return await loop.run_in_executor(_STORAGE_EXECUTOR, _list)
+
+    async def file_exists(self, storage_key: str) -> bool:
+        """Return True if the object exists in the bucket (head_object check)."""
+        loop = asyncio.get_running_loop()
+        client = self._get_client()
+
+        def _head():
+            try:
+                client.head_object(Bucket=self._bucket, Key=storage_key)
+                return True
+            except ClientError as e:
+                code = e.response["Error"]["Code"]
+                if code in ("404", "NoSuchKey"):
+                    return False
+                raise
+
+        return await loop.run_in_executor(_STORAGE_EXECUTOR, _head)
 
 
 _storage_service: Optional[StorageService] = None
