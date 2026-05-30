@@ -161,8 +161,13 @@ class PolicyEnforcer:
         session_id: str,
         link_id,
         ip_hash: Optional[str] = None,
-    ) -> None:
+        viewer_email_masked: Optional[str] = None,
+    ) -> Optional[str]:
         """Create or refresh a viewer session record.
+
+        Returns the stored viewer_email_masked so callers (page endpoint) can
+        embed the viewer's identity in the forensic watermark without an extra
+        DB query.
 
         For existing sessions, the heartbeat write is throttled to at most once
         per SESSION_HEARTBEAT_INTERVAL_SEC to reduce DB write amplification when
@@ -180,16 +185,19 @@ class PolicyEnforcer:
             if elapsed >= SESSION_HEARTBEAT_INTERVAL_SEC:
                 existing.last_seen_at = now
             # else: skip the write — session is still fresh within the interval
+            return existing.viewer_email_masked
         else:
             db.add(
                 ViewerSession(
                     session_id=session_id,
                     link_id=link_id,
                     ip_hash=ip_hash,
+                    viewer_email_masked=viewer_email_masked,
                     created_at=now,
                     last_seen_at=now,
                 )
             )
+            return viewer_email_masked
         # caller must commit
 
 

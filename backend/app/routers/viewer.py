@@ -3,10 +3,9 @@ import hashlib
 import json
 import logging
 import time
-import uuid
 from datetime import datetime, timezone
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, Query
+from fastapi import APIRouter, Depends, HTTPException, Request, Query
 from fastapi.responses import Response as FastAPIResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -24,12 +23,12 @@ from app.services.viewer_cache import (
     link_cache, doc_cache, page_cache,
     LinkSnapshot, DocSnapshot, PageSnapshot,
     text_content_cache, TEXT_CONTENT_MAX_BYTES,
+    chunk_array_cache,
 )
 from app.services.page_cache import (
     fetch_page_bytes, store_page_bytes,
     fetch_thumb_bytes, store_thumb_bytes,
     clear_local_page_cache, clear_local_thumb_cache,
-    clear_doc_from_local_cache,
 )
 from app.utils.crypto import hash_value
 from app.middleware.rate_limit import limiter
@@ -76,11 +75,6 @@ def clear_metadata_caches() -> None:
     """Flush the link/doc/page TTL metadata caches.  Called in tests."""
     from app.services.viewer_cache import clear_all_caches
     clear_all_caches()
-
-
-def clear_doc_bytes_cache(doc_id: str) -> None:
-    """Remove all L1 byte cache entries for a document.  Called on document delete."""
-    clear_doc_from_local_cache(doc_id)
 
 
 # ── Shared helpers ─────────────────────────────────────────────────────────────
@@ -317,7 +311,12 @@ async def get_page(
         _doc = _doc_row.scalar_one_or_none()
         if _doc is None:
             raise HTTPException(status_code=404, detail="Document not found")
-        doc_snap = DocSnapshot(id=_doc.id, status=_doc.status)
+        doc_snap = DocSnapshot(
+            id=_doc.id, status=_doc.status,
+            file_type=_doc.file_type or "pdf",
+            storage_key=_doc.storage_key,
+            page_count=_doc.page_count,
+        )
         # Only cache ready documents — caching non-ready statuses would lock
         # clients out for up to DOC_TTL_SEC (60 s) after the doc finishes
         # processing, because subsequent requests would hit the stale snapshot.
@@ -344,6 +343,16 @@ async def get_page(
             height_px=_page.height_px,
         )
         page_cache.put(_page_key, page_snap)
+
+    # ── Session heartbeat + email retrieval ───────────────────────────────────
+    # Moved BEFORE watermarking so the viewer's masked email can be burned into
+    # the page image instead of the generic "anonymous" placeholder.
+    viewer_email_masked = None
+    if session_id:
+        ip_hash = hash_value(ip) if ip else None
+        viewer_email_masked = await policy_enforcer.upsert_session(
+            db, session_id, link_snap.id, ip_hash=ip_hash
+        )
 
     # ── Page bytes: L1 (local) → L2 (Redis) → Storage ────────────────────────
     # Security: all auth checks above are complete before any cache access.
@@ -373,7 +382,7 @@ async def get_page(
     # Phase 7: angle is session-specific (deterministic per session, varies across
     # sessions) to deter composite-removal attacks.
     now_str = now.strftime("%Y-%m-%d")
-    watermark_text = f"anonymous · {now_str} · sess:{session_id[:6]}"
+    watermark_text = f"{viewer_email_masked or 'anonymous'} · {now_str} · sess:{session_id[:6]}"
     _wm_angle = _session_watermark_angle(session_id)
     watermarked = await asyncio.get_running_loop().run_in_executor(
         None,
@@ -387,11 +396,6 @@ async def get_page(
         (t1 - t0) * 1000, (t2 - t1) * 1000,
         getattr(request.state, "request_id", "-"),
     )
-
-    # Refresh session heartbeat (throttled: only writes if >30s since last update)
-    if session_id:
-        ip_hash = hash_value(ip) if ip else None
-        await policy_enforcer.upsert_session(db, session_id, link_snap.id, ip_hash=ip_hash)
 
     # Log page_viewed event and commit both heartbeat + event in a single round-trip
     await analytics_svc.log_event(
@@ -477,7 +481,12 @@ async def get_thumb(
         _doc = _doc_row.scalar_one_or_none()
         if _doc is None:
             raise HTTPException(status_code=404, detail="Document not found")
-        doc_snap = DocSnapshot(id=_doc.id, status=_doc.status)
+        doc_snap = DocSnapshot(
+            id=_doc.id, status=_doc.status,
+            file_type=_doc.file_type or "pdf",
+            storage_key=_doc.storage_key,
+            page_count=_doc.page_count,
+        )
         if _doc.status == "ready":
             doc_cache.put(_doc_key, doc_snap)
     _check_doc_ready(doc_snap)
@@ -604,14 +613,25 @@ async def get_toc(
         if not policy_enforcer.ip_is_allowed(ip, link_snap.ip_allowlist):
             raise HTTPException(status_code=403, detail="Access denied from this IP")
 
-    # ── Document metadata ──────────────────────────────────────────────────────
-    doc_row = await db.execute(select(Document).where(Document.id == link_snap.document_id))
-    doc = doc_row.scalar_one_or_none()
-    if doc is None:
-        raise HTTPException(status_code=404, detail="Document not found")
-    _check_doc_ready(doc)
+    # ── Document metadata (TTL-cached, 60 s) ──────────────────────────────────
+    _doc_key = str(link_snap.document_id)
+    doc_snap: Optional[DocSnapshot] = doc_cache.get(_doc_key)
+    if doc_snap is None:
+        _doc_row = await db.execute(select(Document).where(Document.id == link_snap.document_id))
+        _doc = _doc_row.scalar_one_or_none()
+        if _doc is None:
+            raise HTTPException(status_code=404, detail="Document not found")
+        doc_snap = DocSnapshot(
+            id=_doc.id, status=_doc.status,
+            file_type=_doc.file_type or "pdf",
+            storage_key=_doc.storage_key,
+            page_count=_doc.page_count,
+        )
+        if _doc.status == "ready":
+            doc_cache.put(_doc_key, doc_snap)
+    _check_doc_ready(doc_snap)
 
-    file_type = getattr(doc, "file_type", "pdf") or "pdf"
+    file_type = doc_snap.file_type
 
     # PDFs return empty TOC (no text extraction available)
     if file_type == "pdf":
@@ -621,17 +641,18 @@ async def get_toc(
         )
 
     # ── Fetch and decode text content ─────────────────────────────────────────
-    cached_text: Optional[str] = text_content_cache.get(doc.storage_key)
+    storage_key = doc_snap.storage_key
+    cached_text: Optional[str] = text_content_cache.get(storage_key)
     if cached_text is None:
         storage = get_storage_service()
         try:
-            raw_bytes = await storage.download_bytes(doc.storage_key)
+            raw_bytes = await storage.download_bytes(storage_key)
         except Exception as exc:
-            logger.error("toc_storage_failed doc=%s key=%r error=%s", doc.id, doc.storage_key, exc)
+            logger.error("toc_storage_failed doc=%s key=%r error=%s", doc_snap.id, storage_key, exc)
             raise HTTPException(status_code=503, detail="Document content temporarily unavailable")
         cached_text = decode_text_safe(raw_bytes)
         if len(cached_text) <= TEXT_CONTENT_MAX_BYTES:
-            text_content_cache.put(doc.storage_key, cached_text)
+            text_content_cache.put(storage_key, cached_text)
 
     toc_entries = extract_toc(
         cached_text, file_type,
@@ -671,8 +692,12 @@ async def download_document(
     now = datetime.now(timezone.utc)
     if link.revoked_at:
         raise HTTPException(status_code=410, detail="Link revoked")
-    if link.expires_at and link.expires_at < now:
-        raise HTTPException(status_code=410, detail="Link expired")
+    if link.expires_at:
+        expires = link.expires_at
+        if expires.tzinfo is None:
+            expires = expires.replace(tzinfo=timezone.utc)
+        if expires < now:
+            raise HTTPException(status_code=410, detail="Link expired")
 
     # Check download permission
     perms = json.loads(link.permissions) if link.permissions else {}
@@ -829,68 +854,73 @@ async def get_text_chunk(
         _doc = _doc_row.scalar_one_or_none()
         if _doc is None:
             raise HTTPException(status_code=404, detail="Document not found")
-        doc_snap = DocSnapshot(id=_doc.id, status=_doc.status)
+        doc_snap = DocSnapshot(
+            id=_doc.id, status=_doc.status,
+            file_type=_doc.file_type or "pdf",
+            storage_key=_doc.storage_key,
+            page_count=_doc.page_count,
+        )
         if _doc.status == "ready":
             doc_cache.put(_doc_key, doc_snap)
     _check_doc_ready(doc_snap)
 
-    # ── Verify this is a text document ────────────────────────────────────────
-    # Fetch the full document to get file_type + storage_key + page_count.
-    # This is a small extra DB read compared to the PDF path, but text documents
-    # don't use the DocumentPage table so there's no page-level cache to use.
-    doc_row = await db.execute(
-        select(Document).where(Document.id == link_snap.document_id)
-    )
-    doc = doc_row.scalar_one_or_none()
-    if doc is None:
-        raise HTTPException(status_code=404, detail="Document not found")
-
-    file_type = getattr(doc, "file_type", "pdf") or "pdf"
+    # ── Verify this is a text document (uses cached DocSnapshot — no extra DB read) ──
+    file_type = doc_snap.file_type
     if file_type not in ("txt", "md", "log"):
         raise HTTPException(
             status_code=400,
             detail="This endpoint is for text documents only. Use /api/viewer/page for PDFs.",
         )
 
-    total_chunks = doc.page_count or 1
+    total_chunks = doc_snap.page_count or 1
     if chunk_number > total_chunks:
         raise HTTPException(status_code=404, detail="Chunk not found")
+
+    storage_key = doc_snap.storage_key
+
+    # ── Session heartbeat + email retrieval (before analytics) ───────────────
+    viewer_email_masked = None
+    if session_id:
+        ip_hash = hash_value(ip) if ip else None
+        viewer_email_masked = await policy_enforcer.upsert_session(
+            db, session_id, link_snap.id, ip_hash=ip_hash
+        )
 
     # ── Text content: process-local cache → storage ───────────────────────────
     # Only raw decoded text is cached — the session-specific watermark_text is
     # added to the response after the cache hit (same pattern as page images).
-    cached_text: Optional[str] = text_content_cache.get(doc.storage_key)
+    cached_text: Optional[str] = text_content_cache.get(storage_key)
     if cached_text is None:
         storage = get_storage_service()
         try:
-            raw_bytes = await storage.download_bytes(doc.storage_key)
+            raw_bytes = await storage.download_bytes(storage_key)
         except Exception as exc:
             logger.error(
                 "text_storage_failed doc=%s key=%r error=%s",
-                doc.id, doc.storage_key, exc,
+                doc_snap.id, storage_key, exc,
             )
             raise HTTPException(status_code=503, detail="Text content temporarily unavailable")
         cached_text = decode_text_safe(raw_bytes)
         # Only cache files within the configured size limit to protect memory
         if len(cached_text) <= TEXT_CONTENT_MAX_BYTES:
-            text_content_cache.put(doc.storage_key, cached_text)
+            text_content_cache.put(storage_key, cached_text)
 
-    # ── Chunk the text and return the requested slice ────────────────────────
-    chunks = chunk_text(cached_text, settings.text_lines_per_chunk)
+    # ── Chunk the text (cached to avoid O(n) re-split on every request) ──────
+    _chunk_cache_key = f"{storage_key}:{settings.text_lines_per_chunk}"
+    chunks: Optional[list] = chunk_array_cache.get(_chunk_cache_key)
+    if chunks is None:
+        chunks = chunk_text(cached_text, settings.text_lines_per_chunk)
+        chunk_array_cache.put(_chunk_cache_key, chunks)
+
     total_chunks = len(chunks)
     if chunk_number > total_chunks:
         raise HTTPException(status_code=404, detail="Chunk not found")
 
     chunk_content = chunks[chunk_number - 1]
 
-    # ── Session heartbeat ─────────────────────────────────────────────────────
-    if session_id:
-        ip_hash = hash_value(ip) if ip else None
-        await policy_enforcer.upsert_session(db, session_id, link_snap.id, ip_hash=ip_hash)
-
     # ── Analytics event ───────────────────────────────────────────────────────
     now_str = now.strftime("%Y-%m-%d")
-    watermark_text = f"anonymous · {now_str} · sess:{session_id[:6]}"
+    watermark_text = f"{viewer_email_masked or 'anonymous'} · {now_str} · sess:{session_id[:6]}"
 
     await analytics_svc.log_event(
         db,

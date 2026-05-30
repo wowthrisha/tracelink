@@ -643,15 +643,10 @@ class TestStartupValidation:
 
     def test_production_startup_rejects_default_ip_salt(self):
         """Starting in production with the default IP salt must raise RuntimeError."""
-        import importlib
-        import sys
-
         env = {
             "APP_ENV": "production",
-            "JWT_SECRET": "a-proper-long-production-secret-that-is-not-default-value",
             "SUPABASE_URL": "https://test.supabase.co",
             "APP_PUBLIC_BASE_URL": "https://myapp.example.com",
-            "FRONTEND_BASE_URL": "https://myapp.example.com",
             "IP_HASH_SALT": "securedoc_ip_salt_change_in_production",  # still default
         }
         with patch.dict("os.environ", env, clear=False):

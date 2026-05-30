@@ -63,12 +63,14 @@ class TestShouldProcess:
 
     def test_naive_datetime_treated_as_utc_for_recent_processing(self):
         """Postgres sometimes returns tz-naive datetimes; worker must handle them."""
-        naive_recent = datetime.utcnow() - timedelta(minutes=1)
+        # Use UTC-equivalent naive datetime: .replace(tzinfo=None) strips tzinfo
+        # while keeping the numeric value in UTC, matching what Postgres returns.
+        naive_recent = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(minutes=1)
         assert naive_recent.tzinfo is None
         assert _should_process("processing", naive_recent) == "skip"
 
     def test_naive_datetime_treated_as_utc_for_stale_processing(self):
-        naive_stale = datetime.utcnow() - timedelta(hours=1)
+        naive_stale = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=1)
         assert naive_stale.tzinfo is None
         assert _should_process("processing", naive_stale) == "recover"
 

@@ -65,14 +65,12 @@ async def client(db_session):
     app.dependency_overrides[get_current_user] = override_get_current_user
 
     with patch("app.services.storage.StorageService.upload_file", new_callable=AsyncMock) as mock_upload, \
-         patch("app.services.storage.StorageService.generate_presigned_url", new_callable=AsyncMock) as mock_presign, \
          patch("app.services.storage.StorageService.download_bytes", new_callable=AsyncMock) as mock_download, \
          patch("app.services.storage.StorageService.delete_file", new_callable=AsyncMock) as mock_delete, \
          patch("app.services.storage.StorageService.list_keys_with_prefix", new_callable=AsyncMock) as mock_list, \
          patch("app.workers.tasks.process_document.delay") as mock_celery:
 
         mock_upload.return_value = "mocked/key.pdf"
-        mock_presign.return_value = "https://example.com/presigned"
         mock_download.return_value = _make_webp_bytes()
         mock_delete.return_value = None
         mock_list.return_value = []

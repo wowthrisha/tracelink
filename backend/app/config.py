@@ -12,7 +12,6 @@ class Settings(BaseSettings):
 
     # Database
     database_url: str = "postgresql+asyncpg://securedoc:password@localhost:5432/securedoc"
-    test_database_url: str = "sqlite+aiosqlite:///./test_securedoc.db"
     # Migration URL overrides (see alembic/env.py for precedence logic)
     database_public_url: Optional[str] = None   # Railway public proxy URL for local migrations
     migration_database_url: Optional[str] = None  # Explicit override — beats everything
@@ -23,18 +22,11 @@ class Settings(BaseSettings):
     storage_secret_access_key: str = "test_secret"
     storage_bucket_name: str = "securedoc-docs"
     storage_region: str = "us-east-1"
-    storage_public_base_url: Optional[str] = None
-
     # Redis / Celery
     redis_url: str = "redis://localhost:6379/0"
     # TTL for the Phase 4 Redis-backed page/thumbnail byte cache (seconds).
     # 3600 s = 1 hour; keeps hot pages in Redis well beyond typical session length.
     redis_page_cache_ttl_sec: int = 3600
-
-    # JWT (internal share-link tokens)
-    jwt_secret: str = "change_me_to_a_long_random_string_in_production"
-    jwt_algorithm: str = "HS256"
-    jwt_link_expire_hours: int = 24
 
     # Supabase (user authentication)
     supabase_url: str = ""
@@ -50,9 +42,8 @@ class Settings(BaseSettings):
     page_format: str = "WEBP"
     page_tile_quality: int = 85
 
-    # Frontend share URL base
+    # Share link base URL — the only URL referenced in generated share links
     app_public_base_url: str = "http://localhost:8000"
-    frontend_base_url: str = "http://localhost:5501"
 
     # Stripe billing (all optional — billing disabled when key is empty)
     stripe_secret_key: str = ""

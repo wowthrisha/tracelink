@@ -18,7 +18,10 @@ from sqlalchemy import select
 from app.database import get_db
 from app.auth import get_current_user
 from app.config import settings
-from app.models.billing import UserBilling, PLAN_FREE, PLAN_PRO
+from app.models.billing import (
+    UserBilling, PLAN_FREE, PLAN_PRO,
+    STATUS_INACTIVE, STATUS_CANCELED, STATUS_PAST_DUE,
+)
 
 _log = logging.getLogger("securedoc.billing")
 router = APIRouter(prefix="/api/billing", tags=["billing"])
@@ -183,7 +186,7 @@ async def stripe_webhook(
 
 async def _handle_subscription_upsert(db: AsyncSession, sub: dict) -> None:
     customer_id = sub.get("customer")
-    status = sub.get("status", "inactive")
+    status = sub.get("status", STATUS_INACTIVE)
     sub_id = sub.get("id")
     period_end_ts = sub.get("current_period_end")
     period_end = (
@@ -213,8 +216,6 @@ async def _handle_payment_failed(db: AsyncSession, invoice: dict) -> None:
     (which can be several days). Handling invoice.payment_failed lets us revoke
     Pro access immediately and redirect the user to update their payment method.
     """
-    from app.models.billing import STATUS_PAST_DUE
-
     customer_id = invoice.get("customer")
     result = await db.execute(
         select(UserBilling).where(UserBilling.stripe_customer_id == customer_id)
@@ -239,7 +240,7 @@ async def _handle_subscription_deleted(db: AsyncSession, sub: dict) -> None:
     if not billing:
         return
 
-    billing.subscription_status = "canceled"
+    billing.subscription_status = STATUS_CANCELED
     billing.plan = PLAN_FREE
     billing.current_period_end = None
     await db.commit()

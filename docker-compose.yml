@@ -123,6 +123,27 @@ services:
         condition: service_completed_successfully
     restart: unless-stopped
 
+  # ── Celery Beat (periodic task scheduler) ──────────────────────────────────
+  # Runs purge_stale_sessions every 30 min and requeue_orphaned_uploads every 5 min.
+  # Must be a single instance — running multiple Beat workers causes duplicate task
+  # submissions.  If Beat crashes, Docker restarts it; the next scheduled slot fires
+  # on the next interval so no tasks are permanently skipped.
+  beat:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    command: ["celery", "-A", "app.workers.celery_app", "beat", "--loglevel=info"]
+    env_file: ./backend/.env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://securedoc:password@db:5432/securedoc
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
 volumes:
   pgdata:
   redisdata:

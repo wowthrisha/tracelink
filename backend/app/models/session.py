@@ -20,5 +20,6 @@ class ViewerSession(Base):
         ForeignKey("share_links.id", ondelete="CASCADE"), nullable=False
     )
     ip_hash: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    viewer_email_masked: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

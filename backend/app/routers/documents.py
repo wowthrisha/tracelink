@@ -423,9 +423,9 @@ async def delete_document(
     storage = get_storage_service()
 
     # Invalidate all cache tiers for this document before removing from storage.
-    # Metadata caches (link/doc/page snapshots):
+    # Metadata caches (link/doc/page snapshots) + text/chunk caches:
     from app.services.viewer_cache import invalidate_doc_entries
-    invalidate_doc_entries(str(document_id))
+    invalidate_doc_entries(str(document_id), storage_key=doc.storage_key)
     # L1 + L2 byte caches (page images and thumbnails):
     from app.services.page_cache import clear_doc_bytes
     await clear_doc_bytes(str(document_id))

@@ -165,7 +165,7 @@ class TestShouldProcess:
 
     def test_naive_datetime_treated_as_utc(self):
         """A naive timestamp (no tzinfo) must not raise and must be handled."""
-        naive_ts = datetime.utcnow() - timedelta(minutes=20)
+        naive_ts = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(minutes=20)
         result = _should_process("processing", naive_ts)
         assert result in ("skip", "recover")
 

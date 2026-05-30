@@ -97,18 +97,20 @@ class TestShareUrlGeneration:
 
 class TestProductionGuards:
 
-    def test_jwt_placeholder_is_detectable(self):
-        """The placeholder JWT secret must be detectable so production guard can reject it."""
-        placeholder = "change_me_to_a_long_random_string_in_production"
-        s = Settings(jwt_secret=placeholder)
-        assert s.jwt_secret == placeholder
+    def test_jwt_secret_removed_from_config(self):
+        """jwt_secret was a dead field (links use random tokens, not JWTs).
+        It must no longer exist in Settings so operators aren't confused about
+        what they need to configure."""
+        s = Settings()
+        assert not hasattr(s, "jwt_secret"), (
+            "jwt_secret should have been removed from Settings — it is dead configuration"
+        )
 
-    def test_strong_jwt_secret_passes_placeholder_check(self):
-        import secrets
-        strong = secrets.token_hex(32)
-        s = Settings(jwt_secret=strong)
-        placeholder = "change_me_to_a_long_random_string_in_production"
-        assert s.jwt_secret != placeholder
+    def test_jwt_algorithm_removed_from_config(self):
+        s = Settings()
+        assert not hasattr(s, "jwt_algorithm"), (
+            "jwt_algorithm should have been removed from Settings"
+        )
 
     def test_localhost_in_public_base_url_detectable(self):
         s = Settings(app_public_base_url="http://localhost:8000")

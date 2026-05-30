@@ -16,6 +16,5 @@ Pillow==11.0.0
 celery==5.4.0
 redis==5.2.0
 slowapi==0.1.9
-aiofiles==24.1.0
 httpx==0.28.0
 stripe==11.4.0

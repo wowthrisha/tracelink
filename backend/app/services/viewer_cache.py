@@ -68,6 +68,9 @@ class DocSnapshot:
     """Immutable snapshot of the Document fields used for page/thumb serving."""
     id: uuid.UUID
     status: str
+    file_type: str = "pdf"
+    storage_key: Optional[str] = None
+    page_count: Optional[int] = None
 
 
 @dataclass(frozen=True)
@@ -144,6 +147,11 @@ page_cache: _TTLCache = _TTLCache(maxsize=10000, ttl_seconds=PAGE_TTL_SEC)
 TEXT_CONTENT_MAX_BYTES = 5 * 1024 * 1024  # 5 MB decoded text
 text_content_cache: _TTLCache = _TTLCache(maxsize=100, ttl_seconds=PAGE_TTL_SEC)
 
+# Chunk array cache — stores pre-split chunk lists keyed by "{storage_key}:{lines_per_chunk}".
+# Avoids re-splitting the full text on every chunk request (O(n) per call → O(1)).
+# Shares maxsize/TTL with text_content_cache; entries are always smaller than their source text.
+chunk_array_cache: _TTLCache = _TTLCache(maxsize=100, ttl_seconds=PAGE_TTL_SEC)
+
 
 # ── Public helpers ────────────────────────────────────────────────────────────
 
@@ -156,14 +164,20 @@ def invalidate_link(token: str) -> None:
     link_cache.invalidate(token)
 
 
-def invalidate_doc_entries(doc_id: str) -> None:
+def invalidate_doc_entries(doc_id: str, storage_key: Optional[str] = None) -> None:
     """Evict the doc snapshot and all page-metadata snapshots for a document.
 
     Call this on document delete or reprocess so metadata caches do not
     serve stale status/storage-key information.
+
+    storage_key is optional — when provided, text content and chunk arrays for
+    this document are also evicted (applies to text documents only).
     """
     doc_cache.invalidate(str(doc_id))
     page_cache.invalidate_prefix(f"{doc_id}:")
+    if storage_key:
+        text_content_cache.invalidate(storage_key)
+        chunk_array_cache.invalidate_prefix(f"{storage_key}:")
 
 
 def clear_all_caches() -> None:
@@ -172,3 +186,4 @@ def clear_all_caches() -> None:
     doc_cache.clear()
     page_cache.clear()
     text_content_cache.clear()
+    chunk_array_cache.clear()

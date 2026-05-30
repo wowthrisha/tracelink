@@ -191,7 +191,7 @@ async def update_link(
     if payload.allowed_emails is not None:
         link.allowed_emails = json.dumps([e.lower().strip() for e in payload.allowed_emails if e.strip()])
     if payload.allowed_domains is not None:
-        link.allowed_domains = json.dumps([d.strip() for d in payload.allowed_domains if d.strip()])
+        link.allowed_domains = json.dumps([d.strip().lower() for d in payload.allowed_domains if d.strip()])
     if payload.ip_allowlist is not None:
         link.ip_allowlist = json.dumps([ip.strip() for ip in payload.ip_allowlist if ip.strip()]) if payload.ip_allowlist else None
     if payload.max_concurrent_sessions is not None:

@@ -188,7 +188,7 @@ async def log_viewer_event(
         event_type=event_type,
         page_number=page_number,
         session_id=session_id,
-        ip=request.client.host if request.client else None,
+        ip=getattr(request.state, "client_ip", None) or (request.client.host if request.client else None),
         user_agent=request.headers.get("user-agent"),
         metadata=metadata,
     )

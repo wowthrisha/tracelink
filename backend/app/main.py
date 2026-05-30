@@ -1,5 +1,6 @@
 import logging
 import os
+from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -20,25 +21,14 @@ from app.auth import _fetch_jwks
 
 _IP_SALT_DEFAULT = "securedoc_ip_salt_change_in_production"
 
-_UNSAFE_DEFAULTS = {
-    "jwt_secret": "change_me_to_a_long_random_string_in_production",
-}
-
 if settings.app_env == "production":
     _errors = []
-    for _field, _placeholder in _UNSAFE_DEFAULTS.items():
-        if getattr(settings, _field) == _placeholder:
-            _errors.append(f"  {_field.upper()} is still set to the default placeholder value")
     if not settings.supabase_url:
         _errors.append("  SUPABASE_URL is not set")
     if "localhost" in settings.app_public_base_url:
         _errors.append("  APP_PUBLIC_BASE_URL still points to localhost")
-    if "localhost" in settings.frontend_base_url:
-        _errors.append("  FRONTEND_BASE_URL still points to localhost")
     if not settings.app_public_base_url.startswith("https://"):
         _errors.append("  APP_PUBLIC_BASE_URL must use HTTPS in production")
-    # Phase 8: IP hash salt must be changed from default in production.
-    # Leaving it at the default makes IP hashes effectively reversible.
     if settings.ip_hash_salt == _IP_SALT_DEFAULT:
         _errors.append(
             "  IP_HASH_SALT is still set to the default placeholder value "
@@ -58,15 +48,12 @@ if settings.app_env == "production":
             + "\n".join(_errors)
         )
 
-app = FastAPI(title="SecureDoc API", version="8.0.0")
 
-
-@app.on_event("startup")
-async def startup():
-    import logging
+@asynccontextmanager
+async def lifespan(app: FastAPI):
     _log = logging.getLogger("securedoc.startup")
 
-    # Phase 7: switch to JSON log format in production when configured
+    # Configure JSON logging before any log output
     if settings.enable_json_logging:
         from app.middleware.json_logging import configure_json_logging
         configure_json_logging()
@@ -84,7 +71,7 @@ async def startup():
     else:
         _log.info("STORAGE: AWS S3 (no custom endpoint)")
 
-    # Phase 8: log active CDN/proxy configuration for operator visibility
+    # Log active CDN/proxy configuration for operator visibility
     if settings.https_redirect:
         _log.info("PROXY: HTTPS redirect active (checking X-Forwarded-Proto)")
     if settings.hsts_max_age > 0:
@@ -101,21 +88,23 @@ async def startup():
     except Exception as e:
         _log.warning("AUTH: JWKS preload failed (will retry on first request): %s", e)
 
+    yield  # ── application running ──
 
-@app.on_event("shutdown")
-async def shutdown():
     _shutdown_log = logging.getLogger("securedoc.shutdown")
     from app.database import engine as _db_engine
     if _db_engine is not None:
         await _db_engine.dispose()
         _shutdown_log.info("DB engine disposed on shutdown")
 
+
+app = FastAPI(title="SecureDoc API", version="8.0.0", lifespan=lifespan)
+
 # Rate limiter
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-# Phase 8: HTTPS redirect — outermost middleware so it runs before any other
-# processing.  Only active when HTTPS_REDIRECT=true in .env.
+# HTTPS redirect — outermost middleware so it runs before any other processing.
+# Only active when HTTPS_REDIRECT=true in .env.
 if settings.https_redirect:
     from app.middleware.https_redirect import HTTPSRedirectMiddleware
     app.add_middleware(HTTPSRedirectMiddleware)
@@ -215,20 +204,31 @@ async def health(db: AsyncSession = Depends(get_db)):
         checks["storage"] = "error"
         overall = "degraded"
 
-    # Worker — check Celery worker availability via Redis inspect
+    # Worker — check Celery worker availability via a Redis SCAN (non-blocking).
+    # KEYS is O(N) and blocks Redis; SCAN cursor-loops without blocking.
+    # We check for Kombu queue bindings that workers register on startup.
     try:
         from app.services.page_cache import get_redis_page_cache
         _rc = get_redis_page_cache()
         if _rc is not None:
-            # Check for Celery worker heartbeats in Redis
-            _worker_keys = await _rc._r.keys("_kombu.binding.*")
-            checks["worker"] = "ok" if _worker_keys else "no_workers_detected"
+            _found = False
+            _cursor = 0
+            while True:
+                _cursor, _keys = await _rc._r.scan(
+                    _cursor, match="_kombu.binding.*", count=20
+                )
+                if _keys:
+                    _found = True
+                    break
+                if _cursor == 0:
+                    break
+            checks["worker"] = "ok" if _found else "no_workers_detected"
         else:
             checks["worker"] = "redis_unavailable"
     except Exception:
         checks["worker"] = "unknown"
 
-    # Phase 8: expose proxy/CDN configuration state for ops visibility
+    # Expose proxy/CDN configuration state for ops visibility
     checks["proxy"] = {
         "https_redirect": settings.https_redirect,
         "real_ip_header": settings.real_ip_header or None,

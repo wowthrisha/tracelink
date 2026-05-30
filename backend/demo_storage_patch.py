@@ -52,12 +52,20 @@ class DemoStorageService:
         return self._path(storage_key).exists()
 
     async def list_keys_with_prefix(self, prefix: str) -> list:
+        # Storage keys use "/" as separator; the local flat-file store replaces
+        # all "/" with "_" when writing.  Reverse the transform correctly by
+        # counting the depth of the prefix to restore all slashes, not just the first.
         prefix_flat = prefix.replace("/", "_")
-        return [
-            str(f.name).replace("_", "/", 1)
-            for f in STORE_DIR.iterdir()
-            if f.name.startswith(prefix_flat)
-        ]
+        slash_count = prefix.count("/")
+        result = []
+        for f in STORE_DIR.iterdir():
+            if f.name.startswith(prefix_flat):
+                # Restore exactly slash_count slashes to match the original key structure.
+                name = f.name
+                for _ in range(slash_count):
+                    name = name.replace("_", "/", 1)
+                result.append(name)
+        return result
 
 
 _demo_svc = DemoStorageService()

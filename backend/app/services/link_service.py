@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update
 
 from app.models.link import ShareLink
-from app.utils.crypto import hash_password, verify_password, hash_value
+from app.utils.crypto import hash_password, verify_password, hash_value, mask_email
 from app.services.policy import enforcer
 
 logger = logging.getLogger(__name__)
@@ -223,7 +223,12 @@ class LinkService:
 
         # Create or refresh the session row
         ip_hash = hash_value(ip) if ip else None
-        await enforcer.upsert_session(db, session_id, link.id, ip_hash=ip_hash)
+        email_masked = mask_email(viewer_email) if viewer_email else None
+        await enforcer.upsert_session(
+            db, session_id, link.id,
+            ip_hash=ip_hash,
+            viewer_email_masked=email_masked,
+        )
         if commit:
             await db.commit()
 
