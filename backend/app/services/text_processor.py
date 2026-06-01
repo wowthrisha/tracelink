@@ -1,31 +1,30 @@
 """
-Text document processing utilities — Phase 5 + Phase 7 (TOC extraction).
+Text document processing utilities — Phase 5+ (detection, chunking, TOC).
 
 Handles file-type detection, safe UTF-8 decoding, binary rejection, and
-line-based chunking for .txt, .md, and .log uploads.
-
-XSS contract
-────────────
-This module operates on raw bytes and strings only.  It never generates HTML.
-All user-visible rendering is done in the React frontend via JSX text nodes,
-which auto-escape every character.  No HTML is produced here.
+line-based chunking.
 
 Supported types
 ───────────────
-  pdf — handled by existing rasterizer pipeline (not this module)
-  txt — plain text
-  md  — Markdown (rendered safely client-side with React elements)
-  log — log files (rendered as plain text)
+  pdf  — rasterizer pipeline
+  txt  — plain text
+  md   — Markdown
+  log  — log files
+  docx — Word XML (processed by toc/docx_extractor, stored as markdown)
+  doc  — Legacy Word (processed by toc/docx_extractor via antiword, stored as text)
+
+XSS contract: this module never generates HTML.
 """
 
 import re
 
-# Extensions that this module can process
+# Plain-text extensions (text viewer handles these directly)
 SUPPORTED_TEXT_EXTENSIONS: frozenset[str] = frozenset({"txt", "md", "log"})
 
+# Word document extensions (converted to text by worker, viewed as text)
+SUPPORTED_WORD_EXTENSIONS: frozenset[str] = frozenset({"docx", "doc"})
+
 # Content-types that map to text documents.
-# application/octet-stream is included because some browsers send it for .txt
-# files; extension-first detection disambiguates from binary octet-streams.
 SUPPORTED_TEXT_CONTENT_TYPES: frozenset[str] = frozenset({
     "text/plain",
     "text/markdown",
@@ -39,10 +38,12 @@ _BINARY_SNIFF_SIZE = 512
 
 def detect_file_type(filename: str, content_type: str, file_bytes: bytes) -> str:
     """
-    Return the canonical file type for the upload: 'pdf', 'txt', 'md', or 'log'.
+    Return the canonical file type for the upload.
+
+    Returns one of: 'pdf', 'txt', 'md', 'log', 'docx', 'doc'
 
     Detection order:
-      1. Extension (most reliable for text files)
+      1. Extension (most reliable)
       2. Content-type (fallback for extensionless names)
 
     Raises ValueError for unsupported or binary files.
@@ -52,6 +53,24 @@ def detect_file_type(filename: str, content_type: str, file_bytes: bytes) -> str
     # PDF — magic bytes validated separately in the upload router
     if ext == "pdf" or content_type == "application/pdf":
         return "pdf"
+
+    # DOCX — ZIP-based XML format (PK magic bytes)
+    if ext == "docx" or content_type in (
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ):
+        if not _is_zip_magic(file_bytes):
+            raise ValueError(
+                f"File {filename!r} does not appear to be a valid DOCX (missing ZIP header)."
+            )
+        return "docx"
+
+    # DOC — Legacy OLE2 compound document (D0CF magic bytes)
+    if ext == "doc" or content_type == "application/msword":
+        if not _is_ole2_magic(file_bytes):
+            raise ValueError(
+                f"File {filename!r} does not appear to be a valid DOC (missing OLE2 header)."
+            )
+        return "doc"
 
     if ext in SUPPORTED_TEXT_EXTENSIONS:
         _reject_if_binary(file_bytes, filename)
@@ -64,8 +83,18 @@ def detect_file_type(filename: str, content_type: str, file_bytes: bytes) -> str
 
     raise ValueError(
         f"Unsupported file type: extension={ext!r}, content-type={content_type!r}. "
-        "Supported formats: .pdf, .txt, .md, .log"
+        "Supported formats: .pdf, .docx, .doc, .txt, .md, .log"
     )
+
+
+def _is_zip_magic(file_bytes: bytes) -> bool:
+    """DOCX/XLSX/PPTX are ZIP archives — check for PK magic bytes."""
+    return len(file_bytes) >= 4 and file_bytes[:2] == b"PK"
+
+
+def _is_ole2_magic(file_bytes: bytes) -> bool:
+    """Legacy .doc files are OLE2 Compound Documents."""
+    return len(file_bytes) >= 8 and file_bytes[:8] == b"\xD0\xCF\x11\xE0\xA1\xB1\x1A\xE1"
 
 
 def _reject_if_binary(file_bytes: bytes, filename: str) -> None:
@@ -131,64 +160,14 @@ def count_chunks(text: str, lines_per_chunk: int) -> int:
 
 def extract_toc(text: str, file_type: str, lines_per_chunk: int = 100) -> list[dict]:
     """
-    Extract table of contents entries from a text document.
+    Extract TOC entries from decoded text content.
 
-    Returns a list of dicts: {level, title, chunk, line}
-      level — heading depth (1–6 for Markdown; 1 or 2 for plain text)
-      title — heading text (stripped)
-      chunk — 1-indexed chunk number where this heading appears
-      line  — 1-indexed line number within the document
-
-    For PDFs this always returns an empty list (no text extraction yet).
-    For .md: extracts ATX-style Markdown headings (# … ######).
-    For .txt/.log: heuristically detects ALL-CAPS section titles and
-      "Label:" style sub-headings (≤5 words, ends with colon).
-
-    At most 200 entries are returned to avoid sending huge payloads.
+    Delegates to app.services.toc.text_extractor for all formats.
+    Returns backward-compatible dicts with keys: level, title, chunk, line.
+    (New keys id, anchor, source, confidence are also included.)
     """
     if file_type == "pdf" or not text:
         return []
-
-    lines = text.split("\n")
-    toc: list[dict] = []
-    _MD_HEADING = re.compile(r"^(#{1,6})\s+(.+)$")
-    _MAX_TOC = 200
-
-    if file_type == "md":
-        for i, raw_line in enumerate(lines):
-            m = _MD_HEADING.match(raw_line.strip())
-            if m:
-                level = len(m.group(1))
-                title = m.group(2).strip()
-                chunk = (i // lines_per_chunk) + 1
-                toc.append({"level": level, "title": title, "chunk": chunk, "line": i + 1})
-                if len(toc) >= _MAX_TOC:
-                    break
-    else:
-        # Plain text / log heuristics
-        for i, raw_line in enumerate(lines):
-            stripped = raw_line.strip()
-            if not stripped or len(stripped) < 3:
-                continue
-            words = stripped.split()
-            # ALL-CAPS section title: ≤8 words, no leading digit, pure uppercase
-            if (
-                stripped.isupper()
-                and not stripped[0].isdigit()
-                and len(words) <= 8
-            ):
-                chunk = (i // lines_per_chunk) + 1
-                toc.append({"level": 1, "title": stripped, "chunk": chunk, "line": i + 1})
-            # "Label:" sub-heading: ends with ':', ≤5 words, no tab indent
-            elif (
-                stripped.endswith(":")
-                and len(words) <= 5
-                and "\t" not in raw_line
-                and not raw_line.startswith(" ")
-            ):
-                chunk = (i // lines_per_chunk) + 1
-                toc.append({"level": 2, "title": stripped[:-1], "chunk": chunk, "line": i + 1})
-            if len(toc) >= _MAX_TOC:
-                break
-
-    return toc
+    from app.services.toc.text_extractor import extract_text_toc
+    entries = extract_text_toc(text, file_type, lines_per_chunk=lines_per_chunk)
+    return [e.to_dict() for e in entries]

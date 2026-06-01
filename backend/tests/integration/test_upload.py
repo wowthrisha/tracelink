@@ -19,10 +19,18 @@ class TestUploadEndpoint:
 
     @pytest.mark.asyncio
     async def test_upload_invalid_file_type_returns_400(self, client):
-        # DOCX is not supported — must be rejected
-        files = {"file": ("test.docx", b"PK\x03\x04fake-docx-bytes", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")}
+        # JPEG is not supported — must be rejected
+        files = {"file": ("photo.jpg", b"\xff\xd8\xff\xe0fake-jpeg", "image/jpeg")}
         r = await client.post("/api/documents/upload", files=files)
         assert r.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_upload_docx_now_supported(self, client):
+        # DOCX is now supported — must be accepted with valid ZIP magic bytes
+        files = {"file": ("report.docx", b"PK\x03\x04" + b"\x00" * 30,
+                          "application/vnd.openxmlformats-officedocument.wordprocessingml.document")}
+        r = await client.post("/api/documents/upload", files=files)
+        assert r.status_code == 202
 
     @pytest.mark.asyncio
     async def test_upload_txt_returns_202(self, client):

@@ -37,8 +37,12 @@ ALLOWED_CONTENT_TYPES = {
     "text/markdown",
     "text/x-log",
     "text/x-log-file",
-    # Some browsers send application/octet-stream for .txt/.md/.log files;
-    # extension + binary-check inside detect_file_type disambiguates them.
+    # DOCX
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    # Legacy DOC
+    "application/msword",
+    # Some browsers send application/octet-stream for various file types;
+    # extension + magic-byte check inside detect_file_type disambiguates.
     "application/octet-stream",
 }
 
@@ -125,13 +129,15 @@ async def upload_document(
     # Check free-plan document quota before accepting the upload
     await _check_upload_quota(db, user_uuid)
 
-    from app.services.text_processor import detect_file_type, SUPPORTED_TEXT_EXTENSIONS
+    from app.services.text_processor import (
+        detect_file_type, SUPPORTED_TEXT_EXTENSIONS, SUPPORTED_WORD_EXTENSIONS,
+    )
 
     # Reject obviously unsupported content-types upfront (before reading bytes)
     if file.content_type not in ALLOWED_CONTENT_TYPES:
         raise HTTPException(
             status_code=400,
-            detail="Unsupported file type. Supported: .pdf, .txt, .md, .log",
+            detail="Unsupported file type. Supported: .pdf, .docx, .doc, .txt, .md, .log",
         )
 
     file_bytes = await file.read()
@@ -143,17 +149,22 @@ async def upload_document(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
-    # Size checks — text files have their own (smaller) limit
+    # Size checks per format
     if file_type == "pdf":
         if len(file_bytes) > settings.max_upload_bytes:
             raise HTTPException(
                 status_code=413, detail=f"File exceeds {settings.max_upload_mb}MB limit"
             )
-        # PDF magic bytes validation
         if file_bytes[:5] != b"%PDF-":
             raise HTTPException(status_code=400, detail="File must be a valid PDF")
+    elif file_type in SUPPORTED_WORD_EXTENSIONS:
+        # DOCX/DOC use the same size limit as PDFs (they can be large)
+        if len(file_bytes) > settings.max_upload_bytes:
+            raise HTTPException(
+                status_code=413, detail=f"File exceeds {settings.max_upload_mb}MB limit"
+            )
     else:
-        # Text file
+        # Plain text formats
         if len(file_bytes) > settings.max_text_size_bytes:
             raise HTTPException(
                 status_code=413,
@@ -188,6 +199,8 @@ async def upload_document(
         "txt": "text/plain",
         "md": "text/markdown",
         "log": "text/plain",
+        "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "doc": "application/msword",
     }
     storage = get_storage_service()
     try:

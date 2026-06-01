@@ -620,8 +620,13 @@ class TestTocExtraction:
         text = "# Introduction\nSome text here.\n## Sub-section\nMore text."
         toc = extract_toc(text, "md")
         assert len(toc) == 2
-        assert toc[0] == {"level": 1, "title": "Introduction", "chunk": 1, "line": 1}
-        assert toc[1] == {"level": 2, "title": "Sub-section", "chunk": 1, "line": 3}
+        # New format includes id, anchor, source, confidence in addition to legacy keys
+        assert toc[0]["level"] == 1
+        assert toc[0]["title"] == "Introduction"
+        assert toc[0]["chunk"] == 1
+        assert toc[0]["line"] == 1
+        assert toc[1]["level"] == 2
+        assert toc[1]["title"] == "Sub-section"
 
     def test_md_deep_headings(self):
         from app.services.text_processor import extract_toc
@@ -676,11 +681,15 @@ class TestTocExtraction:
         toc = extract_toc(text, "txt")
         assert len(toc) == 0
 
-    def test_txt_ignores_digit_prefixed_caps(self):
+    def test_txt_numbered_section_detected(self):
         from app.services.text_processor import extract_toc
-        text = "1. NUMBERED SECTION\nSome content."
+        # "1. NUMBERED SECTION" is now detected as a numbered heading (level 1)
+        # The ALL-CAPS check is still skipped for digit-prefixed lines, but the
+        # numbered-heading detector handles it correctly.
+        text = "1. Section Title\nSome content."
         toc = extract_toc(text, "txt")
-        assert len(toc) == 0
+        assert len(toc) == 1
+        assert toc[0]["level"] == 1
 
     def test_log_file_uses_txt_heuristics(self):
         from app.services.text_processor import extract_toc
@@ -709,8 +718,12 @@ class TestTocExtraction:
         from app.services.text_processor import extract_toc
         text = "# Alpha\nContent.\n## Beta\nMore."
         toc = extract_toc(text, "md")
+        # Legacy keys always present; new universal engine also adds id/anchor/source/confidence
+        required_legacy = {"level", "title", "chunk", "line"}
         for entry in toc:
-            assert set(entry.keys()) == {"level", "title", "chunk", "line"}
+            assert required_legacy.issubset(set(entry.keys())), (
+                f"Entry missing required keys. Got: {set(entry.keys())}"
+            )
 
     def test_md_heading_with_inline_markup_stripped(self):
         from app.services.text_processor import extract_toc

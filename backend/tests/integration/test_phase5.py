@@ -245,9 +245,18 @@ class TestTextUploadAcceptance:
 class TestUnsupportedFileRejection:
 
     @pytest.mark.asyncio
-    async def test_docx_rejected(self, client):
+    async def test_docx_accepted_with_valid_magic(self, client):
+        """DOCX is now a supported format — uploads with valid ZIP magic bytes are accepted."""
         c, _ = client
         files = {"file": ("doc.docx", b"PK\x03\x04fake", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")}
+        r = await c.post("/api/documents/upload", files=files)
+        assert r.status_code == 202
+
+    @pytest.mark.asyncio
+    async def test_docx_wrong_magic_rejected(self, client):
+        """DOCX with wrong magic bytes (not a real ZIP) must be rejected."""
+        c, _ = client
+        files = {"file": ("bad.docx", b"\x00\x01\x02\x03not_a_zip", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")}
         r = await c.post("/api/documents/upload", files=files)
         assert r.status_code == 400
 
@@ -430,8 +439,12 @@ class TestTextProcessor:
         assert detect_file_type("noext", "text/plain", b"plain text") == "txt"
 
     def test_unsupported_extension_raises(self):
+        # .docx extension with non-ZIP bytes raises with an informative message
+        with pytest.raises(ValueError):
+            detect_file_type("doc.docx", "application/octet-stream", b"not_zip_content")
+        # Truly unsupported extension still raises "Unsupported"
         with pytest.raises(ValueError, match="Unsupported"):
-            detect_file_type("doc.docx", "application/octet-stream", b"content")
+            detect_file_type("file.xyz", "application/octet-stream", b"content")
 
     def test_binary_null_bytes_raises(self):
         with pytest.raises(ValueError, match="binary"):

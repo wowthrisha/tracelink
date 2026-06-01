@@ -572,20 +572,22 @@ async def get_toc(
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Return a table of contents (section headings) for the document.
+    Return a table of contents for the document — works for all supported formats.
 
-    Security model mirrors /text: requires valid session, validates link
-    revocation and expiry, enforces IP allowlist.
+    Security model: valid session, link revocation/expiry, IP allowlist.
 
-    Response shape:
-      {
-        "toc":       [...],  # list of {level, title, chunk, line} entries
-        "doc_type":  str,    # "pdf" | "txt" | "md" | "log"
-        "supported": bool    # False for PDFs (no text extraction yet)
-      }
+    Response:
+      { "toc": [...TocEntry dicts...], "doc_type": str, "supported": bool }
+
+    Routing per format:
+      pdf          → TOC sidecar from storage (toc/{doc_id}.json), or empty
+      docx / doc   → TOC sidecar if present, else inline text extraction
+      txt/md/log   → inline text extraction (fast, from text_content_cache)
+
+    TOC entries are cached in toc_cache (L1 TTL=5 min) after first extraction.
     """
     from fastapi.responses import JSONResponse as _JSONResponse
-    from app.services.text_processor import decode_text_safe, extract_toc
+    from app.services.viewer_cache import toc_cache
     from app.config import settings as _settings
 
     if not session_id:
@@ -632,15 +634,41 @@ async def get_toc(
     _check_doc_ready(doc_snap)
 
     file_type = doc_snap.file_type
+    doc_id_str = str(link_snap.document_id)
 
-    # PDFs return empty TOC (no text extraction available)
-    if file_type == "pdf":
+    # ── TOC cache (L1) ────────────────────────────────────────────────────────
+    cached_toc = toc_cache.get(doc_id_str)
+    if cached_toc is not None:
         return _JSONResponse(
-            content={"toc": [], "doc_type": "pdf", "supported": False},
+            content={"toc": cached_toc, "doc_type": file_type, "supported": True},
             headers={"Cache-Control": "no-store"},
         )
 
-    # ── Fetch and decode text content ─────────────────────────────────────────
+    toc_entries = []
+    supported = True
+
+    # ── PDF and DOCX/DOC: try TOC sidecar first ───────────────────────────────
+    if file_type in ("pdf", "docx", "doc"):
+        sidecar_key = f"toc/{doc_id_str}.json"
+        sidecar_entries = await _load_toc_sidecar(sidecar_key)
+        if sidecar_entries is not None:
+            toc_entries = sidecar_entries
+            toc_cache.put(doc_id_str, toc_entries)
+            return _JSONResponse(
+                content={"toc": toc_entries, "doc_type": file_type, "supported": True},
+                headers={"Cache-Control": "no-store"},
+            )
+        if file_type == "pdf":
+            # No sidecar = no bookmarks in this PDF
+            supported = False
+            toc_cache.put(doc_id_str, [])
+            return _JSONResponse(
+                content={"toc": [], "doc_type": "pdf", "supported": False},
+                headers={"Cache-Control": "no-store"},
+            )
+        # For DOCX/DOC without sidecar: fall through to text extraction
+
+    # ── Text-based extraction (TXT, MD, LOG, and DOCX/DOC without sidecar) ───
     storage_key = doc_snap.storage_key
     cached_text: Optional[str] = text_content_cache.get(storage_key)
     if cached_text is None:
@@ -650,19 +678,34 @@ async def get_toc(
         except Exception as exc:
             logger.error("toc_storage_failed doc=%s key=%r error=%s", doc_snap.id, storage_key, exc)
             raise HTTPException(status_code=503, detail="Document content temporarily unavailable")
+        from app.services.text_processor import decode_text_safe
         cached_text = decode_text_safe(raw_bytes)
         if len(cached_text) <= TEXT_CONTENT_MAX_BYTES:
             text_content_cache.put(storage_key, cached_text)
 
-    toc_entries = extract_toc(
-        cached_text, file_type,
+    from app.services.toc.extractor import extract_toc_for_document
+    toc_entries = await extract_toc_for_document(
+        file_type,
+        text_content=cached_text,
         lines_per_chunk=_settings.text_lines_per_chunk,
     )
 
+    toc_cache.put(doc_id_str, toc_entries)
     return _JSONResponse(
-        content={"toc": toc_entries, "doc_type": file_type, "supported": True},
+        content={"toc": toc_entries, "doc_type": file_type, "supported": bool(toc_entries)},
         headers={"Cache-Control": "no-store"},
     )
+
+
+async def _load_toc_sidecar(sidecar_key: str):
+    """Load a JSON TOC sidecar from storage. Returns list or None if absent."""
+    import json as _json
+    try:
+        storage = get_storage_service()
+        raw = await storage.download_bytes(sidecar_key)
+        return _json.loads(raw.decode("utf-8"))
+    except Exception:
+        return None
 
 
 @router.get("/download/{link_token}")
@@ -726,15 +769,15 @@ async def download_document(
     )
 
     # ── Text document ──────────────────────────────────────────────────────────
-    if doc.file_type in ("txt", "md", "log"):
+    if doc.file_type in ("txt", "md", "log", "docx", "doc"):
         raw = await storage.download_bytes(doc.storage_key)
-        ext = doc.file_type
-        filename = doc.filename or f"document.{ext}"
+        # DOCX/DOC are stored as converted text after processing
+        filename = doc.filename or f"document.{doc.file_type}"
         return FastAPIResponse(
             content=raw,
             media_type="text/plain; charset=utf-8",
             headers={
-                "Content-Disposition": f'attachment; filename="{filename}"',
+                "Content-Disposition": f'attachment; filename="{filename}.txt"',
                 "Cache-Control": "no-store",
             },
         )
@@ -866,10 +909,10 @@ async def get_text_chunk(
 
     # ── Verify this is a text document (uses cached DocSnapshot — no extra DB read) ──
     file_type = doc_snap.file_type
-    if file_type not in ("txt", "md", "log"):
+    if file_type not in ("txt", "md", "log", "docx", "doc"):
         raise HTTPException(
             status_code=400,
-            detail="This endpoint is for text documents only. Use /api/viewer/page for PDFs.",
+            detail="This endpoint is for text/word documents only. Use /api/viewer/page for PDFs.",
         )
 
     total_chunks = doc_snap.page_count or 1

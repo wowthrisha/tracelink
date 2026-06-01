@@ -152,6 +152,11 @@ text_content_cache: _TTLCache = _TTLCache(maxsize=100, ttl_seconds=PAGE_TTL_SEC)
 # Shares maxsize/TTL with text_content_cache; entries are always smaller than their source text.
 chunk_array_cache: _TTLCache = _TTLCache(maxsize=100, ttl_seconds=PAGE_TTL_SEC)
 
+# TOC cache — stores extracted TOC trees keyed by doc_id (str(UUID)).
+# TTL=5 min matches page metadata; TOC is immutable after document processing.
+# 500 entries: each entry is a small JSON array; total memory ~50 MB worst-case.
+toc_cache: _TTLCache = _TTLCache(maxsize=500, ttl_seconds=PAGE_TTL_SEC)
+
 
 # ── Public helpers ────────────────────────────────────────────────────────────
 
@@ -173,8 +178,10 @@ def invalidate_doc_entries(doc_id: str, storage_key: Optional[str] = None) -> No
     storage_key is optional — when provided, text content and chunk arrays for
     this document are also evicted (applies to text documents only).
     """
-    doc_cache.invalidate(str(doc_id))
-    page_cache.invalidate_prefix(f"{doc_id}:")
+    doc_id_str = str(doc_id)
+    doc_cache.invalidate(doc_id_str)
+    page_cache.invalidate_prefix(f"{doc_id_str}:")
+    toc_cache.invalidate(doc_id_str)
     if storage_key:
         text_content_cache.invalidate(storage_key)
         chunk_array_cache.invalidate_prefix(f"{storage_key}:")
@@ -187,3 +194,4 @@ def clear_all_caches() -> None:
     page_cache.clear()
     text_content_cache.clear()
     chunk_array_cache.clear()
+    toc_cache.clear()

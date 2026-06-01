@@ -159,6 +159,10 @@ async def process_document_with_session(
     file_type = getattr(doc, "file_type", "pdf") or "pdf"
     if file_type in ("txt", "md", "log"):
         return await _process_text_document(db, doc, document_id, storage)
+    elif file_type == "docx":
+        return await _process_docx_document(db, doc, document_id, storage)
+    elif file_type == "doc":
+        return await _process_doc_document(db, doc, document_id, storage)
     else:
         return await _process_pdf_document(db, doc, document_id, storage, rasterizer, watermark)
 
@@ -255,11 +259,154 @@ async def _process_pdf_document(db, doc, document_id: str, storage, rasterizer, 
     await db.commit()
     logger.info("Document %s: status → ready (%d pages)", document_id, len(pages))
 
+    # Extract PDF TOC from bookmarks (best-effort: never blocks processing)
+    await _extract_and_store_pdf_toc(document_id, pdf_bytes, storage)
+
     return {
         "document_id": document_id,
         "page_count": len(pages),
         "status": "ready",
     }
+
+
+async def _extract_and_store_pdf_toc(
+    document_id: str,
+    pdf_bytes: bytes,
+    storage,
+) -> None:
+    """
+    Extract PDF bookmarks and store as a TOC sidecar JSON file.
+
+    Stored at toc/{doc_id}.json — the /toc endpoint checks this before
+    falling back to an empty response.  All errors are non-fatal.
+    """
+    import json as _json
+    try:
+        from app.services.toc.pdf_extractor import extract_pdf_toc
+        entries = extract_pdf_toc(pdf_bytes)
+        if not entries:
+            logger.debug("Document %s: no PDF bookmarks found — TOC sidecar skipped", document_id)
+            return
+        sidecar_key = f"toc/{document_id}.json"
+        payload = _json.dumps([e.to_dict() for e in entries], ensure_ascii=False)
+        await storage.upload_file(
+            payload.encode("utf-8"),
+            sidecar_key,
+            content_type="application/json",
+        )
+        logger.info(
+            "Document %s: stored PDF TOC sidecar (%d entries) at %s",
+            document_id, len(entries), sidecar_key,
+        )
+    except Exception as exc:
+        logger.warning("Document %s: PDF TOC extraction failed (non-fatal): %s", document_id, exc)
+
+
+async def _process_docx_document(db, doc, document_id: str, storage) -> dict:
+    """
+    Process a DOCX document.
+
+    Pipeline:
+      1. Download original DOCX bytes
+      2. Extract native TOC from heading styles (stored as JSON sidecar)
+      3. Convert DOCX to markdown text using python-docx
+      4. Overwrite storage key with converted text (replaces binary with text)
+      5. Count chunks and mark document ready
+    """
+    import json as _json
+    from app.services.text_processor import count_chunks
+    from app.services.toc.docx_extractor import extract_docx_toc, docx_to_markdown
+    from app.config import settings
+
+    logger.info("Document %s: downloading DOCX from %r", document_id, doc.storage_key)
+    docx_bytes = await storage.download_bytes(doc.storage_key)
+    logger.info("Document %s: downloaded %d bytes", document_id, len(docx_bytes))
+
+    # 1. Extract native TOC before converting (highest fidelity)
+    try:
+        toc_entries = extract_docx_toc(docx_bytes)
+        if toc_entries:
+            sidecar_key = f"toc/{document_id}.json"
+            payload = _json.dumps([e.to_dict() for e in toc_entries], ensure_ascii=False)
+            await storage.upload_file(
+                payload.encode("utf-8"), sidecar_key, content_type="application/json"
+            )
+            logger.info(
+                "Document %s: stored DOCX TOC sidecar (%d entries)", document_id, len(toc_entries)
+            )
+    except Exception as exc:
+        logger.warning("Document %s: DOCX TOC extraction failed (non-fatal): %s", document_id, exc)
+
+    # 2. Convert to markdown text
+    logger.info("Document %s: converting DOCX to markdown text", document_id)
+    markdown_text = docx_to_markdown(docx_bytes)
+    if not markdown_text.strip():
+        raise ValueError(f"DOCX conversion produced empty text for document {document_id}")
+
+    # 3. Overwrite storage with the converted text (viewer reads this as markdown)
+    await storage.upload_file(
+        markdown_text.encode("utf-8"),
+        doc.storage_key,
+        content_type="text/markdown",
+    )
+
+    # 4. Count chunks and mark ready
+    chunk_count = count_chunks(markdown_text, settings.text_lines_per_chunk)
+    doc.status = "ready"
+    doc.page_count = chunk_count
+    await db.commit()
+    logger.info("Document %s: status → ready (%d text chunks from DOCX)", document_id, chunk_count)
+
+    return {"document_id": document_id, "page_count": chunk_count, "status": "ready"}
+
+
+async def _process_doc_document(db, doc, document_id: str, storage) -> dict:
+    """
+    Process a legacy .doc document.
+
+    Pipeline:
+      1. Download original .doc bytes
+      2. Convert to plain text using antiword subprocess
+      3. Overwrite storage key with plain text
+      4. Count chunks and mark document ready
+
+    If antiword is unavailable or conversion fails: mark as error.
+    """
+    from app.services.text_processor import count_chunks
+    from app.services.toc.docx_extractor import doc_to_text
+    from app.config import settings
+
+    logger.info("Document %s: downloading .doc from %r", document_id, doc.storage_key)
+    doc_bytes = await storage.download_bytes(doc.storage_key)
+    logger.info("Document %s: downloaded %d bytes", document_id, len(doc_bytes))
+
+    # Convert to plain text
+    import asyncio
+    loop = asyncio.get_running_loop()
+    plain_text = await loop.run_in_executor(
+        None, doc_to_text, doc_bytes, document_id
+    )
+
+    if not plain_text.strip():
+        raise ValueError(
+            f"DOC conversion produced empty text for document {document_id}. "
+            "Ensure antiword is installed (apt-get install antiword)."
+        )
+
+    # Overwrite storage with converted text
+    await storage.upload_file(
+        plain_text.encode("utf-8"),
+        doc.storage_key,
+        content_type="text/plain",
+    )
+
+    chunk_count = count_chunks(plain_text, settings.text_lines_per_chunk)
+    doc.status = "ready"
+    doc.page_count = chunk_count
+    await db.commit()
+    logger.info("Document %s: status → ready (%d text chunks from DOC)", document_id, chunk_count)
+
+    return {"document_id": document_id, "page_count": chunk_count, "status": "ready"}
 
 
 def _run_async(coro):
