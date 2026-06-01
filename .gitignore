@@ -50,4 +50,4 @@ backend/*.db
 *.png
 *.jpg
 cloudflared.log
-*.log
+*.log*.db
