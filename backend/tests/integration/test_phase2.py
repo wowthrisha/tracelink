@@ -211,7 +211,9 @@ class TestStaticServing:
 
     @pytest.mark.asyncio
     async def test_root_redirect_to_html(self, client):
-        """/ must redirect to SecureDoc.html."""
+        """/ must redirect to the app entry point."""
         r = await client.get("/", follow_redirects=False)
         assert r.status_code in (301, 302, 307, 308)
-        assert "SecureDoc.html" in r.headers.get("location", "")
+        location = r.headers.get("location", "")
+        # / now redirects to /app (dynamic HTML endpoint with injected config)
+        assert "/app" in location or "SecureDoc.html" in location

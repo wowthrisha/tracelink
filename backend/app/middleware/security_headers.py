@@ -5,24 +5,34 @@ Uses dict.setdefault so route-level headers (viewer Cache-Control,
 X-Content-Type-Options) are not overridden.
 
 CSP tuned for SecureDoc:
-  - React 18 from unpkg CDN
+  - React 18.3.1 from unpkg CDN — allowlisted by exact SHA-384 content hash,
+    not by domain.  A CDN-compromise delivering different bytes is blocked.
   - Google Fonts
   - Supabase auth API
   - Blob URLs for in-browser page image rendering
   - No unsafe-eval; no inline scripts (inline script moved to api.js)
 
-Phase 8 additions:
-  - HSTS (opt-in via HSTS_MAX_AGE > 0 in config)
-  - Cross-Origin-Opener-Policy to harden against Spectre-style attacks
-  - X-Permitted-Cross-Domain-Policies to block Flash/PDF cross-domain reads
-  - Configurable static asset cache lifetime
+HSTS (opt-in via HSTS_MAX_AGE > 0 in config):
+  Enable once HTTPS is confirmed stable on your domain.
+  Set to 31536000 (1 year) for production.
+
+Cross-origin hardening:
+  - Cross-Origin-Opener-Policy: same-origin (Spectre isolation)
+  - X-Permitted-Cross-Domain-Policies: none (Flash/PDF cross-domain block)
 """
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 
+# SHA-384 content hashes for React 18.3.1 UMD production builds loaded from unpkg.
+# These are the exact hashes from the <script integrity="..."> attributes in SecureDoc.html.
+# Any CDN-delivered script with a different content hash will be blocked by CSP,
+# even if it comes from the same domain.
+_REACT_HASH = "sha384-DGyLxAyjq0f9SPpVevD6IgztCFlnMF6oW/XQGmfe+IsZ8TqEiDrcHkMLKI6fiB/Z"
+_REACT_DOM_HASH = "sha384-gTGxhz21lVGYNMcdJOyq01Edg0jhn/c22nsx0kyqP0TxaV5WVdsSH1fSDUf5YJj1"
+
 _CSP = (
     "default-src 'none'; "
-    "script-src 'self' https://unpkg.com; "
+    f"script-src 'self' '{_REACT_HASH}' '{_REACT_DOM_HASH}'; "
     "style-src 'self' https://fonts.googleapis.com 'unsafe-inline'; "
     "font-src 'self' https://fonts.gstatic.com data:; "
     "connect-src 'self' https://*.supabase.co; "
@@ -39,9 +49,7 @@ _BASE_SECURITY_HEADERS: dict = {
     "Referrer-Policy": "strict-origin-when-cross-origin",
     "Permissions-Policy": "camera=(), microphone=(), geolocation=(), payment=()",
     "Content-Security-Policy": _CSP,
-    # Phase 8: harden against cross-origin attacks (Spectre side-channel isolation)
     "Cross-Origin-Opener-Policy": "same-origin",
-    # Phase 8: block Flash/legacy plugin cross-domain reads
     "X-Permitted-Cross-Domain-Policies": "none",
 }
 
@@ -73,10 +81,8 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         path = request.url.path
         if path.startswith("/static/"):
             if path.endswith(".html"):
-                # HTML files: always revalidate (user always gets latest viewer)
                 response.headers["Cache-Control"] = "no-cache, must-revalidate"
             elif path.endswith(".js") or path.endswith(".css"):
-                # JS/CSS: public cache with configurable max-age + Vary for compression
                 max_age = self._static_asset_max_age
                 response.headers["Cache-Control"] = (
                     f"public, max-age={max_age}, stale-while-revalidate=60"

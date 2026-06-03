@@ -1,10 +1,11 @@
 import logging
 import os
 from contextlib import asynccontextmanager
+from typing import Optional
 
 from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
@@ -34,18 +35,29 @@ if settings.app_env == "production":
             "  IP_HASH_SALT is still set to the default placeholder value "
             "(generate with: python -c \"import secrets; print(secrets.token_hex(32))\")"
         )
-    # Warn (not block) if ALLOWED_ORIGINS still has localhost
-    _localhost_origins = [o for o in settings.allowed_origins_list if "localhost" in o or "127.0.0.1" in o]
-    if _localhost_origins:
-        import logging as _logging
-        _logging.getLogger("securedoc.startup").warning(
-            "CORS: ALLOWED_ORIGINS includes localhost entries in production: %s",
-            _localhost_origins,
-        )
     if _errors:
         raise RuntimeError(
             "Refusing to start in production with unsafe configuration:\n"
             + "\n".join(_errors)
+        )
+    # Non-fatal warnings for recommended production settings
+    _warn_log = logging.getLogger("securedoc.startup")
+    _localhost_origins = [o for o in settings.allowed_origins_list if "localhost" in o or "127.0.0.1" in o]
+    if _localhost_origins:
+        _warn_log.warning(
+            "CORS: ALLOWED_ORIGINS includes localhost entries in production: %s",
+            _localhost_origins,
+        )
+    if not settings.real_ip_header and settings.trusted_proxy_depth == 0:
+        _warn_log.warning(
+            "PROXY: Neither REAL_IP_HEADER nor TRUSTED_PROXY_DEPTH is set. "
+            "IP allowlists and rate limiting will use the direct connection IP. "
+            "Set REAL_IP_HEADER=CF-Connecting-IP if behind Cloudflare."
+        )
+    if not settings.https_redirect:
+        _warn_log.warning(
+            "HTTPS: HTTPS_REDIRECT is not enabled. "
+            "Set HTTPS_REDIRECT=true to enforce HTTPS in production."
         )
 
 
@@ -97,7 +109,7 @@ async def lifespan(app: FastAPI):
         _shutdown_log.info("DB engine disposed on shutdown")
 
 
-app = FastAPI(title="SecureDoc API", version="8.0.0", lifespan=lifespan)
+app = FastAPI(title="SecureDoc API", version="8.1.0", lifespan=lifespan)
 
 # Rate limiter
 app.state.limiter = limiter
@@ -168,7 +180,10 @@ async def health(db: AsyncSession = Depends(get_db)):
     tunnels can verify reachability.  The 'status' field is 'ok' when all
     components are healthy, 'degraded' when one or more checks fail.
 
-    Checks: db (SELECT 1), redis (PING), storage (service instantiation), worker
+    Checks: db (SELECT 1), redis (PING), storage (service instantiation), worker.
+
+    Deliberately omits internal proxy/CDN configuration to prevent information
+    disclosure that would aid header-spoofing attacks.
     """
     from sqlalchemy import text as _sql_text
     checks: dict = {}
@@ -228,15 +243,8 @@ async def health(db: AsyncSession = Depends(get_db)):
     except Exception:
         checks["worker"] = "unknown"
 
-    # Expose proxy/CDN configuration state for ops visibility
-    checks["proxy"] = {
-        "https_redirect": settings.https_redirect,
-        "real_ip_header": settings.real_ip_header or None,
-        "trusted_proxy_depth": settings.trusted_proxy_depth,
-        "hsts_max_age": settings.hsts_max_age,
-    }
+    return {"status": overall, "checks": checks, "version": "8.1.0"}
 
-    return {"status": overall, "checks": checks, "version": "8.0.0"}
 
 frontend_dir = "/frontend"  # mounted in Docker; fallback for local dev
 if not os.path.exists(frontend_dir):
@@ -244,10 +252,43 @@ if not os.path.exists(frontend_dir):
 if os.path.exists(frontend_dir):
     app.mount("/static", StaticFiles(directory=frontend_dir), name="static")
 
+
+@app.get("/app")
+async def serve_app(token: Optional[str] = None):
+    """
+    Serve the frontend SPA with environment-injected configuration.
+
+    Supabase URL and anon key are read from environment variables at request
+    time and injected into the HTML meta tags.  This prevents committing live
+    credentials to the repository while keeping the frontend functional.
+    """
+    html_path = os.path.join(frontend_dir, "SecureDoc.html")
+    try:
+        with open(html_path, "r", encoding="utf-8") as f:
+            content = f.read()
+    except OSError:
+        return JSONResponse(status_code=503, content={"detail": "Frontend not available"})
+
+    # Replace placeholder values with environment-configured ones
+    content = content.replace(
+        'content="SECUREDOC_SUPABASE_URL"',
+        f'content="{settings.supabase_url}"',
+    ).replace(
+        'content="SECUREDOC_SUPABASE_ANON_KEY"',
+        f'content="{settings.supabase_anon_key}"',
+    )
+
+    return HTMLResponse(
+        content=content,
+        headers={"Cache-Control": "no-cache, must-revalidate"},
+    )
+
+
 @app.get("/v/{token}")
 async def view_document(token: str):
-    return RedirectResponse(url=f"/static/SecureDoc.html?token={token}")
+    return RedirectResponse(url=f"/app?token={token}")
+
 
 @app.get("/")
 async def index():
-    return RedirectResponse(url="/static/SecureDoc.html")
+    return RedirectResponse(url="/app")

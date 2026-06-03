@@ -186,8 +186,9 @@ class LinkService:
                 db, link.id, existing_session_id
             )
             if is_session_reuse:
+                # Log only a short prefix — never log full session IDs
                 logger.info(
-                    "[viewer] link=%s REUSE session=%s", link.id, existing_session_id
+                    "[viewer] link=%s REUSE session=%s...", link.id, existing_session_id[:6]
                 )
 
         session_id = existing_session_id if is_session_reuse else self._generate_session_id()
@@ -198,12 +199,13 @@ class LinkService:
                 logger.info("[viewer] link=%s purged %d stale session(s)", link.id, purged)
 
             active = await enforcer.active_session_count(db, link.id)
+            # Log only a short prefix of the session ID, never the full value
             logger.info(
-                "[viewer] link=%s max_sessions=%d active_before=%d new_session=%s",
+                "[viewer] link=%s max_sessions=%d active_before=%d new_session=%s...",
                 link.id,
                 link.max_concurrent_sessions,
                 active,
-                session_id,
+                session_id[:6],
             )
 
             if active >= link.max_concurrent_sessions:

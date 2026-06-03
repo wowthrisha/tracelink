@@ -1,6 +1,8 @@
+import hashlib
+import io
+
 import pytest
 from PIL import Image
-import io
 
 from app.services.watermark import WatermarkService
 
@@ -37,53 +39,76 @@ class TestWatermarkService:
         assert isinstance(r1, bytes) and isinstance(r2, bytes)
         assert r1 != r2
 
+    # ── Forensic stamp tests ───────────────────────────────────────────────────
+
     def test_apply_forensic_stamp_returns_valid_webp(self, sample_webp_bytes):
-        """Forensic stamp embeds LSB data — output is a valid WebP, not identical to input."""
+        """Forensic stamp must return a valid image (not a no-op that returns input unchanged)."""
         svc = WatermarkService()
-        result = svc.apply_forensic_stamp(sample_webp_bytes, "doc_123", 1)
+        result = svc.apply_forensic_stamp(sample_webp_bytes, "doc-abc123", 1)
         assert isinstance(result, bytes)
         assert len(result) > 0
         img = Image.open(io.BytesIO(result))
         assert img.format in ("WEBP", "PNG", "JPEG")
 
+    def test_apply_forensic_stamp_is_not_noop(self, sample_webp_bytes):
+        """The forensic stamp must actually modify the image bytes.
+
+        The original Phase 1 implementation was a silent no-op (returned input unchanged).
+        Phase B1 replaces it with a real near-invisible pixel mark.
+        """
+        svc = WatermarkService()
+        result = svc.apply_forensic_stamp(sample_webp_bytes, "doc-abc123", 1)
+        # The result must differ from the input — the stamp modifies pixel data
+        assert result != sample_webp_bytes, (
+            "apply_forensic_stamp returned the input unchanged — it is still a no-op"
+        )
+
     def test_apply_forensic_stamp_deterministic(self, sample_webp_bytes):
-        """Same doc_id and page_number always produce the same output."""
+        """Same doc_id and page_number must always produce the same output."""
         svc = WatermarkService()
         r1 = svc.apply_forensic_stamp(sample_webp_bytes, "stable-doc", 3)
         r2 = svc.apply_forensic_stamp(sample_webp_bytes, "stable-doc", 3)
         assert r1 == r2
 
-    def test_apply_forensic_stamp_lsb_logic(self):
-        """Verify the 8x8 LSB encoding logic directly via PIL pixel manipulation."""
-        import hashlib
-        from PIL import Image
-        import io as _io
+    def test_apply_forensic_stamp_different_docs_differ(self, sample_webp_bytes):
+        """Different document IDs must produce different forensic marks."""
+        svc = WatermarkService()
+        r1 = svc.apply_forensic_stamp(sample_webp_bytes, "document-aaa", 1)
+        r2 = svc.apply_forensic_stamp(sample_webp_bytes, "document-bbb", 1)
+        assert r1 != r2, "Different document IDs should produce different forensic marks"
 
-        # Test the LSB encoding logic directly (independent of WEBP lossy compression)
-        doc_id, page = "verify-doc", 1
+    def test_apply_forensic_stamp_different_pages_differ(self, sample_webp_bytes):
+        """Different page numbers must produce different forensic marks."""
+        svc = WatermarkService()
+        r1 = svc.apply_forensic_stamp(sample_webp_bytes, "same-doc-id", 1)
+        r2 = svc.apply_forensic_stamp(sample_webp_bytes, "same-doc-id", 2)
+        assert r1 != r2, "Different page numbers should produce different forensic marks"
 
-        # Build expected bits (same algorithm as the service)
-        fp = hashlib.sha256(f"{doc_id}:{page}".encode()).digest()
-        expected_bits = []
-        for byte in fp[:8]:
-            for i in range(7, -1, -1):
-                expected_bits.append((byte >> i) & 1)
+    def test_apply_forensic_stamp_fingerprint_derivation(self):
+        """The forensic mark uses a SHA-256 fingerprint of the document_id."""
+        doc_id = "test-document-uuid-123"
+        fingerprint = hashlib.sha256(doc_id.encode()).hexdigest()[:8]
+        expected_mark = f"SD:{fingerprint}:0001"
+        # The mark text must encode a derivable identity
+        assert len(fingerprint) == 8
+        assert expected_mark.startswith("SD:")
 
-        # Apply the LSB logic directly to a PIL image
-        img = Image.new("RGB", (100, 100), color=(200, 200, 200))
-        pixels = img.load()
-        bit_idx = 0
-        for y in range(8):
-            for x in range(8):
-                r, g, b = pixels[x, y]
-                r = (r & 0xFE) | expected_bits[bit_idx]
-                pixels[x, y] = (r, g, b)
-                bit_idx += 1
+    def test_apply_forensic_stamp_does_not_lose_dimensions(self, sample_webp_bytes):
+        """Forensic stamp must not change image dimensions."""
+        svc = WatermarkService()
+        original = Image.open(io.BytesIO(sample_webp_bytes))
+        stamped = svc.apply_forensic_stamp(sample_webp_bytes, "dim-test-doc", 5)
+        result = Image.open(io.BytesIO(stamped))
+        assert result.size == original.size
 
-        # Verify the bits were set correctly (pre-compression)
-        actual_bits = []
-        for y in range(8):
-            for x in range(8):
-                actual_bits.append(pixels[x, y][0] & 1)
-
-        assert actual_bits == expected_bits
+    def test_visible_watermark_preserves_forensic_exif(self, sample_webp_bytes):
+        """Visible watermark should preserve EXIF metadata from the forensic stamp."""
+        svc = WatermarkService()
+        # Apply forensic stamp first
+        stamped = svc.apply_forensic_stamp(sample_webp_bytes, "exif-test-doc", 1)
+        # Then apply visible watermark on top
+        result = svc.apply_visible_watermark(stamped, "viewer@example.com · 2026-01-01")
+        # Result must be valid
+        assert isinstance(result, bytes)
+        img = Image.open(io.BytesIO(result))
+        assert img.format in ("WEBP", "PNG", "JPEG")

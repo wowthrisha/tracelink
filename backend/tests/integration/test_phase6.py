@@ -56,9 +56,14 @@ class TestSecurityHeaders:
         assert "script-src" in r.headers["Content-Security-Policy"]
 
     @pytest.mark.asyncio
-    async def test_csp_allows_unpkg_for_react(self, client):
+    async def test_csp_pins_react_by_hash_not_domain(self, client):
+        """CSP must use SHA-384 hash pinning for React, not the broad unpkg.com domain."""
         r = await client.get("/health")
-        assert "https://unpkg.com" in r.headers["Content-Security-Policy"]
+        csp = r.headers["Content-Security-Policy"]
+        # The broad unpkg.com domain allowance was replaced with specific content hashes
+        # to prevent CDN supply-chain compromise (Phase B1 fix)
+        assert "https://unpkg.com" not in csp
+        assert "sha384-" in csp
 
     @pytest.mark.asyncio
     async def test_csp_no_unsafe_eval(self, client):
@@ -384,9 +389,12 @@ class TestFrontendCSPCompliance:
         assert "__PUBLIC_TOKEN" in api_js
         assert "__INITIAL_SCREEN" in api_js
 
-    def test_html_loads_react_from_unpkg(self):
+    def test_html_loads_react_from_unpkg_with_sri(self):
+        """React is still loaded from unpkg but must have SRI hash for CSP hash-pinning."""
         html = self._read_html()
         assert "https://unpkg.com/react@" in html
+        # The CSP pins by content hash (not domain), so SRI hashes in HTML are mandatory
+        assert 'integrity="sha384-' in html
 
     def test_html_react_scripts_have_integrity(self):
         html = self._read_html()

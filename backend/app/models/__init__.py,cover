@@ -1,5 +1,0 @@
-> from app.models.document import Document, DocumentPage
-> from app.models.link import ShareLink
-> from app.models.event import AccessEvent
-  
-> __all__ = ["Document", "DocumentPage", "ShareLink", "AccessEvent"]

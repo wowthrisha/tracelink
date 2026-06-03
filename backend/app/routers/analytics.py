@@ -165,6 +165,22 @@ async def log_viewer_event(
     if not session_id:
         raise HTTPException(status_code=400, detail="session_id is required")
 
+    # Restrict metadata size to prevent storage-inflation attacks.
+    # A viewer with a valid session could otherwise spam large payloads at the
+    # rate limit (60/min), inflating the database at ~86 MB/day per IP.
+    _METADATA_MAX_BYTES = 1024
+    if metadata is not None:
+        import json as _json
+        try:
+            _meta_str = _json.dumps(metadata)
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="metadata must be a JSON object")
+        if len(_meta_str) > _METADATA_MAX_BYTES:
+            raise HTTPException(
+                status_code=400,
+                detail=f"metadata exceeds {_METADATA_MAX_BYTES} bytes",
+            )
+
     # Restrict to viewer-side events only
     if event_type not in VIEWER_LOGGABLE_EVENTS:
         raise HTTPException(

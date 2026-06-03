@@ -667,6 +667,14 @@ async def download_document(
         if expires < now:
             raise HTTPException(status_code=410, detail="Link expired")
 
+    # IP allowlist — must be enforced consistently on ALL viewer endpoints.
+    # Without this check, a viewer whose IP changed after session creation
+    # (e.g., moved networks or switched VPN) could still download the document.
+    ip = getattr(request.state, "client_ip", None) or (request.client.host if request.client else None)
+    if link.ip_allowlist:
+        if not policy_enforcer.ip_is_allowed(ip, link.ip_allowlist):
+            raise HTTPException(status_code=403, detail="Access denied from this IP")
+
     # Check download permission
     perms = json.loads(link.permissions) if link.permissions else {}
     if not perms.get("can_download", False):
@@ -685,7 +693,6 @@ async def download_document(
     storage = get_storage_service()
     now_str = now.strftime("%Y-%m-%d")
     watermark_text = f"downloaded · {now_str} · sess:{session_id[:6]}"
-    ip = getattr(request.state, "client_ip", None) or (request.client.host if request.client else None)
 
     await analytics_svc.log_event(
         db, link_id=link.id, event_type="download_attempt",

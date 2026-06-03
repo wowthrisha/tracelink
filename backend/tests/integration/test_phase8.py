@@ -812,37 +812,31 @@ class TestDBPoolConfig:
             assert engine.pool._recycle == 600
 
 
-# ── L. Health endpoint — Phase 8 proxy config block ───────────────────────────
+# ── L. Health endpoint — no proxy config disclosure (Phase B1 hardening) ──────
 
 class TestHealthProxyBlock:
     @pytest.mark.asyncio
-    async def test_health_has_proxy_checks(self, client):
+    async def test_health_does_not_expose_proxy_config(self, client):
+        """Health must not expose proxy configuration — prevents real_ip_header spoofing."""
         r = await client.get("/health")
         assert r.status_code == 200
         body = r.json()
-        assert "proxy" in body["checks"]
+        # proxy config must be absent — it was removed in Phase B1 to prevent
+        # attackers from learning which header to forge for IP allowlist bypass
+        assert "proxy" not in body.get("checks", {})
 
     @pytest.mark.asyncio
-    async def test_health_proxy_block_shape(self, client):
+    async def test_health_has_safe_checks(self, client):
+        """Health must still report db, redis, storage, worker status."""
         r = await client.get("/health")
-        proxy = r.json()["checks"]["proxy"]
-        assert "https_redirect" in proxy
-        assert "hsts_max_age" in proxy
-        assert "trusted_proxy_depth" in proxy
-        assert "real_ip_header" in proxy
+        checks = r.json()["checks"]
+        assert "db" in checks
+        assert "storage" in checks
 
     @pytest.mark.asyncio
-    async def test_health_version_is_8(self, client):
+    async def test_health_version_updated(self, client):
         r = await client.get("/health")
-        assert r.json()["version"] == "8.0.0"
-
-    @pytest.mark.asyncio
-    async def test_health_proxy_defaults(self, client):
-        """In test environment, proxy config should show defaults (no Cloudflare)."""
-        r = await client.get("/health")
-        proxy = r.json()["checks"]["proxy"]
-        assert proxy["https_redirect"] is False
-        assert proxy["hsts_max_age"] == 0
+        assert r.json()["version"] == "8.1.0"
 
 
 # ── M. Regression — existing viewer flows unaffected ─────────────────────────
