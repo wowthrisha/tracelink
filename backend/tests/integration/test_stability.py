@@ -463,7 +463,7 @@ class TestProcessDocumentWithSession:
         watermark = MagicMock()
         watermark.apply_forensic_stamp = MagicMock(return_value=webp)
 
-        with patch("app.workers.tasks._make_thumbnail", return_value=b"thumb"):
+        with patch("app.workers.pipeline.pdf._make_thumbnail", return_value=b"thumb"):
             result = await process_document_with_session(
                 db_session, str(doc.id), storage, rasterizer, watermark
             )
@@ -518,7 +518,7 @@ class TestProcessDocumentWithSession:
         watermark.apply_forensic_stamp = MagicMock(return_value=webp)
 
         # clear_doc_bytes_redis is imported inside the function body, so patch at the source
-        with patch("app.workers.tasks._make_thumbnail", return_value=b"thumb"), \
+        with patch("app.workers.pipeline.pdf._make_thumbnail", return_value=b"thumb"), \
              patch("app.services.page_cache.clear_doc_bytes_redis", new_callable=AsyncMock), \
              patch("app.services.viewer_cache.invalidate_doc_entries"):
             result = await process_document_with_session(

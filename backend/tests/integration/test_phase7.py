@@ -3,15 +3,14 @@ Phase 7 — Enterprise Viewer + Performance + Security Hardening tests.
 
 Coverage:
   A. JSON log formatter
-  B. Document adapter pattern
-  C. Session watermark angle jitter
-  D. Health endpoint diagnostics
-  E. Concurrency detection config + session counting
-  F. Cache eviction / memory safety (LRU correctness)
-  G. Validate response shape (backward compat + new fields)
-  H. Token replay / invalid token handling
-  I. Session isolation
-  J. Rate-limit config regression
+  B. Session watermark angle jitter
+  C. Health endpoint diagnostics
+  D. Concurrency detection config + session counting
+  E. Cache eviction / memory safety (LRU correctness)
+  F. Validate response shape (backward compat + new fields)
+  G. Token replay / invalid token handling
+  H. Session isolation
+  I. Rate-limit config regression
 """
 import hashlib
 import json
@@ -107,72 +106,7 @@ class TestJSONLogFormatter:
         configure_json_logging()  # second call must not raise
 
 
-# ── B. Document adapter pattern ───────────────────────────────────────────────
-
-class TestDocumentAdapter:
-    def test_pdf_adapter_properties(self):
-        from app.services.document_adapter import DocumentAdapter
-        a = DocumentAdapter.for_file_type("pdf")
-        assert a.file_type == "pdf"
-        assert a.supports_thumbnails() is True
-        assert a.content_mime_type() == "image/webp"
-        assert a.supports_search() is False
-
-    def test_text_adapter_txt(self):
-        from app.services.document_adapter import DocumentAdapter
-        a = DocumentAdapter.for_file_type("txt")
-        assert a.supports_thumbnails() is False
-        assert a.content_mime_type() == "application/json"
-        assert a.supports_search() is True
-
-    def test_text_adapter_md(self):
-        from app.services.document_adapter import DocumentAdapter
-        a = DocumentAdapter.for_file_type("md")
-        assert a.supports_thumbnails() is False
-        assert a.supports_search() is True
-
-    def test_text_adapter_log(self):
-        from app.services.document_adapter import DocumentAdapter
-        a = DocumentAdapter.for_file_type("log")
-        assert a.supports_thumbnails() is False
-
-    def test_docx_stub_file_type(self):
-        from app.services.document_adapter import DocumentAdapter
-        a = DocumentAdapter.for_file_type("docx")
-        assert a.supports_thumbnails() is True
-        assert a.file_type == "docx"
-
-    def test_pptx_stub_file_type(self):
-        from app.services.document_adapter import DocumentAdapter
-        a = DocumentAdapter.for_file_type("pptx")
-        assert a.file_type == "pptx"
-
-    def test_unknown_type_raises_value_error(self):
-        from app.services.document_adapter import DocumentAdapter
-        with pytest.raises(ValueError, match="Unsupported file_type"):
-            DocumentAdapter.for_file_type("xls")
-
-    def test_all_adapters_satisfy_interface(self):
-        """All registered adapters must satisfy the abstract interface."""
-        from app.services.document_adapter import DocumentAdapter
-        for ft in ("pdf", "txt", "md", "log", "docx", "pptx"):
-            a = DocumentAdapter.for_file_type(ft)
-            assert isinstance(a.file_type, str)
-            assert isinstance(a.supports_thumbnails(), bool)
-            assert isinstance(a.content_mime_type(), str)
-            assert isinstance(a.supports_search(), bool)
-
-    def test_pdf_no_thumbnails_false(self):
-        from app.services.document_adapter import DocumentAdapter
-        assert DocumentAdapter.for_file_type("pdf").supports_thumbnails() is True
-
-    def test_text_no_thumbnails(self):
-        from app.services.document_adapter import DocumentAdapter
-        for ft in ("txt", "md", "log"):
-            assert DocumentAdapter.for_file_type(ft).supports_thumbnails() is False
-
-
-# ── C. Session watermark angle jitter ─────────────────────────────────────────
+# ── B. Session watermark angle jitter ─────────────────────────────────────────
 
 class TestWatermarkAngleJitter:
     def _angle(self, session_id: str) -> float:

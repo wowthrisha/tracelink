@@ -7,22 +7,16 @@ from app.workers.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
 
-# A document stuck in "processing" for longer than this threshold is assumed to
-# have been orphaned by a crashed worker and will be cleaned up and retried.
 _STALE_PROCESSING_THRESHOLD = timedelta(minutes=15)
-_THUMBNAIL_WIDTH_PX = 200
 
 # ── Module-level async engine and event loop ────────────────────────────────
 # Both are created once per worker *process* and reused across all tasks.
 #
 # WHY A PERSISTENT LOOP:
 #   asyncpg connections are bound to the asyncio event loop on which they were
-#   created.  The original code called asyncio.new_event_loop() per task and
-#   then closed it, but the module-level _engine kept its connection pool alive.
-#   On the second task (new loop) asyncpg tried to use connections from the
-#   first (closed) loop → "cannot perform operation: another operation is in
-#   progress".  A persistent per-process loop ensures connections are always
-#   used on the loop they were created on.
+#   created.  Creating a new loop per task causes the pool to accumulate
+#   connections bound to closed loops, triggering asyncpg's "another operation
+#   is in progress" InterfaceError on the second task.
 _engine = None
 _session_factory = None
 _worker_loop: Optional[asyncio.AbstractEventLoop] = None
@@ -50,8 +44,8 @@ def _get_db_session_factory():
             echo=False,
             pool_size=5,
             max_overflow=10,
-            pool_pre_ping=True,    # validate connections before checkout
-            pool_recycle=1800,     # discard stale connections every 30 min
+            pool_pre_ping=True,
+            pool_recycle=1800,
         )
         _session_factory = async_sessionmaker(
             _engine, class_=AsyncSession, expire_on_commit=False
@@ -60,23 +54,9 @@ def _get_db_session_factory():
     return _session_factory
 
 
-def _make_thumbnail(image_bytes: bytes) -> bytes:
-    """
-    Resize a full-resolution page image to a narrow thumbnail for sidebar navigation.
-
-    Thumbnails are stored at thumbs/{doc_id}/{page:04d}.webp alongside full-res pages.
-    They are generated best-effort — a failure here must never block document processing.
-    """
-    import io as _io
-    from PIL import Image
-
-    img = Image.open(_io.BytesIO(image_bytes))
-    ratio = _THUMBNAIL_WIDTH_PX / img.width
-    new_h = max(1, int(img.height * ratio))
-    thumb = img.resize((_THUMBNAIL_WIDTH_PX, new_h), Image.LANCZOS)
-    buf = _io.BytesIO()
-    thumb.save(buf, format="WEBP", quality=60)
-    return buf.getvalue()
+def _run_async(coro):
+    """Run an async coroutine from sync Celery task context using the persistent loop."""
+    return _get_worker_loop().run_until_complete(coro)
 
 
 def _should_process(status: str, updated_at: datetime) -> str:
@@ -86,8 +66,7 @@ def _should_process(status: str, updated_at: datetime) -> str:
     Returns one of:
       "proceed"  — normal upload path, start fresh
       "skip"     — already finished (ready / error) or actively processing
-      "recover"  — stuck in processing past the staleness threshold; caller
-                   must clean up partial pages before re-processing
+      "recover"  — stuck in processing past the staleness threshold
     """
     if status == "uploaded":
         return "proceed"
@@ -109,14 +88,15 @@ async def process_document_with_session(
     """
     Core document processing logic — testable without Celery or Redis.
 
-    Dispatches to the PDF or text pipeline based on doc.file_type.
-    The caller owns the DB session lifecycle.  On success the session is
-    committed; on error the exception propagates (caller decides retry policy).
+    Dispatches to the appropriate pipeline based on doc.file_type.
+    The caller owns the DB session lifecycle.
     """
     from sqlalchemy import select, delete
     from app.models.document import Document, DocumentPage
+    from app.workers.pipeline.pdf import process_pdf_document
+    from app.workers.pipeline.text import process_text_document
+    from app.workers.pipeline.word import process_docx_document, process_doc_document
 
-    # 1. Fetch document
     result = await db.execute(
         select(Document).where(Document.id == uuid.UUID(document_id))
     )
@@ -141,382 +121,25 @@ async def process_document_with_session(
             )
         )
         await db.flush()
-        # Invalidate L2 (Redis) byte cache so API replicas don't serve stale bytes
-        # after reprocess.  L1 (in-process on the API server) cannot be cleared from
-        # the worker but will repopulate from fresh storage after its next eviction.
         from app.services.page_cache import clear_doc_bytes_redis
         from app.services.viewer_cache import invalidate_doc_entries
         await clear_doc_bytes_redis(document_id)
         invalidate_doc_entries(document_id)
         logger.info("cache_invalidate doc_id=%s source=worker type=reprocess", document_id)
 
-    # 2. Set processing
     doc.status = "processing"
     await db.commit()
     logger.info("Document %s: status → processing", document_id)
 
-    # 3. Dispatch to the appropriate pipeline based on file type
     file_type = getattr(doc, "file_type", "pdf") or "pdf"
     if file_type in ("txt", "md", "log"):
-        return await _process_text_document(db, doc, document_id, storage)
+        return await process_text_document(db, doc, document_id, storage)
     elif file_type == "docx":
-        return await _process_docx_document(db, doc, document_id, storage)
+        return await process_docx_document(db, doc, document_id, storage)
     elif file_type == "doc":
-        return await _process_doc_document(db, doc, document_id, storage)
+        return await process_doc_document(db, doc, document_id, storage)
     else:
-        return await _process_pdf_document(db, doc, document_id, storage, rasterizer, watermark)
-
-
-async def _process_text_document(db, doc, document_id: str, storage) -> dict:
-    """
-    Process a text document (.txt, .md, .log).
-
-    Downloads the raw bytes, decodes safely, counts line-based chunks,
-    then marks the document ready.  No DocumentPage records are created —
-    the viewer fetches raw text chunks directly from storage at serve time.
-    """
-    from app.services.text_processor import decode_text_safe, count_chunks
-    from app.config import settings
-
-    logger.info("Document %s: downloading text from storage key %r", document_id, doc.storage_key)
-    raw_bytes = await storage.download_bytes(doc.storage_key)
-    logger.info("Document %s: downloaded %d bytes", document_id, len(raw_bytes))
-
-    # Decode with safe UTF-8 → latin-1 fallback; raises ValueError on total failure
-    text = decode_text_safe(raw_bytes)
-    chunk_count = count_chunks(text, settings.text_lines_per_chunk)
-    logger.info("Document %s: text decoded, %d chunk(s)", document_id, chunk_count)
-
-    doc.status = "ready"
-    doc.page_count = chunk_count
-    await db.commit()
-    logger.info("Document %s: status → ready (%d text chunks)", document_id, chunk_count)
-
-    return {
-        "document_id": document_id,
-        "page_count": chunk_count,
-        "status": "ready",
-    }
-
-
-async def _process_pdf_document(db, doc, document_id: str, storage, rasterizer, watermark) -> dict:
-    """
-    Process a PDF document — the original pipeline, unchanged.
-
-    Downloads PDF bytes, rasterizes with pdf2image, applies forensic watermark,
-    uploads WEBP page images + thumbnails, inserts DocumentPage records.
-    """
-    from app.models.document import DocumentPage
-
-    # Download PDF
-    logger.info("Document %s: downloading from storage key %r", document_id, doc.storage_key)
-    pdf_bytes = await storage.download_bytes(doc.storage_key)
-    logger.info("Document %s: downloaded %d bytes", document_id, len(pdf_bytes))
-
-    # Rasterize — raises RasterizerError on bad/malicious PDF (permanent failure)
-    logger.info("Document %s: rasterizing PDF", document_id)
-    pages = await rasterizer.rasterize_document(pdf_bytes, document_id)
-    logger.info("Document %s: rasterized %d page(s)", document_id, len(pages))
-
-    # Apply forensic stamp, upload each page + thumbnail, insert DB records
-    for page in pages:
-        stamped = watermark.apply_forensic_stamp(
-            page.image_bytes, document_id, page.page_number
-        )
-        page_key = f"pages/{document_id}/{page.page_number:04d}.webp"
-        await storage.upload_file(stamped, page_key, content_type="image/webp")
-        logger.debug(
-            "Document %s: uploaded page %d → %s", document_id, page.page_number, page_key
-        )
-
-        # Thumbnail — best-effort: failure must not block document processing
-        try:
-            thumb_bytes = _make_thumbnail(stamped)
-            thumb_key = f"thumbs/{document_id}/{page.page_number:04d}.webp"
-            await storage.upload_file(thumb_bytes, thumb_key, content_type="image/webp")
-            logger.debug(
-                "Document %s: uploaded thumbnail %d → %s",
-                document_id, page.page_number, thumb_key,
-            )
-        except Exception as thumb_exc:
-            logger.warning(
-                "Document %s: thumbnail generation failed for page %d: %s",
-                document_id, page.page_number, thumb_exc,
-            )
-
-        db_page = DocumentPage(
-            document_id=uuid.UUID(document_id),
-            page_number=page.page_number,
-            storage_key=page_key,
-            width_px=page.width_px,
-            height_px=page.height_px,
-        )
-        db.add(db_page)
-
-    # Mark ready
-    doc.status = "ready"
-    doc.page_count = len(pages)
-    await db.commit()
-    logger.info("Document %s: status → ready (%d pages)", document_id, len(pages))
-
-    # Extract PDF TOC from bookmarks (best-effort: never blocks processing)
-    await _extract_and_store_pdf_toc(document_id, pdf_bytes, storage)
-
-    return {
-        "document_id": document_id,
-        "page_count": len(pages),
-        "status": "ready",
-    }
-
-
-async def _extract_and_store_pdf_toc(
-    document_id: str,
-    pdf_bytes: bytes,
-    storage,
-) -> None:
-    """
-    Extract PDF bookmarks and store as a TOC sidecar JSON file.
-
-    Stored at toc/{doc_id}.json — the /toc endpoint checks this before
-    falling back to an empty response.  All errors are non-fatal.
-    """
-    import json as _json
-    try:
-        from app.services.toc.pdf_extractor import extract_pdf_toc
-        entries = extract_pdf_toc(pdf_bytes)
-        if not entries:
-            logger.debug("Document %s: no PDF bookmarks found — TOC sidecar skipped", document_id)
-            return
-        sidecar_key = f"toc/{document_id}.json"
-        payload = _json.dumps([e.to_dict() for e in entries], ensure_ascii=False)
-        await storage.upload_file(
-            payload.encode("utf-8"),
-            sidecar_key,
-            content_type="application/json",
-        )
-        logger.info(
-            "Document %s: stored PDF TOC sidecar (%d entries) at %s",
-            document_id, len(entries), sidecar_key,
-        )
-    except Exception as exc:
-        logger.warning("Document %s: PDF TOC extraction failed (non-fatal): %s", document_id, exc)
-
-
-async def _process_docx_document(db, doc, document_id: str, storage) -> dict:
-    """
-    Process a DOCX document.
-
-    Pipeline:
-      1. Download original DOCX bytes
-      2. Extract native TOC from heading styles (stored as JSON sidecar)
-      3. Convert DOCX to markdown text using python-docx
-      4. Overwrite storage key with converted text (replaces binary with text)
-      5. Count chunks and mark document ready
-    """
-    import json as _json
-    from app.services.text_processor import count_chunks
-    from app.services.toc.docx_extractor import extract_docx_toc, docx_to_markdown
-    from app.config import settings
-
-    logger.info("Document %s: downloading DOCX from %r", document_id, doc.storage_key)
-    docx_bytes = await storage.download_bytes(doc.storage_key)
-    logger.info("Document %s: downloaded %d bytes", document_id, len(docx_bytes))
-
-    # 1. Extract native TOC before converting (highest fidelity)
-    try:
-        toc_entries = extract_docx_toc(docx_bytes)
-        if toc_entries:
-            sidecar_key = f"toc/{document_id}.json"
-            payload = _json.dumps([e.to_dict() for e in toc_entries], ensure_ascii=False)
-            await storage.upload_file(
-                payload.encode("utf-8"), sidecar_key, content_type="application/json"
-            )
-            logger.info(
-                "Document %s: stored DOCX TOC sidecar (%d entries)", document_id, len(toc_entries)
-            )
-    except Exception as exc:
-        logger.warning("Document %s: DOCX TOC extraction failed (non-fatal): %s", document_id, exc)
-
-    # 2. Convert to markdown text
-    logger.info("Document %s: converting DOCX to markdown text", document_id)
-    markdown_text = docx_to_markdown(docx_bytes)
-    if not markdown_text.strip():
-        raise ValueError(f"DOCX conversion produced empty text for document {document_id}")
-
-    # 3. Overwrite storage with the converted text (viewer reads this as markdown)
-    await storage.upload_file(
-        markdown_text.encode("utf-8"),
-        doc.storage_key,
-        content_type="text/markdown",
-    )
-
-    # 4. Count chunks and mark ready
-    chunk_count = count_chunks(markdown_text, settings.text_lines_per_chunk)
-    doc.status = "ready"
-    doc.page_count = chunk_count
-    await db.commit()
-    logger.info("Document %s: status → ready (%d text chunks from DOCX)", document_id, chunk_count)
-
-    return {"document_id": document_id, "page_count": chunk_count, "status": "ready"}
-
-
-async def _process_doc_document(db, doc, document_id: str, storage) -> dict:
-    """
-    Process a legacy .doc document.
-
-    Pipeline:
-      1. Download original .doc bytes
-      2. Convert to plain text using antiword subprocess
-      3. Overwrite storage key with plain text
-      4. Count chunks and mark document ready
-
-    If antiword is unavailable or conversion fails: mark as error.
-    """
-    from app.services.text_processor import count_chunks
-    from app.services.toc.docx_extractor import doc_to_text
-    from app.config import settings
-
-    logger.info("Document %s: downloading .doc from %r", document_id, doc.storage_key)
-    doc_bytes = await storage.download_bytes(doc.storage_key)
-    logger.info("Document %s: downloaded %d bytes", document_id, len(doc_bytes))
-
-    # Convert to plain text
-    import asyncio
-    loop = asyncio.get_running_loop()
-    plain_text = await loop.run_in_executor(
-        None, doc_to_text, doc_bytes, document_id
-    )
-
-    if not plain_text.strip():
-        raise ValueError(
-            f"DOC conversion produced empty text for document {document_id}. "
-            "Ensure antiword is installed (apt-get install antiword)."
-        )
-
-    # Overwrite storage with converted text
-    await storage.upload_file(
-        plain_text.encode("utf-8"),
-        doc.storage_key,
-        content_type="text/plain",
-    )
-
-    chunk_count = count_chunks(plain_text, settings.text_lines_per_chunk)
-    doc.status = "ready"
-    doc.page_count = chunk_count
-    await db.commit()
-    logger.info("Document %s: status → ready (%d text chunks from DOC)", document_id, chunk_count)
-
-    return {"document_id": document_id, "page_count": chunk_count, "status": "ready"}
-
-
-def _run_async(coro):
-    """Run an async coroutine from sync Celery task context.
-
-    Uses a persistent per-process event loop so asyncpg connection-pool
-    connections are always executed on the loop they were created on.
-    Creating a new loop per task (the previous approach) caused the pool to
-    accumulate connections bound to closed loops, triggering asyncpg's
-    "another operation is in progress" InterfaceError on the second task.
-    """
-    return _get_worker_loop().run_until_complete(coro)
-
-
-@celery_app.task(name="securedoc.purge_stale_sessions")
-def purge_stale_sessions() -> dict:
-    """
-    Periodic cleanup task: delete ViewerSession rows inactive for >2 hours.
-
-    Run this every 30 minutes via Celery Beat to prevent unbounded table growth.
-    Safe to run while the app is serving traffic — uses a DELETE WHERE clause
-    with an indexed timestamp column.
-    """
-    return _run_async(_purge_stale_sessions_async())
-
-
-async def _purge_stale_sessions_async() -> dict:
-    from sqlalchemy import delete
-    from app.models.session import ViewerSession
-
-    cutoff = datetime.now(timezone.utc) - timedelta(hours=2)
-    session_factory = _get_db_session_factory()
-    async with session_factory() as db:
-        result = await db.execute(
-            delete(ViewerSession).where(ViewerSession.last_seen_at < cutoff)
-        )
-        await db.commit()
-        deleted = result.rowcount
-        logger.info("purge_stale_sessions: removed %d stale session(s)", deleted)
-    return {"deleted": deleted}
-
-
-@celery_app.task(name="securedoc.requeue_orphaned_uploads")
-def requeue_orphaned_uploads() -> dict:
-    """
-    Periodic safety-net task: re-queue process_document for any document that
-    has been stuck in 'uploaded' status for longer than 10 minutes.
-
-    This covers two failure modes:
-      1. The process_document.delay() call at upload time failed (e.g. Redis was
-         temporarily unreachable) — the document stays 'uploaded' forever.
-      2. The task was in-flight when the worker container was replaced (deploy),
-         and despite acks_late=True the task was not redelivered.
-
-    Run every 5 minutes via Celery Beat.  Safe to call concurrently — the worker
-    that picks up the re-queued task will see status='uploaded' and proceed
-    normally, or status='processing' (not yet stale) and skip.
-    """
-    return _run_async(_requeue_orphaned_uploads_async())
-
-
-async def _requeue_orphaned_uploads_async() -> dict:
-    from sqlalchemy import select
-    from app.models.document import Document
-
-    cutoff = datetime.now(timezone.utc) - timedelta(minutes=10)
-    session_factory = _get_db_session_factory()
-    requeued = 0
-    async with session_factory() as db:
-        result = await db.execute(
-            select(Document.id).where(
-                Document.status == "uploaded",
-                Document.updated_at < cutoff,
-            )
-        )
-        orphan_ids = [str(row[0]) for row in result.all()]
-
-    for doc_id in orphan_ids:
-        try:
-            process_document.delay(doc_id)  # process_document is defined below in this module
-            logger.info("requeue_orphaned_uploads: re-queued doc_id=%s", doc_id)
-            requeued += 1
-        except Exception as exc:
-            logger.error(
-                "requeue_orphaned_uploads: failed to re-queue doc_id=%s: %s",
-                doc_id, exc,
-            )
-
-    if requeued:
-        logger.info("requeue_orphaned_uploads: re-queued %d orphaned upload(s)", requeued)
-    return {"requeued": requeued}
-
-
-@celery_app.task(
-    bind=True,
-    max_retries=3,
-    default_retry_delay=10,
-    name="securedoc.process_document",
-)
-def process_document(self, document_id: str) -> dict:
-    """
-    1. Fetch document record from DB. Verify status == 'uploaded'.
-    2. Set status = 'processing'.
-    3. Download original PDF bytes from storage.
-    4. Validate PDF magic bytes. If invalid → set status='error', raise.
-    5. Call RasterizerService.rasterize_document() with timeout protection.
-    6. For each page: upload image, insert DocumentPage record.
-    7. Update Document: status='ready', page_count=N.
-    """
-    return _run_async(_process_document_async(self, document_id))
+        return await process_pdf_document(db, doc, document_id, storage, rasterizer, watermark)
 
 
 async def _mark_document_error(document_id: str, message: str) -> None:
@@ -556,22 +179,95 @@ async def _process_document_async(task, document_id: str) -> dict:
             )
 
     except (RasterizerError, ValueError) as exc:
-        # Permanent failures — bad PDF, document not found, conversion timeout.
-        # Retrying won't help; mark error and stop.
         logger.error(
             "Document %s: permanent failure (%s): %s",
             document_id, type(exc).__name__, exc,
         )
         await _mark_document_error(document_id, str(exc))
-        # Raise WITHOUT retry so Celery marks task as FAILURE immediately
         raise
 
     except Exception as exc:
-        # Transient failure — storage blip, DB connection error, etc.
-        # Mark error status then retry (Celery will re-queue).
         logger.error(
             "Document %s: transient failure (%s): %s — retrying",
             document_id, type(exc).__name__, exc,
         )
         await _mark_document_error(document_id, str(exc))
         raise task.retry(exc=exc)
+
+
+@celery_app.task(
+    bind=True,
+    max_retries=3,
+    default_retry_delay=10,
+    name="securedoc.process_document",
+)
+def process_document(self, document_id: str) -> dict:
+    """Celery task: fetch, validate, and process a document."""
+    return _run_async(_process_document_async(self, document_id))
+
+
+@celery_app.task(name="securedoc.purge_stale_sessions")
+def purge_stale_sessions() -> dict:
+    """
+    Periodic cleanup: delete ViewerSession rows inactive for >2 hours.
+    Run every 30 minutes via Celery Beat.
+    """
+    return _run_async(_purge_stale_sessions_async())
+
+
+async def _purge_stale_sessions_async() -> dict:
+    from sqlalchemy import delete
+    from app.models.session import ViewerSession
+
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=2)
+    session_factory = _get_db_session_factory()
+    async with session_factory() as db:
+        result = await db.execute(
+            delete(ViewerSession).where(ViewerSession.last_seen_at < cutoff)
+        )
+        await db.commit()
+        deleted = result.rowcount
+        logger.info("purge_stale_sessions: removed %d stale session(s)", deleted)
+    return {"deleted": deleted}
+
+
+@celery_app.task(name="securedoc.requeue_orphaned_uploads")
+def requeue_orphaned_uploads() -> dict:
+    """
+    Periodic safety-net: re-queue process_document for any document stuck
+    in 'uploaded' status for longer than 10 minutes.
+    Run every 5 minutes via Celery Beat.
+    """
+    return _run_async(_requeue_orphaned_uploads_async())
+
+
+async def _requeue_orphaned_uploads_async() -> dict:
+    from sqlalchemy import select
+    from app.models.document import Document
+
+    cutoff = datetime.now(timezone.utc) - timedelta(minutes=10)
+    session_factory = _get_db_session_factory()
+    requeued = 0
+    async with session_factory() as db:
+        result = await db.execute(
+            select(Document.id).where(
+                Document.status == "uploaded",
+                Document.updated_at < cutoff,
+            )
+        )
+        orphan_ids = [str(row[0]) for row in result.all()]
+
+    for doc_id in orphan_ids:
+        try:
+            process_document.delay(doc_id)
+            logger.info("requeue_orphaned_uploads: re-queued doc_id=%s", doc_id)
+            requeued += 1
+        except Exception as exc:
+            logger.error(
+                "requeue_orphaned_uploads: failed to re-queue doc_id=%s: %s",
+                doc_id, exc,
+            )
+
+    if requeued:
+        logger.info("requeue_orphaned_uploads: re-queued %d orphaned upload(s)", requeued)
+    return {"requeued": requeued}

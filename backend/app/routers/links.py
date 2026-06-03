@@ -17,6 +17,7 @@ from app.schemas.link import (
     RevokeResponse,
 )
 from app.services.link_service import LinkService
+from app.services.viewer_cache import invalidate_link
 from app.utils.crypto import hash_password
 from app.config import settings
 from app.auth import get_current_user
@@ -207,4 +208,7 @@ async def update_link(
 
     await db.commit()
     await db.refresh(link)
+    # Policy changes (email list, IP allowlist, expiry, revoke) must be visible
+    # on the next viewer request — evict the cached snapshot immediately.
+    invalidate_link(link.token)
     return _link_to_summary(link, request)

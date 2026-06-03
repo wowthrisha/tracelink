@@ -41,8 +41,6 @@ analytics_svc = AnalyticsService()
 logger = logging.getLogger(__name__)
 
 
-# ── Phase 7: session-specific watermark angle jitter ─────────────────────────
-
 def _session_watermark_angle(session_id: str, base: float = -32.0) -> float:
     """Derive a deterministic but session-unique watermark tilt angle.
 
@@ -57,9 +55,7 @@ def _session_watermark_angle(session_id: str, base: float = -32.0) -> float:
     return base + (norm - 0.5) * 2.0 * jitter  # base ± jitter_deg
 
 
-# ── Cache helpers (backward-compatible wrappers for Phase 3 tests) ─────────────
-# The actual L1 byte caches live in app.services.page_cache (Phase 4).
-# These wrappers keep Phase 1/3 test imports working without change.
+# ── Cache helpers (backward-compatible wrappers used in tests) ────────────────
 
 def clear_page_cache() -> None:
     """Flush the process-local page byte cache.  Called in tests."""
@@ -104,6 +100,65 @@ def _check_doc_ready(doc) -> None:
     if doc.status == "error":
         logger.warning("doc_not_ready status=error doc_id=%s", getattr(doc, 'id', '?'))
         raise HTTPException(status_code=503, detail="Document processing failed")
+
+
+async def _get_cached_link_and_doc(
+    link_token: str,
+    db: AsyncSession,
+    request: Request,
+) -> tuple:
+    """
+    3-stage cache-first lookup shared by all viewer content endpoints.
+
+    Stages:
+      1. Link metadata — L1 TTL cache (10 s) or DB SELECT
+      2. Revocation + expiry check against current clock
+      3. IP allowlist enforcement
+      4. Document metadata — L1 TTL cache (60 s) or DB SELECT
+      5. Document ready check
+
+    Returns (link_snap, doc_snap, client_ip, now).
+    Raises HTTPException on any access control failure.
+    """
+    link_snap: Optional[LinkSnapshot] = link_cache.get(link_token)
+    if link_snap is None:
+        _link_row = await db.execute(select(ShareLink).where(ShareLink.token == link_token))
+        _link = _link_row.scalar_one_or_none()
+        if _link is None:
+            raise HTTPException(status_code=404, detail="Link not found")
+        link_snap = LinkSnapshot(
+            id=_link.id, token=_link.token, document_id=_link.document_id,
+            revoked_at=_link.revoked_at, expires_at=_link.expires_at,
+            ip_allowlist=_link.ip_allowlist,
+        )
+        link_cache.put(link_token, link_snap)
+
+    now = datetime.now(timezone.utc)
+    _check_link_active(link_snap, now)
+
+    ip = getattr(request.state, "client_ip", None) or (request.client.host if request.client else None)
+    if link_snap.ip_allowlist:
+        if not policy_enforcer.ip_is_allowed(ip, link_snap.ip_allowlist):
+            raise HTTPException(status_code=403, detail="Access denied from this IP")
+
+    _doc_key = str(link_snap.document_id)
+    doc_snap: Optional[DocSnapshot] = doc_cache.get(_doc_key)
+    if doc_snap is None:
+        _doc_row = await db.execute(select(Document).where(Document.id == link_snap.document_id))
+        _doc = _doc_row.scalar_one_or_none()
+        if _doc is None:
+            raise HTTPException(status_code=404, detail="Document not found")
+        doc_snap = DocSnapshot(
+            id=_doc.id, status=_doc.status,
+            file_type=_doc.file_type or "pdf",
+            storage_key=_doc.storage_key,
+            page_count=_doc.page_count,
+        )
+        if _doc.status == "ready":
+            doc_cache.put(_doc_key, doc_snap)
+    _check_doc_ready(doc_snap)
+
+    return link_snap, doc_snap, ip, now
 
 
 # ── Routes ────────────────────────────────────────────────────────────────────
@@ -182,7 +237,7 @@ async def validate_link(
         commit=True,
     )
 
-    # Phase 7: concurrency detection — log a warning when concurrent sessions exceed
+    # concurrency detection — log a warning when concurrent sessions exceed
     # the configured threshold.  Detection-only: never blocks legitimate access.
     try:
         from app.config import settings as _settings
@@ -270,59 +325,7 @@ async def get_page(
     if not session_id:
         raise HTTPException(status_code=400, detail="session_id is required")
 
-    # ── Link metadata (TTL-cached, 10 s) ──────────────────────────────────────
-    # Skips the DB SELECT on cache hits while keeping security checks intact:
-    # revoked_at and expires_at are in the snapshot and verified against the
-    # current clock on every request, even on hits.
-    link_snap: Optional[LinkSnapshot] = link_cache.get(link_token)
-    if link_snap is None:
-        _link_row = await db.execute(
-            select(ShareLink).where(ShareLink.token == link_token)
-        )
-        _link = _link_row.scalar_one_or_none()
-        if _link is None:
-            raise HTTPException(status_code=404, detail="Link not found")
-        link_snap = LinkSnapshot(
-            id=_link.id,
-            token=_link.token,
-            document_id=_link.document_id,
-            revoked_at=_link.revoked_at,
-            expires_at=_link.expires_at,
-            ip_allowlist=_link.ip_allowlist,
-        )
-        link_cache.put(link_token, link_snap)
-
-    now = datetime.now(timezone.utc)
-    _check_link_active(link_snap, now)
-
-    # Re-validate IP on every page request (allowlist may have changed)
-    ip = getattr(request.state, "client_ip", None) or (request.client.host if request.client else None)
-    if link_snap.ip_allowlist:
-        if not policy_enforcer.ip_is_allowed(ip, link_snap.ip_allowlist):
-            raise HTTPException(status_code=403, detail="Access denied from this IP")
-
-    # ── Document metadata (TTL-cached, 60 s) ──────────────────────────────────
-    _doc_key = str(link_snap.document_id)
-    doc_snap: Optional[DocSnapshot] = doc_cache.get(_doc_key)
-    if doc_snap is None:
-        _doc_row = await db.execute(
-            select(Document).where(Document.id == link_snap.document_id)
-        )
-        _doc = _doc_row.scalar_one_or_none()
-        if _doc is None:
-            raise HTTPException(status_code=404, detail="Document not found")
-        doc_snap = DocSnapshot(
-            id=_doc.id, status=_doc.status,
-            file_type=_doc.file_type or "pdf",
-            storage_key=_doc.storage_key,
-            page_count=_doc.page_count,
-        )
-        # Only cache ready documents — caching non-ready statuses would lock
-        # clients out for up to DOC_TTL_SEC (60 s) after the doc finishes
-        # processing, because subsequent requests would hit the stale snapshot.
-        if _doc.status == "ready":
-            doc_cache.put(_doc_key, doc_snap)
-    _check_doc_ready(doc_snap)
+    link_snap, doc_snap, ip, now = await _get_cached_link_and_doc(link_token, db, request)
 
     # ── Page record (TTL-cached, 5 min; immutable after creation) ─────────────
     _page_key = f"{link_snap.document_id}:{page_number}"
@@ -379,7 +382,7 @@ async def get_page(
 
     # Apply visible watermark — CPU-bound PIL work offloaded to thread pool so it
     # does not block the async event loop while other requests are being served.
-    # Phase 7: angle is session-specific (deterministic per session, varies across
+    # angle is session-specific (deterministic per session, varies across
     # sessions) to deter composite-removal attacks.
     now_str = now.strftime("%Y-%m-%d")
     watermark_text = f"{viewer_email_masked or 'anonymous'} · {now_str} · sess:{session_id[:6]}"
@@ -389,7 +392,7 @@ async def get_page(
         lambda: watermark_svc.apply_visible_watermark(image_bytes, watermark_text, angle=_wm_angle),
     )
     t2 = time.perf_counter()
-    # Phase 8: structured log with doc_id, cache source, and latency breakdown
+    # structured log with doc_id, cache source, and latency breakdown
     logger.info(
         "page_served doc=%s page=%d cache=%s fetch_ms=%.1f watermark_ms=%.1f req_id=%s",
         link_snap.document_id, page_number, cache_source,
@@ -409,7 +412,7 @@ async def get_page(
         commit=True,  # single commit covers session heartbeat + analytics event
     )
 
-    # Phase 8: X-Cache-Status header lets CDN operators see hit/miss without
+    # X-Cache-Status header lets CDN operators see hit/miss without
     # parsing logs.  "HIT" = served from L1/L2 cache; "MISS" = fetched from storage.
     cache_status = "HIT" if cache_source in ("local", "redis") else "MISS"
 
@@ -449,47 +452,7 @@ async def get_thumb(
     if not session_id:
         raise HTTPException(status_code=400, detail="session_id is required")
 
-    # ── Link metadata (TTL-cached, 10 s) ──────────────────────────────────────
-    link_snap: Optional[LinkSnapshot] = link_cache.get(link_token)
-    if link_snap is None:
-        _link_row = await db.execute(
-            select(ShareLink).where(ShareLink.token == link_token)
-        )
-        _link = _link_row.scalar_one_or_none()
-        if _link is None:
-            raise HTTPException(status_code=404, detail="Link not found")
-        link_snap = LinkSnapshot(
-            id=_link.id,
-            token=_link.token,
-            document_id=_link.document_id,
-            revoked_at=_link.revoked_at,
-            expires_at=_link.expires_at,
-            ip_allowlist=_link.ip_allowlist,
-        )
-        link_cache.put(link_token, link_snap)
-
-    now = datetime.now(timezone.utc)
-    _check_link_active(link_snap, now)
-
-    # ── Document metadata (TTL-cached, 60 s) ──────────────────────────────────
-    _doc_key = str(link_snap.document_id)
-    doc_snap: Optional[DocSnapshot] = doc_cache.get(_doc_key)
-    if doc_snap is None:
-        _doc_row = await db.execute(
-            select(Document).where(Document.id == link_snap.document_id)
-        )
-        _doc = _doc_row.scalar_one_or_none()
-        if _doc is None:
-            raise HTTPException(status_code=404, detail="Document not found")
-        doc_snap = DocSnapshot(
-            id=_doc.id, status=_doc.status,
-            file_type=_doc.file_type or "pdf",
-            storage_key=_doc.storage_key,
-            page_count=_doc.page_count,
-        )
-        if _doc.status == "ready":
-            doc_cache.put(_doc_key, doc_snap)
-    _check_doc_ready(doc_snap)
+    link_snap, doc_snap, ip, now = await _get_cached_link_and_doc(link_token, db, request)
 
     # ── Page record (TTL-cached, 5 min) ───────────────────────────────────────
     _page_key = f"{link_snap.document_id}:{page_number}"
@@ -548,7 +511,7 @@ async def get_thumb(
         getattr(request.state, "request_id", "-"),
     )
 
-    # Phase 8: X-Cache-Status for CDN/ops visibility
+    # X-Cache-Status for CDN/ops visibility
     thumb_cache_status = "HIT" if thumb_source in ("local", "redis") else "MISS"
 
     return FastAPIResponse(
@@ -584,60 +547,22 @@ async def get_toc(
       docx / doc   → TOC sidecar if present, else inline text extraction
       txt/md/log   → inline text extraction (fast, from text_content_cache)
 
-    TOC entries are cached in toc_cache (L1 TTL=5 min) after first extraction.
+    TOC entries are cached via toc/cache.py (L1 TTL=5 min, L2 Redis TTL=5 min).
     """
     from fastapi.responses import JSONResponse as _JSONResponse
-    from app.services.viewer_cache import toc_cache
+    from app.services.toc.cache import get_cached_toc_async, store_toc_async
     from app.config import settings as _settings
 
     if not session_id:
         raise HTTPException(status_code=400, detail="session_id is required")
 
-    # ── Link metadata (TTL-cached, 10 s) ──────────────────────────────────────
-    link_snap: Optional[LinkSnapshot] = link_cache.get(link_token)
-    if link_snap is None:
-        _link_row = await db.execute(select(ShareLink).where(ShareLink.token == link_token))
-        _link = _link_row.scalar_one_or_none()
-        if _link is None:
-            raise HTTPException(status_code=404, detail="Link not found")
-        link_snap = LinkSnapshot(
-            id=_link.id, token=_link.token, document_id=_link.document_id,
-            revoked_at=_link.revoked_at, expires_at=_link.expires_at,
-            ip_allowlist=_link.ip_allowlist,
-        )
-        link_cache.put(link_token, link_snap)
-
-    now = datetime.now(timezone.utc)
-    _check_link_active(link_snap, now)
-
-    ip = getattr(request.state, "client_ip", None) or (request.client.host if request.client else None)
-    if link_snap.ip_allowlist:
-        if not policy_enforcer.ip_is_allowed(ip, link_snap.ip_allowlist):
-            raise HTTPException(status_code=403, detail="Access denied from this IP")
-
-    # ── Document metadata (TTL-cached, 60 s) ──────────────────────────────────
-    _doc_key = str(link_snap.document_id)
-    doc_snap: Optional[DocSnapshot] = doc_cache.get(_doc_key)
-    if doc_snap is None:
-        _doc_row = await db.execute(select(Document).where(Document.id == link_snap.document_id))
-        _doc = _doc_row.scalar_one_or_none()
-        if _doc is None:
-            raise HTTPException(status_code=404, detail="Document not found")
-        doc_snap = DocSnapshot(
-            id=_doc.id, status=_doc.status,
-            file_type=_doc.file_type or "pdf",
-            storage_key=_doc.storage_key,
-            page_count=_doc.page_count,
-        )
-        if _doc.status == "ready":
-            doc_cache.put(_doc_key, doc_snap)
-    _check_doc_ready(doc_snap)
+    link_snap, doc_snap, ip, now = await _get_cached_link_and_doc(link_token, db, request)
 
     file_type = doc_snap.file_type
     doc_id_str = str(link_snap.document_id)
 
-    # ── TOC cache (L1) ────────────────────────────────────────────────────────
-    cached_toc = toc_cache.get(doc_id_str)
+    # ── TOC cache (L1 → L2 Redis) ─────────────────────────────────────────────
+    cached_toc = await get_cached_toc_async(doc_id_str)
     if cached_toc is not None:
         return _JSONResponse(
             content={"toc": cached_toc, "doc_type": file_type, "supported": True},
@@ -653,7 +578,7 @@ async def get_toc(
         sidecar_entries = await _load_toc_sidecar(sidecar_key)
         if sidecar_entries is not None:
             toc_entries = sidecar_entries
-            toc_cache.put(doc_id_str, toc_entries)
+            await store_toc_async(doc_id_str, toc_entries)
             return _JSONResponse(
                 content={"toc": toc_entries, "doc_type": file_type, "supported": True},
                 headers={"Cache-Control": "no-store"},
@@ -661,7 +586,7 @@ async def get_toc(
         if file_type == "pdf":
             # No sidecar = no bookmarks in this PDF
             supported = False
-            toc_cache.put(doc_id_str, [])
+            await store_toc_async(doc_id_str, [])
             return _JSONResponse(
                 content={"toc": [], "doc_type": "pdf", "supported": False},
                 headers={"Cache-Control": "no-store"},
@@ -690,7 +615,7 @@ async def get_toc(
         lines_per_chunk=_settings.text_lines_per_chunk,
     )
 
-    toc_cache.put(doc_id_str, toc_entries)
+    await store_toc_async(doc_id_str, toc_entries)
     return _JSONResponse(
         content={"toc": toc_entries, "doc_type": file_type, "supported": bool(toc_entries)},
         headers={"Cache-Control": "no-store"},
@@ -860,52 +785,7 @@ async def get_text_chunk(
     if chunk_number < 1:
         raise HTTPException(status_code=400, detail="chunk_number must be ≥ 1")
 
-    # ── Link metadata (TTL-cached, 10 s) ──────────────────────────────────────
-    link_snap: Optional[LinkSnapshot] = link_cache.get(link_token)
-    if link_snap is None:
-        _link_row = await db.execute(
-            select(ShareLink).where(ShareLink.token == link_token)
-        )
-        _link = _link_row.scalar_one_or_none()
-        if _link is None:
-            raise HTTPException(status_code=404, detail="Link not found")
-        link_snap = LinkSnapshot(
-            id=_link.id,
-            token=_link.token,
-            document_id=_link.document_id,
-            revoked_at=_link.revoked_at,
-            expires_at=_link.expires_at,
-            ip_allowlist=_link.ip_allowlist,
-        )
-        link_cache.put(link_token, link_snap)
-
-    now = datetime.now(timezone.utc)
-    _check_link_active(link_snap, now)
-
-    ip = getattr(request.state, "client_ip", None) or (request.client.host if request.client else None)
-    if link_snap.ip_allowlist:
-        if not policy_enforcer.ip_is_allowed(ip, link_snap.ip_allowlist):
-            raise HTTPException(status_code=403, detail="Access denied from this IP")
-
-    # ── Document metadata (TTL-cached, 60 s) ──────────────────────────────────
-    _doc_key = str(link_snap.document_id)
-    doc_snap: Optional[DocSnapshot] = doc_cache.get(_doc_key)
-    if doc_snap is None:
-        _doc_row = await db.execute(
-            select(Document).where(Document.id == link_snap.document_id)
-        )
-        _doc = _doc_row.scalar_one_or_none()
-        if _doc is None:
-            raise HTTPException(status_code=404, detail="Document not found")
-        doc_snap = DocSnapshot(
-            id=_doc.id, status=_doc.status,
-            file_type=_doc.file_type or "pdf",
-            storage_key=_doc.storage_key,
-            page_count=_doc.page_count,
-        )
-        if _doc.status == "ready":
-            doc_cache.put(_doc_key, doc_snap)
-    _check_doc_ready(doc_snap)
+    link_snap, doc_snap, ip, now = await _get_cached_link_and_doc(link_token, db, request)
 
     # ── Verify this is a text document (uses cached DocSnapshot — no extra DB read) ──
     file_type = doc_snap.file_type

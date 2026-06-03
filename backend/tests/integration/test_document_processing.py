@@ -286,7 +286,7 @@ class TestProcessDocumentWithSession:
         doc = await _make_uploaded_doc(db_session)
 
         with patch(
-            "app.workers.tasks._make_thumbnail",
+            "app.workers.pipeline.pdf._make_thumbnail",
             side_effect=RuntimeError("thumbnail codec error"),
         ):
             result = await process_document_with_session(

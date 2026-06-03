@@ -773,7 +773,7 @@ class TestWorkerDocxDoc:
         mock_storage.download_bytes = AsyncMock(return_value=b"PK\x03\x04fake")
         mock_storage.upload_file = AsyncMock(return_value="key")
 
-        with patch("app.workers.tasks._process_docx_document") as mock_process:
+        with patch("app.workers.pipeline.word.process_docx_document") as mock_process:
             mock_process.return_value = {"status": "ready", "page_count": 3}
             result = await process_document_with_session(
                 db_session, str(doc.id), mock_storage,
@@ -796,7 +796,7 @@ class TestWorkerDocxDoc:
         db_session.add(doc)
         await db_session.commit()
 
-        with patch("app.workers.tasks._process_doc_document") as mock_process:
+        with patch("app.workers.pipeline.word.process_doc_document") as mock_process:
             mock_process.return_value = {"status": "ready", "page_count": 2}
             from app.services.storage import StorageService
             mock_storage = AsyncMock(spec=StorageService)
@@ -810,7 +810,7 @@ class TestWorkerDocxDoc:
     @pytest.mark.asyncio
     async def test_process_docx_stores_markdown(self, db_session):
         from app.models.document import Document
-        from app.workers.tasks import _process_docx_document
+        from app.workers.pipeline.word import process_docx_document as _process_docx_document
         from app.services.toc.docx_extractor import extract_docx_toc, docx_to_markdown
 
         doc = Document(

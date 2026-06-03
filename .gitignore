@@ -25,6 +25,7 @@ backend/alembic/versions/__pycache__/
 # ── Node ───────────────────────────────────────────────────────────
 node_modules/
 dist/
+!frontend/dist/
 build/
 .next/
 .nuxt/
@@ -37,17 +38,16 @@ Thumbs.db
 *.swp
 *.swo
 
-# ── Uploads / temp / local storage ────────────────────────────────
-tmp/
-uploads/
-/tmp/
-backend/test_securedoc.db
-backend/test_link_service.db
-backend/*.db
+# ── Test databases (anywhere in tree) ─────────────────────────────
+*.db
+
+# ── Coverage artifacts ─────────────────────────────────────────────
+# *.cover is already above; htmlcov/ is also above.
+# backend/.coverage binary is covered by .coverage above.
 
 # ── Generated assets ───────────────────────────────────────────────
 *.webp
 *.png
 *.jpg
 cloudflared.log
-*.log*.db
+*.log

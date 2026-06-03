@@ -13,7 +13,7 @@ class DocumentGroup(Base):
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
-    user_id: Mapped[Optional[uuid.UUID]] = mapped_column(nullable=True, index=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(nullable=False, index=True)
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     color: Mapped[str] = mapped_column(String(7), nullable=False, default="#6366f1")
     description: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
