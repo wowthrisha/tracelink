@@ -23,8 +23,7 @@ Security model
   • Input is written to a mkdtemp() directory with a random name.
   • Input filename is always 'input.docx', never user-supplied → no traversal.
   • Temp directory cleaned up unconditionally in a finally block.
-  • Macros disabled via --nomacroexecution (LibreOffice 7.2+) and
-    --infilter to constrain the import filter.
+  • Macros disabled via --nomacroexecution (LibreOffice 7.2+, Debian bookworm ships 7.4+).
   • Hard timeout at the subprocess level (default 60 s).
 """
 from __future__ import annotations
@@ -119,6 +118,7 @@ class LibreOfficeConverter:
                 "--headless",
                 "--norestore",
                 "--nolockcheck",
+                "--nomacroexecution",  # prevents all macro execution (LibreOffice 7.2+)
                 "--convert-to", "pdf",
                 "--outdir", tmp_dir,
                 input_path,

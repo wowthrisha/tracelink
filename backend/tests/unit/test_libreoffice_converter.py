@@ -96,6 +96,7 @@ class TestConvertToPdfSuccess:
         assert "--headless" in cmd
         assert "--convert-to" in cmd
         assert "pdf" in cmd
+        assert "--nomacroexecution" in cmd  # Fix 3: macro execution must be disabled
 
     def test_input_filename_is_fixed_not_user_supplied(self, tmp_path):
         """The input filename must be 'input.docx', never derived from user data."""

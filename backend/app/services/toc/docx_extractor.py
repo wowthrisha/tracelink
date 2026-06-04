@@ -65,7 +65,14 @@ def extract_docx_toc(docx_bytes: bytes) -> List[TocEntry]:
     """
     Extract TOC entries natively from DOCX heading styles.
 
-    This is the high-fidelity path used by the worker at document-process time.
+    After Phase D2, DOCX documents are rendered as page images (identical to
+    PDF).  TOC entries therefore omit text-mode navigation fields (chunk, line)
+    since those are meaningless in the image viewer.  The 'page' field is also
+    absent because the actual page number in the LibreOffice-converted PDF is
+    unknowable at DOCX-extraction time.  The resulting entries serve as a
+    document outline (title + level) rather than a click-to-navigate TOC;
+    page-number resolution is a planned follow-on improvement (Phase D3+).
+
     Returns empty list on any failure (all errors are non-fatal).
     """
     try:
@@ -77,14 +84,9 @@ def extract_docx_toc(docx_bytes: bytes) -> List[TocEntry]:
 
     entries: List[TocEntry] = []
     counter = 0
-    line_counter = 0
-
-    from app.config import settings
-    lines_per_chunk = settings.text_lines_per_chunk
 
     try:
         for para in doc.paragraphs:
-            line_counter += 1
             text = para.text.strip()
             if not text:
                 continue
@@ -94,16 +96,16 @@ def extract_docx_toc(docx_bytes: bytes) -> List[TocEntry]:
                 continue
 
             counter += 1
-            chunk = (line_counter - 1) // lines_per_chunk + 1
             entries.append(TocEntry(
                 id=f"toc_{counter:04d}",
                 title=text,
                 level=level,
                 anchor=f"sec_{counter:04d}",
-                chunk=chunk,
-                line=line_counter,
                 source="heading_style",
                 confidence=0.92,
+                # page, chunk, line intentionally absent:
+                # page — unknown until LibreOffice converts the document
+                # chunk/line — text-mode fields; not applicable in image mode
             ))
 
             if counter >= 200:

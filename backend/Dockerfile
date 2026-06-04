@@ -28,6 +28,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libreoffice-writer \
     fonts-liberation \
     fonts-dejavu-core \
+    fonts-crosextra-carlito \
+    fonts-crosextra-caladea \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

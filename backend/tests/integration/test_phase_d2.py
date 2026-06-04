@@ -313,6 +313,51 @@ class TestDocxTocSidecar:
         assert any(e["title"] == "Introduction" for e in sidecar_data)
 
     @pytest.mark.asyncio
+    async def test_docx_toc_entries_have_no_chunk_field(self, db_session):
+        """Fix 1: DOCX TOC sidecar must not contain text-mode chunk navigation."""
+        import json as _json
+        from app.services.toc.model import TocEntry
+
+        doc = await _make_doc(db_session)
+        storage = _mock_storage(docx_bytes=_DOCX_MAGIC)
+
+        heading = TocEntry(
+            id="toc_0001", title="Overview", level=1,
+            anchor="sec_0001",
+            source="heading_style", confidence=0.92,
+            # chunk and page intentionally absent after Fix 1
+        )
+
+        with patch(
+            "app.services.libreoffice_converter.LibreOfficeConverter.convert_to_pdf",
+            return_value=_MINIMAL_PDF,
+        ), patch(
+            "app.workers.pipeline.pdf.process_pdf_document",
+            new_callable=AsyncMock,
+            return_value={"document_id": str(doc.id), "page_count": 1, "status": "ready"},
+        ), patch(
+            "app.services.toc.docx_extractor.extract_docx_toc",
+            return_value=[heading],
+        ):
+            from app.workers.pipeline.docx_pdf import process_docx_as_pdf
+            await process_docx_as_pdf(
+                db_session, doc, str(doc.id),
+                storage, _mock_rasterizer(), _mock_watermark()
+            )
+
+        sidecar_calls = [
+            c for c in storage.upload_file.call_args_list
+            if len(c.args) > 1 and f"toc/{doc.id}.json" in str(c.args[1])
+        ]
+        assert len(sidecar_calls) >= 1
+        sidecar_data = _json.loads(sidecar_calls[-1].args[0])
+        assert len(sidecar_data) == 1
+        entry = sidecar_data[0]
+        assert entry["title"] == "Overview"
+        assert "chunk" not in entry, "chunk field must be absent from DOCX TOC sidecar"
+        assert "page" not in entry, "page field is not yet available at extraction time"
+
+    @pytest.mark.asyncio
     async def test_no_sidecar_when_no_headings(self, db_session):
         doc = await _make_doc(db_session)
         storage = _mock_storage()
@@ -400,6 +445,25 @@ class TestConversionFailures:
         with patch(
             "app.services.libreoffice_converter.LibreOfficeConverter.convert_to_pdf",
             side_effect=LibreOfficeConversionError("conversion failed"),
+        ):
+            with pytest.raises(ValueError, match="DOCX conversion failed"):
+                await process_docx_as_pdf(
+                    db_session, doc, str(doc.id),
+                    storage, _mock_rasterizer(), _mock_watermark()
+                )
+
+    @pytest.mark.asyncio
+    async def test_asyncio_timeout_raises_value_error_not_retried(self, db_session):
+        """Fix 2: asyncio.TimeoutError must become a permanent ValueError (no Celery retry)."""
+        import asyncio as _asyncio
+        from app.workers.pipeline.docx_pdf import process_docx_as_pdf
+
+        doc = await _make_doc(db_session)
+        storage = _mock_storage()
+
+        with patch(
+            "app.workers.pipeline.docx_pdf.asyncio.wait_for",
+            side_effect=_asyncio.TimeoutError("outer timeout fired"),
         ):
             with pytest.raises(ValueError, match="DOCX conversion failed"):
                 await process_docx_as_pdf(

@@ -352,6 +352,29 @@ class TestDocxExtractor:
         assert entries[1].level == 2
         assert entries[1].title == "Section 1.1"
 
+    def test_image_mode_entries_have_no_chunk_or_page(self):
+        """Phase D2.6: DOCX TOC entries must not carry text-mode chunk/line fields."""
+        from app.services.toc.docx_extractor import extract_docx_toc
+
+        mock_doc = self._mock_docx([
+            ("Introduction", "Heading 1"),
+            ("Methods", "Heading 2"),
+        ])
+        with patch("docx.Document", return_value=mock_doc):
+            entries = extract_docx_toc(b"PK\x03\x04fake")
+
+        assert len(entries) == 2
+        for entry in entries:
+            assert entry.chunk is None, "chunk must be absent (text-mode artifact)"
+            assert entry.page is None, "page is not yet resolvable at extraction time"
+        # Serialised form must also lack these fields
+        for entry in entries:
+            d = entry.to_dict()
+            assert "chunk" not in d
+            assert "page" not in d
+            assert "title" in d
+            assert "level" in d
+
     def test_confidence_is_correct(self):
         from app.services.toc.docx_extractor import extract_docx_toc
         mock_doc = self._mock_docx([("Introduction", "Heading 1")])

@@ -61,7 +61,11 @@ async def process_docx_as_pdf(db, doc, document_id: str, storage, rasterizer, wa
             # timeout so the subprocess always gets a chance to clean up first.
             timeout=LibreOfficeConverter.CONVERSION_TIMEOUT_SEC + 10,
         )
-    except LibreOfficeError as exc:
+    except (LibreOfficeError, asyncio.TimeoutError) as exc:
+        # asyncio.TimeoutError is caught explicitly so it is treated as a
+        # permanent document failure (ValueError → no Celery retry) rather
+        # than a transient error that would trigger up to 3 unnecessary retries
+        # of 70 s each before the task is finally abandoned.
         raise ValueError(
             f"DOCX conversion failed for document {document_id}: {exc}"
         ) from exc

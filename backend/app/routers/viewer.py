@@ -543,9 +543,10 @@ async def get_toc(
       { "toc": [...TocEntry dicts...], "doc_type": str, "supported": bool }
 
     Routing per format:
-      pdf          → TOC sidecar from storage (toc/{doc_id}.json), or empty
-      docx / doc   → TOC sidecar if present, else inline text extraction
-      txt/md/log   → inline text extraction (fast, from text_content_cache)
+      pdf   → TOC sidecar from storage (toc/{doc_id}.json), or empty
+      docx  → TOC sidecar (heading styles) if present, else empty (no text fallback)
+      doc   → TOC sidecar if present, else inline text extraction
+      txt/md/log → inline text extraction (fast, from text_content_cache)
 
     TOC entries are cached via toc/cache.py (L1 TTL=5 min, L2 Redis TTL=5 min).
     """
@@ -592,9 +593,9 @@ async def get_toc(
                 content={"toc": [], "doc_type": file_type, "supported": False},
                 headers={"Cache-Control": "no-store"},
             )
-        # DOCX/DOC without sidecar: fall through to text extraction
+        # DOC without sidecar: fall through to text extraction
 
-    # ── Text-based extraction (TXT, MD, LOG, and DOCX/DOC without sidecar) ───
+    # ── Text-based extraction (TXT, MD, LOG, and DOC without sidecar) ───
     storage_key = doc_snap.storage_key
     cached_text: Optional[str] = text_content_cache.get(storage_key)
     if cached_text is None:
@@ -705,7 +706,7 @@ async def download_document(
     from app.services.adapters import get_adapter as _get_adapter
     if _get_adapter(doc.file_type).viewer_mode == "text":
         raw = await storage.download_bytes(doc.storage_key)
-        # DOCX/DOC are stored as converted text after processing
+        # DOC is stored as converted text after processing; DOCX is image-mode after D2
         filename = doc.filename or f"document.{doc.file_type}"
         return FastAPIResponse(
             content=raw,
