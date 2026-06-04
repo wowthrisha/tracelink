@@ -388,25 +388,6 @@ class TestDocxExtractor:
             entries = extract_docx_toc(b"not docx")
         assert entries == []
 
-    def test_docx_to_markdown_headings(self):
-        from app.services.toc.docx_extractor import docx_to_markdown
-        mock_doc = self._mock_docx([
-            ("Chapter 1", "Heading 1"),
-            ("Body text here.", "Normal"),
-            ("Section 1.1", "Heading 2"),
-        ])
-        with patch("docx.Document", return_value=mock_doc):
-            md = docx_to_markdown(b"PK\x03\x04fake")
-        assert "# Chapter 1" in md
-        assert "## Section 1.1" in md
-        assert "Body text here." in md
-
-    def test_docx_to_markdown_error_returns_empty(self):
-        from app.services.toc.docx_extractor import docx_to_markdown
-        with patch("docx.Document", side_effect=Exception("fail")):
-            result = docx_to_markdown(b"not docx")
-        assert result == ""
-
     def test_doc_to_text_antiword_success(self):
         from app.services.toc.docx_extractor import doc_to_text
         with patch("subprocess.run") as mock_run:
@@ -773,7 +754,7 @@ class TestWorkerDocxDoc:
         mock_storage.download_bytes = AsyncMock(return_value=b"PK\x03\x04fake")
         mock_storage.upload_file = AsyncMock(return_value="key")
 
-        with patch("app.workers.pipeline.word.process_docx_document") as mock_process:
+        with patch("app.workers.pipeline.docx_pdf.process_docx_as_pdf") as mock_process:
             mock_process.return_value = {"status": "ready", "page_count": 3}
             result = await process_document_with_session(
                 db_session, str(doc.id), mock_storage,
@@ -808,40 +789,34 @@ class TestWorkerDocxDoc:
         mock_process.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_process_docx_stores_markdown(self, db_session):
+    async def test_process_docx_calls_libreoffice_pipeline(self, db_session):
+        """Phase D2: DOCX processing routes to the LibreOffice-based PDF pipeline."""
         from app.models.document import Document
-        from app.workers.pipeline.word import process_docx_document as _process_docx_document
-        from app.services.toc.docx_extractor import extract_docx_toc, docx_to_markdown
+        from app.workers.tasks import process_document_with_session
 
         doc = Document(
             id=uuid.uuid4(), filename="test.docx",
             storage_key="originals/test.docx",
-            status="processing", file_type="docx",
+            status="uploaded", file_type="docx",
             file_size_bytes=100,
             user_id=uuid.UUID(TEST_USER_ID),
         )
         db_session.add(doc)
-        await db_session.flush()
+        await db_session.commit()
 
-        md_text = "# Chapter One\n\nBody text.\n"
         mock_storage = AsyncMock()
         mock_storage.download_bytes = AsyncMock(return_value=b"PK\x03\x04fake")
         mock_storage.upload_file = AsyncMock(return_value="key")
 
-        with patch("app.services.toc.docx_extractor.extract_docx_toc", return_value=[]), \
-             patch("app.services.toc.docx_extractor.docx_to_markdown", return_value=md_text):
-            result = await _process_docx_document(
-                db_session, doc, str(doc.id), mock_storage
+        with patch("app.workers.pipeline.docx_pdf.process_docx_as_pdf") as mock_pipeline:
+            mock_pipeline.return_value = {"status": "ready", "page_count": 5}
+            result = await process_document_with_session(
+                db_session, str(doc.id), mock_storage,
+                MagicMock(), MagicMock(),
             )
 
-        assert doc.status == "ready"
-        assert doc.file_type == "docx"  # file_type preserved
-        # Storage should have been called with the markdown text
-        upload_calls = mock_storage.upload_file.call_args_list
-        text_call = next(
-            (c for c in upload_calls if b"# Chapter One" in c.args[0]), None
-        )
-        assert text_call is not None, "Markdown text was not uploaded to storage"
+        mock_pipeline.assert_called_once()
+        assert result["status"] == "ready"
 
 
 # ── J. File type detection — magic bytes ─────────────────────────────────────

@@ -142,11 +142,12 @@ class TestWorkerDispatch:
         mock_pipeline.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_docx_dispatch_calls_docx_pipeline(self, db_session):
+    async def test_docx_dispatch_calls_docx_pdf_pipeline(self, db_session):
+        """Phase D2: DOCX dispatches to the LibreOffice-based image pipeline."""
         doc = await _insert_doc(db_session, file_type="docx")
         storage = _make_mock_storage(download_return=b"PK\x03\x04" + b"\x00" * 30)
 
-        with patch("app.workers.pipeline.word.process_docx_document") as mock_pipeline:
+        with patch("app.workers.pipeline.docx_pdf.process_docx_as_pdf") as mock_pipeline:
             mock_pipeline.return_value = {
                 "document_id": str(doc.id), "page_count": 2, "status": "ready"
             }
@@ -374,9 +375,10 @@ class TestTocExtractorAdapterDispatch:
         assert isinstance(result, list)
 
     @pytest.mark.asyncio
-    async def test_docx_toc_uses_md_rules(self):
+    async def test_docx_toc_adapter_fallback_accepts_text(self):
         from app.services.toc.extractor import extract_toc_for_document
-        # DOCX content stored as markdown after conversion
+        # The DOCXAdapter.extract_toc() defensive fallback still accepts text_content.
+        # In production the viewer uses the heading-style sidecar instead.
         text = "# Chapter 1\n\nIntro.\n\n## Section 1.1\n\nDetails.\n"
         result = await extract_toc_for_document("docx", text_content=text)
         assert isinstance(result, list)
@@ -481,11 +483,20 @@ class TestBehavioralRegression:
         assert "rasterizer" in sig.parameters
         assert "watermark" in sig.parameters
 
-    @pytest.mark.parametrize("ft", ["txt", "md", "log", "docx", "doc"])
-    def test_text_adapters_process_ignores_rasterizer_watermark(self, ft):
-        """Text adapters must accept but ignore rasterizer/watermark."""
+    @pytest.mark.parametrize("ft", ["txt", "md", "log", "doc"])
+    def test_text_adapters_accept_rasterizer_watermark_kwargs(self, ft):
+        """Text adapters accept but ignore rasterizer/watermark kwargs."""
         import inspect
         adapter = get_adapter(ft)
+        sig = inspect.signature(adapter.process)
+        assert "rasterizer" in sig.parameters
+        assert "watermark" in sig.parameters
+
+    def test_docx_adapter_uses_rasterizer_and_watermark(self):
+        """Phase D2: DOCX is an image adapter and passes rasterizer/watermark to the pipeline."""
+        import inspect
+        adapter = get_adapter("docx")
+        assert adapter.viewer_mode == "image"
         sig = inspect.signature(adapter.process)
         assert "rasterizer" in sig.parameters
         assert "watermark" in sig.parameters

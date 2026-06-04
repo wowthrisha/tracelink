@@ -1,18 +1,16 @@
 """
-DOCX TOC extraction and text conversion.
+DOCX TOC extraction.
 
-Two responsibilities:
-  1. extract_docx_toc()   — native heading extraction from DOCX (high fidelity)
-  2. docx_to_markdown()   — DOCX → markdown text (for text viewer storage)
+extract_docx_toc() extracts native heading styles from a DOCX file using
+python-docx.  The result is stored as a JSON sidecar by the DOCX processing
+pipeline (docx_pdf.py) for use by the viewer's /toc endpoint.
 
-Both use python-docx.  If python-docx is not installed (e.g. in test
-environments that mock it) both functions degrade gracefully.
+doc_to_text() converts legacy .doc files via antiword (used by word.py).
 
-Heading level priority:
+Heading level priority for DOCX:
   1. Word built-in "Heading N" styles → level N
   2. Heading style aliases (Title → 1, Subtitle → 2)
   3. Outline level via paragraph XML (outlineLvl element)
-  4. TOC field entries embedded in the document
 
 Security:
   Never generates HTML.  Heading text is returned as plain strings.
@@ -22,8 +20,7 @@ from __future__ import annotations
 
 import io
 import logging
-import re
-from typing import List, Optional, Tuple
+from typing import List, Optional
 
 from app.services.toc.model import TocEntry
 
@@ -116,53 +113,6 @@ def extract_docx_toc(docx_bytes: bytes) -> List[TocEntry]:
 
     logger.debug("docx_toc: extracted %d entries", len(entries))
     return entries
-
-
-def docx_to_markdown(docx_bytes: bytes) -> str:
-    """
-    Convert DOCX to markdown-flavoured plain text for text viewer storage.
-
-    Heading paragraphs become ATX headings (# to ######).
-    Table of contents fields are skipped.
-    Body text is preserved verbatim.
-    Images / charts are replaced with a descriptive placeholder.
-
-    Returns empty string on failure (caller handles gracefully).
-    """
-    try:
-        from docx import Document
-        from docx.oxml.ns import qn
-        doc = Document(io.BytesIO(docx_bytes))
-    except Exception as exc:
-        logger.warning("docx_to_md: failed to open DOCX: %s", exc)
-        return ""
-
-    lines: List[str] = []
-    _TOC_STYLE_NAMES = {"toc 1", "toc 2", "toc 3", "toc 4", "table of contents"}
-
-    try:
-        for para in doc.paragraphs:
-            style_name = (para.style.name or "").lower() if para.style else ""
-
-            # Skip embedded TOC field entries (they'll be regenerated from headings)
-            if style_name in _TOC_STYLE_NAMES:
-                continue
-
-            text = para.text.strip()
-            if not text:
-                lines.append("")
-                continue
-
-            level = _get_paragraph_level(para)
-            if level is not None and 1 <= level <= 6:
-                prefix = "#" * level
-                lines.append(f"{prefix} {text}")
-            else:
-                lines.append(text)
-    except Exception as exc:
-        logger.warning("docx_to_md: error converting paragraphs: %s", exc)
-
-    return "\n".join(lines)
 
 
 def doc_to_text(doc_bytes: bytes, doc_id: str = "") -> str:

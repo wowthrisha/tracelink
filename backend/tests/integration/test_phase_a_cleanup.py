@@ -291,9 +291,11 @@ class TestWorkerPipelineModules:
         assert callable(process_text_document)
 
     def test_pipeline_word_importable(self):
-        from app.workers.pipeline.word import process_docx_document, process_doc_document
-        assert callable(process_docx_document)
+        # Phase D2: process_docx_document replaced by docx_pdf.process_docx_as_pdf
+        from app.workers.pipeline.word import process_doc_document
+        from app.workers.pipeline.docx_pdf import process_docx_as_pdf
         assert callable(process_doc_document)
+        assert callable(process_docx_as_pdf)
 
     def test_tasks_still_exports_celery_tasks(self):
         """All Celery tasks must still be accessible from tasks.py."""
@@ -334,8 +336,8 @@ class TestWorkerPipelineModules:
         assert result["status"] == "ready"
 
     @pytest.mark.asyncio
-    async def test_dispatch_routes_docx_to_word_pipeline(self, db_session):
-        """process_document_with_session must call the word pipeline for docx."""
+    async def test_dispatch_routes_docx_to_docx_pdf_pipeline(self, db_session):
+        """Phase D2: process_document_with_session routes DOCX to the LibreOffice pipeline."""
         from app.models.document import Document
         from app.workers.tasks import process_document_with_session
 
@@ -349,7 +351,8 @@ class TestWorkerPipelineModules:
         db_session.add(doc)
         await db_session.commit()
 
-        with patch("app.workers.pipeline.word.process_docx_document") as mock_fn:
+        with patch("app.workers.pipeline.docx_pdf.process_docx_as_pdf",
+                   new_callable=AsyncMock) as mock_fn:
             mock_fn.return_value = {"status": "ready", "page_count": 3}
             mock_storage = AsyncMock()
             result = await process_document_with_session(

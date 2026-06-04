@@ -238,20 +238,23 @@ class TestLOGAdapter:
 # ── F. DOCX adapter ───────────────────────────────────────────────────────────
 
 class TestDOCXAdapter:
+    """Phase D2: DOCX adapter is now image-based (LibreOffice → PDF pipeline)."""
+
     def setup_method(self):
         self.adapter = get_adapter("docx")
 
-    def test_viewer_mode_is_text(self):
-        assert self.adapter.viewer_mode == "text"
+    def test_viewer_mode_is_image(self):
+        assert self.adapter.viewer_mode == "image"
 
     def test_supports_toc_sidecar(self):
         assert self.adapter.supports_toc_sidecar()
 
-    def test_toc_fallback_to_text(self):
-        assert self.adapter.toc_fallback_to_text()
+    def test_no_toc_fallback_to_text(self):
+        # TOC comes from heading-style sidecar; no text fallback needed
+        assert not self.adapter.toc_fallback_to_text()
 
-    def test_does_not_support_thumbnails(self):
-        assert not self.adapter.supports_thumbnails()
+    def test_supports_thumbnails(self):
+        assert self.adapter.supports_thumbnails()
 
     def test_upload_mime_types(self):
         assert (
@@ -263,7 +266,6 @@ class TestDOCXAdapter:
         assert "wordprocessingml" in self.adapter.content_type_for_storage()
 
     def test_max_upload_bytes_uses_large_limit(self):
-        # DOCX uses the same large limit as PDF, not the small text limit
         from app.config import settings
         assert self.adapter.max_upload_bytes() == settings.max_upload_bytes
 
@@ -282,8 +284,9 @@ class TestDOCXAdapter:
     def test_extract_toc_empty_without_content(self):
         assert self.adapter.extract_toc() == []
 
-    def test_extract_toc_uses_md_rules_for_converted_docx(self):
-        # DOCX is stored as markdown after conversion
+    def test_extract_toc_defensive_fallback_accepts_text(self):
+        # The viewer uses the heading sidecar in production; this tests the
+        # defensive extract_toc() method that handles direct callers.
         text = "# Chapter 1\n\nbody\n\n## Section 1.1\n\nmore\n"
         result = self.adapter.extract_toc(text_content=text)
         assert isinstance(result, list)
@@ -338,17 +341,24 @@ class TestDOCAdapter:
 # ── H. Viewer mode classification ────────────────────────────────────────────
 
 class TestViewerModeClassification:
-    """Verify that viewer_mode correctly separates image vs text formats."""
+    """Verify that viewer_mode correctly separates image vs text formats.
 
-    def test_pdf_is_image_mode(self):
-        assert get_adapter("pdf").viewer_mode == "image"
+    After Phase D2: PDF and DOCX are image mode; TXT/MD/LOG/DOC are text mode.
+    """
 
-    @pytest.mark.parametrize("ft", ["txt", "md", "log", "docx", "doc"])
-    def test_all_non_pdf_are_text_mode(self, ft):
+    @pytest.mark.parametrize("ft", ["pdf", "docx"])
+    def test_image_mode_formats(self, ft):
+        assert get_adapter(ft).viewer_mode == "image"
+
+    @pytest.mark.parametrize("ft", ["txt", "md", "log", "doc"])
+    def test_text_mode_formats(self, ft):
         assert get_adapter(ft).viewer_mode == "text"
 
     def test_pdf_is_not_text_mode(self):
         assert get_adapter("pdf").viewer_mode != "text"
+
+    def test_docx_is_not_text_mode(self):
+        assert get_adapter("docx").viewer_mode != "text"
 
 
 # ── I. Sidecar classification ─────────────────────────────────────────────────
@@ -365,9 +375,13 @@ class TestSidecarClassification:
     def test_pdf_does_not_fallback(self):
         assert not get_adapter("pdf").toc_fallback_to_text()
 
-    @pytest.mark.parametrize("ft", ["docx", "doc"])
-    def test_word_types_fallback_to_text(self, ft):
-        assert get_adapter(ft).toc_fallback_to_text()
+    def test_docx_does_not_fallback(self):
+        # Phase D2: DOCX uses heading-style sidecar; no text fallback needed
+        assert not get_adapter("docx").toc_fallback_to_text()
+
+    def test_doc_fallback_to_text(self):
+        # DOC (legacy text pipeline) still falls back to text extraction
+        assert get_adapter("doc").toc_fallback_to_text()
 
     @pytest.mark.parametrize("ft", ["txt", "md", "log"])
     def test_plain_text_does_not_fallback(self, ft):

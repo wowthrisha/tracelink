@@ -27,16 +27,25 @@ def _make_thumbnail(image_bytes: bytes) -> bytes:
     return buf.getvalue()
 
 
-async def process_pdf_document(db, doc, document_id: str, storage, rasterizer, watermark) -> dict:
+async def process_pdf_document(
+    db, doc, document_id: str, storage, rasterizer, watermark, *, pdf_bytes=None
+) -> dict:
     """
-    Process a PDF document — downloads, rasterizes, watermarks, uploads pages + thumbnails.
+    Process a PDF document — rasterizes, watermarks, uploads pages + thumbnails.
 
     The caller owns the DB session lifecycle.
+
+    Parameters
+    ----------
+    pdf_bytes:
+        Pre-loaded PDF bytes.  When supplied (e.g. from a DOCX→PDF conversion
+        step) the storage download is skipped.  When None (the normal PDF
+        upload path) the bytes are fetched from doc.storage_key.
     """
-    # Download PDF
-    logger.info("Document %s: downloading from storage key %r", document_id, doc.storage_key)
-    pdf_bytes = await storage.download_bytes(doc.storage_key)
-    logger.info("Document %s: downloaded %d bytes", document_id, len(pdf_bytes))
+    if pdf_bytes is None:
+        logger.info("Document %s: downloading from storage key %r", document_id, doc.storage_key)
+        pdf_bytes = await storage.download_bytes(doc.storage_key)
+    logger.info("Document %s: pdf_bytes %d bytes", document_id, len(pdf_bytes))
 
     # Rasterize — raises RasterizerError on bad/malicious PDF (permanent failure)
     logger.info("Document %s: rasterizing PDF", document_id)

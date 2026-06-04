@@ -46,7 +46,25 @@ class _WordBaseAdapter(DocumentAdapter):
 
 
 class DOCXAdapter(_WordBaseAdapter):
+    """
+    DOCX adapter — Phase D2: image-based pipeline via LibreOffice.
+
+    DOCX documents are converted to PDF by LibreOffice headless, then
+    processed through the existing PDF rasterisation pipeline.  The viewer
+    renders DOCX pages as watermarked images, identical to native PDFs.
+    """
+
     file_type = "docx"
+    viewer_mode = "image"  # Phase D2: image pipeline replaces text pipeline
+
+    def supports_thumbnails(self) -> bool:
+        return True
+
+    def toc_fallback_to_text(self) -> bool:
+        # TOC comes from the heading-style sidecar written during processing.
+        # No text fallback needed: the sidecar is always attempted first, and
+        # if absent the viewer returns an empty TOC (PDF behaviour).
+        return False
 
     def upload_mime_types(self) -> frozenset:
         return frozenset({
@@ -65,8 +83,26 @@ class DOCXAdapter(_WordBaseAdapter):
     async def process(
         self, db, doc, document_id: str, storage, rasterizer=None, watermark=None
     ) -> dict:
-        from app.workers.pipeline.word import process_docx_document
-        return await process_docx_document(db, doc, document_id, storage)
+        from app.workers.pipeline.docx_pdf import process_docx_as_pdf
+        return await process_docx_as_pdf(
+            db, doc, document_id, storage, rasterizer, watermark
+        )
+
+    def extract_toc(
+        self,
+        *,
+        text_content: Optional[str] = None,
+        pdf_bytes: Optional[bytes] = None,
+        lines_per_chunk: int = 100,
+    ) -> list:
+        # In production the viewer uses the heading-style sidecar (toc_fallback_to_text
+        # is False, so this method is not called by the viewer's /toc route).
+        # Kept as a defensive fallback for direct calls via extract_toc_for_document().
+        if not text_content:
+            return []
+        from app.services.toc.text_extractor import extract_text_toc
+        entries = extract_text_toc(text_content, self.file_type, lines_per_chunk=lines_per_chunk)
+        return [e.to_dict() for e in entries]
 
 
 class DOCAdapter(_WordBaseAdapter):

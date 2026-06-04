@@ -10,7 +10,14 @@ RUN npm run build
 # ── Stage 2: Python runtime ────────────────────────────────────────────────
 FROM python:3.12-slim
 
-# System deps: PDF rasterization (poppler + ghostscript), Postgres client, curl for healthcheck
+# System deps:
+#   ghostscript / poppler-utils  — PDF rasterisation
+#   libpq-dev / gcc              — asyncpg / psycopg2 build deps
+#   curl                         — healthcheck
+#   antiword                     — legacy .doc text extraction
+#   libreoffice-writer           — DOCX → PDF headless conversion (Phase D2)
+#     fonts-liberation / fonts-dejavu-core — common font coverage for DOCX rendering
+#   Note: add libreoffice-impress here when PPTX support is introduced (Phase D3)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ghostscript \
     poppler-utils \
@@ -18,6 +25,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     curl \
     antiword \
+    libreoffice-writer \
+    fonts-liberation \
+    fonts-dejavu-core \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
