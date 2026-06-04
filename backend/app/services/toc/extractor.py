@@ -44,20 +44,12 @@ async def extract_toc_for_document(
         return []
 
     try:
-        if file_type == "pdf":
-            if pdf_bytes is None:
-                return []
-            from app.services.toc.pdf_extractor import extract_pdf_toc
-            entries = extract_pdf_toc(pdf_bytes)
-        else:
-            if text_content is None:
-                return []
-            from app.services.toc.text_extractor import extract_text_toc
-            entries = extract_text_toc(
-                text_content, file_type, lines_per_chunk=lines_per_chunk
-            )
-
-        return [e.to_dict() for e in entries]
+        from app.services.adapters import get_adapter as _get_adapter
+        return _get_adapter(file_type).extract_toc(
+            text_content=text_content,
+            pdf_bytes=pdf_bytes,
+            lines_per_chunk=lines_per_chunk,
+        )
 
     except Exception as exc:
         logger.warning(

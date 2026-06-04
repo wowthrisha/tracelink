@@ -573,7 +573,9 @@ async def get_toc(
     supported = True
 
     # ── PDF and DOCX/DOC: try TOC sidecar first ───────────────────────────────
-    if file_type in ("pdf", "docx", "doc"):
+    from app.services.adapters import get_adapter as _get_adapter
+    _toc_adapter = _get_adapter(file_type)
+    if _toc_adapter.supports_toc_sidecar():
         sidecar_key = f"toc/{doc_id_str}.json"
         sidecar_entries = await _load_toc_sidecar(sidecar_key)
         if sidecar_entries is not None:
@@ -583,15 +585,14 @@ async def get_toc(
                 content={"toc": toc_entries, "doc_type": file_type, "supported": True},
                 headers={"Cache-Control": "no-store"},
             )
-        if file_type == "pdf":
-            # No sidecar = no bookmarks in this PDF
-            supported = False
+        if not _toc_adapter.toc_fallback_to_text():
+            # No sidecar and no text fallback (PDF) = no bookmarks
             await store_toc_async(doc_id_str, [])
             return _JSONResponse(
-                content={"toc": [], "doc_type": "pdf", "supported": False},
+                content={"toc": [], "doc_type": file_type, "supported": False},
                 headers={"Cache-Control": "no-store"},
             )
-        # For DOCX/DOC without sidecar: fall through to text extraction
+        # DOCX/DOC without sidecar: fall through to text extraction
 
     # ── Text-based extraction (TXT, MD, LOG, and DOCX/DOC without sidecar) ───
     storage_key = doc_snap.storage_key
@@ -701,7 +702,8 @@ async def download_document(
     )
 
     # ── Text document ──────────────────────────────────────────────────────────
-    if doc.file_type in ("txt", "md", "log", "docx", "doc"):
+    from app.services.adapters import get_adapter as _get_adapter
+    if _get_adapter(doc.file_type).viewer_mode == "text":
         raw = await storage.download_bytes(doc.storage_key)
         # DOCX/DOC are stored as converted text after processing
         filename = doc.filename or f"document.{doc.file_type}"
@@ -811,7 +813,8 @@ async def get_text_chunk(
 
     # ── Verify this is a text document (uses cached DocSnapshot — no extra DB read) ──
     file_type = doc_snap.file_type
-    if file_type not in ("txt", "md", "log", "docx", "doc"):
+    from app.services.adapters import get_adapter as _get_adapter
+    if _get_adapter(file_type).viewer_mode != "text":
         raise HTTPException(
             status_code=400,
             detail="This endpoint is for text/word documents only. Use /api/viewer/page for PDFs.",

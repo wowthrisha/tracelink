@@ -93,9 +93,7 @@ async def process_document_with_session(
     """
     from sqlalchemy import select, delete
     from app.models.document import Document, DocumentPage
-    from app.workers.pipeline.pdf import process_pdf_document
-    from app.workers.pipeline.text import process_text_document
-    from app.workers.pipeline.word import process_docx_document, process_doc_document
+    from app.services.adapters import get_adapter
 
     result = await db.execute(
         select(Document).where(Document.id == uuid.UUID(document_id))
@@ -132,14 +130,10 @@ async def process_document_with_session(
     logger.info("Document %s: status → processing", document_id)
 
     file_type = getattr(doc, "file_type", "pdf") or "pdf"
-    if file_type in ("txt", "md", "log"):
-        return await process_text_document(db, doc, document_id, storage)
-    elif file_type == "docx":
-        return await process_docx_document(db, doc, document_id, storage)
-    elif file_type == "doc":
-        return await process_doc_document(db, doc, document_id, storage)
-    else:
-        return await process_pdf_document(db, doc, document_id, storage, rasterizer, watermark)
+    adapter = get_adapter(file_type)
+    return await adapter.process(
+        db, doc, document_id, storage, rasterizer=rasterizer, watermark=watermark
+    )
 
 
 async def _mark_document_error(document_id: str, message: str) -> None:

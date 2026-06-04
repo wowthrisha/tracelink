@@ -31,20 +31,10 @@ router = APIRouter(prefix="/api/documents", tags=["documents"])
 
 # Content-types accepted at the upload boundary.
 # Extension-based detection (in detect_file_type) is the primary signal.
-ALLOWED_CONTENT_TYPES = {
-    "application/pdf",
-    "text/plain",
-    "text/markdown",
-    "text/x-log",
-    "text/x-log-file",
-    # DOCX
-    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    # Legacy DOC
-    "application/msword",
-    # Some browsers send application/octet-stream for various file types;
-    # extension + magic-byte check inside detect_file_type disambiguates.
-    "application/octet-stream",
-}
+# The set is derived from registered adapters; application/octet-stream is
+# added as a browser pass-through for files with ambiguous content types.
+from app.services.adapters import allowed_content_types as _adapter_content_types
+ALLOWED_CONTENT_TYPES = _adapter_content_types() | {"application/octet-stream"}
 
 
 async def _run_demo_processing(document_id: str) -> None:
@@ -129,9 +119,8 @@ async def upload_document(
     # Check free-plan document quota before accepting the upload
     await _check_upload_quota(db, user_uuid)
 
-    from app.services.text_processor import (
-        detect_file_type, SUPPORTED_TEXT_EXTENSIONS, SUPPORTED_WORD_EXTENSIONS,
-    )
+    from app.services.text_processor import detect_file_type
+    from app.services.adapters import get_adapter as _get_adapter
 
     # Reject obviously unsupported content-types upfront (before reading bytes)
     if file.content_type not in ALLOWED_CONTENT_TYPES:
@@ -149,27 +138,14 @@ async def upload_document(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
-    # Size checks per format
-    if file_type == "pdf":
-        if len(file_bytes) > settings.max_upload_bytes:
-            raise HTTPException(
-                status_code=413, detail=f"File exceeds {settings.max_upload_mb}MB limit"
-            )
-        if file_bytes[:5] != b"%PDF-":
-            raise HTTPException(status_code=400, detail="File must be a valid PDF")
-    elif file_type in SUPPORTED_WORD_EXTENSIONS:
-        # DOCX/DOC use the same size limit as PDFs (they can be large)
-        if len(file_bytes) > settings.max_upload_bytes:
-            raise HTTPException(
-                status_code=413, detail=f"File exceeds {settings.max_upload_mb}MB limit"
-            )
-    else:
-        # Plain text formats
-        if len(file_bytes) > settings.max_text_size_bytes:
-            raise HTTPException(
-                status_code=413,
-                detail=f"Text file exceeds {settings.max_text_size_mb}MB limit",
-            )
+    # Size and format validation via adapter
+    _adapter = _get_adapter(file_type)
+    if len(file_bytes) > _adapter.max_upload_bytes():
+        raise HTTPException(status_code=413, detail=_adapter.size_exceeded_message())
+    try:
+        _adapter.validate_bytes(file_bytes, original_filename)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
     doc_id = uuid.uuid4()
     storage_key = f"originals/{doc_id}.{file_type}"
@@ -194,18 +170,10 @@ async def upload_document(
         except ValueError:
             raise HTTPException(status_code=400, detail="Invalid group_id format")
 
-    _ct_map = {
-        "pdf": "application/pdf",
-        "txt": "text/plain",
-        "md": "text/markdown",
-        "log": "text/plain",
-        "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        "doc": "application/msword",
-    }
     storage = get_storage_service()
     try:
         await storage.upload_file(
-            file_bytes, storage_key, content_type=_ct_map.get(file_type, "application/octet-stream")
+            file_bytes, storage_key, content_type=_adapter.content_type_for_storage()
         )
     except Exception as exc:
         logger.error("Storage upload failed for key %s: %s", storage_key, exc)
