@@ -125,7 +125,7 @@ class TestHtmlNoBabelRuntime:
 
     def test_html_still_loads_api_js(self):
         html = _read_html()
-        assert 'src="api.js"' in html
+        assert 'src="/static/api.js"' in html
 
     def test_html_has_root_div(self):
         html = _read_html()

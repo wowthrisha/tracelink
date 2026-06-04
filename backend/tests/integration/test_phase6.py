@@ -402,7 +402,7 @@ class TestFrontendCSPCompliance:
 
     def test_html_loads_api_js(self):
         html = self._read_html()
-        assert 'src="api.js"' in html or "src='api.js'" in html
+        assert 'src="/static/api.js"' in html
 
     def test_html_loads_bundle(self):
         html = self._read_html()
