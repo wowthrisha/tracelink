@@ -42,7 +42,7 @@ async def process_docx_as_pdf(db, doc, document_id: str, storage, rasterizer, wa
         LibreOfficeError,
     )
     from app.workers.pipeline.pdf import process_pdf_document
-    from app.services.toc.docx_extractor import extract_docx_toc
+    from app.services.toc.docx_extractor import extract_docx_toc, resolve_toc_page_numbers
 
     # ── 1. Download ────────────────────────────────────────────────────────────
     logger.info("Document %s: downloading DOCX from %r", document_id, doc.storage_key)
@@ -85,13 +85,18 @@ async def process_docx_as_pdf(db, doc, document_id: str, storage, rasterizer, wa
         pdf_bytes=pdf_bytes,
     )
 
-    # ── 4. Overwrite TOC sidecar with DOCX heading data ───────────────────────
-    # extract_docx_toc() uses python-docx heading styles → higher fidelity than
-    # PDF bookmarks from LibreOffice conversion.  Written after the PDF pipeline
-    # so it overrides any bookmark sidecar the PDF pipeline may have stored.
+    # ── 4. Build TOC sidecar: DOCX headings + PDF page numbers ───────────────
+    # Primary source: python-docx heading styles (title + level, high fidelity).
+    # Page numbers: resolved from LibreOffice-generated PDF bookmarks via pypdf.
+    # LibreOffice converts Word heading styles to PDF outline entries by default,
+    # so most headings receive a page number.  Written after the PDF pipeline so
+    # it always overrides any bookmark-only sidecar the PDF pipeline may have
+    # stored.
     try:
         toc_entries = extract_docx_toc(docx_bytes)
         if toc_entries:
+            toc_entries = resolve_toc_page_numbers(toc_entries, pdf_bytes)
+            resolved = sum(1 for e in toc_entries if e.page is not None)
             sidecar_key = f"toc/{document_id}.json"
             payload = _json.dumps(
                 [e.to_dict() for e in toc_entries], ensure_ascii=False
@@ -100,8 +105,8 @@ async def process_docx_as_pdf(db, doc, document_id: str, storage, rasterizer, wa
                 payload.encode("utf-8"), sidecar_key, content_type="application/json"
             )
             logger.info(
-                "Document %s: stored DOCX heading TOC sidecar (%d entries)",
-                document_id, len(toc_entries),
+                "Document %s: stored DOCX TOC sidecar (%d entries, %d with page numbers)",
+                document_id, len(toc_entries), resolved,
             )
         else:
             logger.debug(

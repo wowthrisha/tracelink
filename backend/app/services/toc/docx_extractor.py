@@ -1,9 +1,19 @@
 """
-DOCX TOC extraction.
+DOCX TOC extraction and page-number resolution.
 
-extract_docx_toc() extracts native heading styles from a DOCX file using
-python-docx.  The result is stored as a JSON sidecar by the DOCX processing
-pipeline (docx_pdf.py) for use by the viewer's /toc endpoint.
+Two-step pipeline used by docx_pdf.py:
+
+  1. extract_docx_toc(docx_bytes)
+       Extracts heading styles from the DOCX using python-docx.
+       Produces TocEntry objects with title + level but no page number
+       (page layout is decided by LibreOffice during PDF conversion).
+
+  2. resolve_toc_page_numbers(entries, pdf_bytes)
+       Enriches those entries with page numbers by reading the PDF
+       bookmarks that LibreOffice emits for heading styles.  Matching
+       uses normalised titles (case-fold + whitespace collapse).
+       Entries whose title has no matching bookmark retain page=None
+       and still appear in the TOC sidebar without a navigation target.
 
 doc_to_text() converts legacy .doc files via antiword (used by word.py).
 
@@ -65,13 +75,10 @@ def extract_docx_toc(docx_bytes: bytes) -> List[TocEntry]:
     """
     Extract TOC entries natively from DOCX heading styles.
 
-    After Phase D2, DOCX documents are rendered as page images (identical to
-    PDF).  TOC entries therefore omit text-mode navigation fields (chunk, line)
-    since those are meaningless in the image viewer.  The 'page' field is also
-    absent because the actual page number in the LibreOffice-converted PDF is
-    unknowable at DOCX-extraction time.  The resulting entries serve as a
-    document outline (title + level) rather than a click-to-navigate TOC;
-    page-number resolution is a planned follow-on improvement (Phase D3+).
+    Returns entries with title + level but without page numbers — page
+    layout is determined by LibreOffice and is unknown at this stage.
+    Call resolve_toc_page_numbers(entries, pdf_bytes) after conversion
+    to enrich entries with page numbers from the resulting PDF bookmarks.
 
     Returns empty list on any failure (all errors are non-fatal).
     """
@@ -114,6 +121,117 @@ def extract_docx_toc(docx_bytes: bytes) -> List[TocEntry]:
         logger.warning("docx_toc: error iterating paragraphs: %s", exc)
 
     logger.debug("docx_toc: extracted %d entries", len(entries))
+    return entries
+
+
+# ── Page-number resolution ────────────────────────────────────────────────────
+
+def _normalize_title(text: str) -> str:
+    """Case-fold and collapse whitespace for fuzzy bookmark title matching."""
+    return " ".join(text.casefold().split())
+
+
+def _extract_bookmark_pages(pdf_bytes: bytes) -> dict:
+    """
+    Return a dict mapping normalised bookmark title → 1-indexed page number.
+
+    LibreOffice converts Word heading styles (Heading 1 … Heading 6) to PDF
+    outline bookmarks by default.  We read those bookmarks with pypdf, which
+    is already a project dependency.
+
+    The first occurrence of each normalised title wins, matching document order.
+    All errors return an empty dict (non-fatal).
+    """
+    try:
+        from pypdf import PdfReader
+        reader = PdfReader(io.BytesIO(pdf_bytes))
+        outline = reader.outline
+        if not outline:
+            return {}
+
+        result: dict = {}
+
+        def _walk(items) -> None:
+            for item in items:
+                if isinstance(item, list):
+                    _walk(item)
+                else:
+                    title = (getattr(item, "title", "") or "").strip()
+                    if not title:
+                        continue
+                    page_num = _safe_get_page(reader, item)
+                    if page_num is not None:
+                        key = _normalize_title(title)
+                        if key not in result:   # first occurrence wins
+                            result[key] = page_num
+
+        _walk(outline)
+        logger.debug("docx_toc_bookmarks: found %d PDF bookmark(s)", len(result))
+        return result
+
+    except Exception as exc:
+        logger.debug("docx_toc_bookmarks: PDF bookmark extraction failed: %s", exc)
+        return {}
+
+
+def _safe_get_page(reader, destination) -> "int | None":
+    """Safely resolve a 1-indexed page number for a PDF outline destination."""
+    try:
+        p = reader.get_destination_page_number(destination)
+        return int(p) + 1 if p is not None else None
+    except Exception:
+        return None
+
+
+def resolve_toc_page_numbers(
+    entries: List[TocEntry],
+    pdf_bytes: bytes,
+) -> List[TocEntry]:
+    """
+    Enrich DOCX TOC entries with page numbers from the LibreOffice-converted PDF.
+
+    Approach
+    ────────
+    LibreOffice preserves Word heading styles as PDF outline bookmarks when
+    converting DOCX to PDF.  Those bookmarks contain 1-indexed page numbers.
+    We match each DOCX heading entry to the corresponding PDF bookmark by
+    normalised title (case-fold + whitespace collapse).
+
+    Entries whose title has no matching PDF bookmark retain page=None and still
+    appear in the TOC sidebar as structural headings without a navigation target.
+    This is graceful degradation for the minority of documents where LibreOffice
+    does not emit bookmarks (e.g. protected DOCX, unusual heading definitions).
+
+    The match is by first occurrence, so duplicate heading titles across the
+    document will all map to the first page that bookmark appears on.  This is
+    the correct behaviour for chapter-style headings and acceptable for edge cases.
+
+    Parameters
+    ----------
+    entries : List[TocEntry]
+        Heading entries from extract_docx_toc().  Mutated in-place.
+    pdf_bytes : bytes
+        PDF produced by LibreOffice conversion (already in memory — no I/O).
+
+    Returns the same list, with page fields populated where bookmarks matched.
+    """
+    bookmark_pages = _extract_bookmark_pages(pdf_bytes)
+    if not bookmark_pages:
+        logger.debug("docx_toc_resolve: no PDF bookmarks — page numbers unavailable")
+        return entries
+
+    resolved = 0
+    for entry in entries:
+        key = _normalize_title(entry.title)
+        page = bookmark_pages.get(key)
+        if page is not None:
+            entry.page = page
+            resolved += 1
+
+    logger.debug(
+        "docx_toc_resolve: %d/%d heading(s) resolved to PDF page numbers",
+        resolved, len(entries),
+    )
     return entries
 
 

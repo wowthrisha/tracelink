@@ -681,3 +681,234 @@ class TestRegressionOtherFormats:
         src = inspect.getsource(adapter.process.__func__
                                 if hasattr(adapter.process, "__func__") else type(adapter).process)
         assert "libreoffice" not in src.lower() or "docx_pdf" not in src.lower()
+
+
+# ── I. Phase D2.7 — DOCX TOC page mapping ────────────────────────────────────
+
+class TestDocxTocPageMapping:
+    """
+    Integration tests verifying that process_docx_as_pdf() produces a TOC
+    sidecar with page numbers when LibreOffice emits PDF bookmarks.
+    """
+
+    @pytest.mark.asyncio
+    async def test_sidecar_contains_page_when_bookmark_matches(self, db_session):
+        """When PDF bookmarks match heading titles, page numbers appear in sidecar."""
+        from app.services.toc.model import TocEntry
+        from app.workers.pipeline.docx_pdf import process_docx_as_pdf
+
+        doc = await _make_doc(db_session)
+        storage = _mock_storage(docx_bytes=_DOCX_MAGIC)
+
+        heading = TocEntry(
+            id="toc_0001", title="Introduction", level=1,
+            anchor="sec_0001", source="heading_style", confidence=0.92,
+        )
+
+        mock_reader = MagicMock()
+        bm = MagicMock()
+        bm.title = "Introduction"
+        mock_reader.outline = [bm]
+        mock_reader.get_destination_page_number.return_value = 2  # 0-indexed → page 3
+
+        with patch(
+            "app.services.libreoffice_converter.LibreOfficeConverter.convert_to_pdf",
+            return_value=_MINIMAL_PDF,
+        ), patch(
+            "app.workers.pipeline.pdf.process_pdf_document",
+            new_callable=AsyncMock,
+            return_value={"document_id": str(doc.id), "page_count": 5, "status": "ready"},
+        ), patch(
+            "app.services.toc.docx_extractor.extract_docx_toc",
+            return_value=[heading],
+        ), patch("pypdf.PdfReader", return_value=mock_reader):
+            await process_docx_as_pdf(
+                db_session, doc, str(doc.id),
+                storage, _mock_rasterizer(), _mock_watermark()
+            )
+
+        sidecar_calls = [
+            c for c in storage.upload_file.call_args_list
+            if len(c.args) > 1 and f"toc/{doc.id}.json" in str(c.args[1])
+        ]
+        assert len(sidecar_calls) >= 1
+        data = json.loads(sidecar_calls[-1].args[0])
+        assert len(data) == 1
+        assert data[0]["title"] == "Introduction"
+        assert data[0]["page"] == 3      # 0-indexed 2 → 1-indexed 3
+        assert "chunk" not in data[0]
+
+    @pytest.mark.asyncio
+    async def test_sidecar_has_no_page_when_no_bookmarks(self, db_session):
+        """When PDF has no bookmarks, sidecar entries have no page field."""
+        from app.services.toc.model import TocEntry
+        from app.workers.pipeline.docx_pdf import process_docx_as_pdf
+
+        doc = await _make_doc(db_session)
+        storage = _mock_storage(docx_bytes=_DOCX_MAGIC)
+
+        heading = TocEntry(
+            id="toc_0001", title="Overview", level=1,
+            anchor="sec_0001", source="heading_style", confidence=0.92,
+        )
+
+        with patch(
+            "app.services.libreoffice_converter.LibreOfficeConverter.convert_to_pdf",
+            return_value=_MINIMAL_PDF,
+        ), patch(
+            "app.workers.pipeline.pdf.process_pdf_document",
+            new_callable=AsyncMock,
+            return_value={"document_id": str(doc.id), "page_count": 2, "status": "ready"},
+        ), patch(
+            "app.services.toc.docx_extractor.extract_docx_toc",
+            return_value=[heading],
+        ), patch("pypdf.PdfReader", return_value=MagicMock(outline=[])):
+            await process_docx_as_pdf(
+                db_session, doc, str(doc.id),
+                storage, _mock_rasterizer(), _mock_watermark()
+            )
+
+        sidecar_calls = [
+            c for c in storage.upload_file.call_args_list
+            if len(c.args) > 1 and f"toc/{doc.id}.json" in str(c.args[1])
+        ]
+        data = json.loads(sidecar_calls[-1].args[0])
+        assert "page" not in data[0]     # no bookmark match
+        assert "chunk" not in data[0]    # no text-mode artifact
+
+    @pytest.mark.asyncio
+    async def test_partial_resolution_mixed_headings(self, db_session):
+        """Some headings get pages, others remain unresolved — both appear in sidecar."""
+        from app.services.toc.model import TocEntry
+        from app.workers.pipeline.docx_pdf import process_docx_as_pdf
+
+        doc = await _make_doc(db_session)
+        storage = _mock_storage(docx_bytes=_DOCX_MAGIC)
+
+        entries = [
+            TocEntry(id="toc_0001", title="Chapter 1", level=1,
+                     anchor="sec_0001", source="heading_style", confidence=0.92),
+            TocEntry(id="toc_0002", title="Appendix A", level=1,
+                     anchor="sec_0002", source="heading_style", confidence=0.92),
+        ]
+
+        bm1 = MagicMock(); bm1.title = "Chapter 1"
+        mock_reader = MagicMock()
+        mock_reader.outline = [bm1]  # "Appendix A" has no bookmark
+        mock_reader.get_destination_page_number.return_value = 0  # page 1
+
+        with patch(
+            "app.services.libreoffice_converter.LibreOfficeConverter.convert_to_pdf",
+            return_value=_MINIMAL_PDF,
+        ), patch(
+            "app.workers.pipeline.pdf.process_pdf_document",
+            new_callable=AsyncMock,
+            return_value={"document_id": str(doc.id), "page_count": 8, "status": "ready"},
+        ), patch(
+            "app.services.toc.docx_extractor.extract_docx_toc",
+            return_value=entries,
+        ), patch("pypdf.PdfReader", return_value=mock_reader):
+            await process_docx_as_pdf(
+                db_session, doc, str(doc.id),
+                storage, _mock_rasterizer(), _mock_watermark()
+            )
+
+        sidecar_calls = [
+            c for c in storage.upload_file.call_args_list
+            if len(c.args) > 1 and f"toc/{doc.id}.json" in str(c.args[1])
+        ]
+        data = json.loads(sidecar_calls[-1].args[0])
+        assert len(data) == 2
+        assert data[0]["title"] == "Chapter 1"
+        assert data[0]["page"] == 1
+        assert data[1]["title"] == "Appendix A"
+        assert "page" not in data[1]
+
+    @pytest.mark.asyncio
+    async def test_bookmark_resolution_failure_is_non_fatal(self, db_session):
+        """pypdf error during page resolution must not block document processing."""
+        from app.services.toc.model import TocEntry
+        from app.workers.pipeline.docx_pdf import process_docx_as_pdf
+
+        doc = await _make_doc(db_session)
+        storage = _mock_storage(docx_bytes=_DOCX_MAGIC)
+
+        heading = TocEntry(
+            id="toc_0001", title="Introduction", level=1,
+            anchor="sec_0001", source="heading_style", confidence=0.92,
+        )
+
+        with patch(
+            "app.services.libreoffice_converter.LibreOfficeConverter.convert_to_pdf",
+            return_value=_MINIMAL_PDF,
+        ), patch(
+            "app.workers.pipeline.pdf.process_pdf_document",
+            new_callable=AsyncMock,
+            return_value={"document_id": str(doc.id), "page_count": 2, "status": "ready"},
+        ), patch(
+            "app.services.toc.docx_extractor.extract_docx_toc",
+            return_value=[heading],
+        ), patch("pypdf.PdfReader", side_effect=Exception("corrupt PDF bookmarks")):
+            result = await process_docx_as_pdf(
+                db_session, doc, str(doc.id),
+                storage, _mock_rasterizer(), _mock_watermark()
+            )
+
+        assert result["status"] == "ready"
+        # Sidecar still written — just without page numbers
+        sidecar_calls = [
+            c for c in storage.upload_file.call_args_list
+            if len(c.args) > 1 and f"toc/{doc.id}.json" in str(c.args[1])
+        ]
+        assert len(sidecar_calls) >= 1
+        data = json.loads(sidecar_calls[-1].args[0])
+        assert data[0]["title"] == "Introduction"
+        assert "page" not in data[0]
+
+    @pytest.mark.asyncio
+    async def test_nested_headings_resolved(self, db_session):
+        """Nested bookmarks (chapters + sections) are all flattened and resolved."""
+        from app.services.toc.model import TocEntry
+        from app.workers.pipeline.docx_pdf import process_docx_as_pdf
+
+        doc = await _make_doc(db_session)
+        storage = _mock_storage(docx_bytes=_DOCX_MAGIC)
+
+        entries = [
+            TocEntry(id="toc_0001", title="Chapter 1", level=1,
+                     anchor="sec_0001", source="heading_style", confidence=0.92),
+            TocEntry(id="toc_0002", title="Section 1.1", level=2,
+                     anchor="sec_0002", source="heading_style", confidence=0.92),
+        ]
+
+        ch1 = MagicMock(); ch1.title = "Chapter 1"
+        sec1 = MagicMock(); sec1.title = "Section 1.1"
+
+        mock_reader = MagicMock()
+        mock_reader.outline = [ch1, [sec1]]  # nested list for sub-sections
+        page_map = {id(ch1): 0, id(sec1): 3}
+        mock_reader.get_destination_page_number.side_effect = lambda d: page_map[id(d)]
+
+        with patch(
+            "app.services.libreoffice_converter.LibreOfficeConverter.convert_to_pdf",
+            return_value=_MINIMAL_PDF,
+        ), patch(
+            "app.workers.pipeline.pdf.process_pdf_document",
+            new_callable=AsyncMock,
+            return_value={"document_id": str(doc.id), "page_count": 10, "status": "ready"},
+        ), patch(
+            "app.services.toc.docx_extractor.extract_docx_toc",
+            return_value=entries,
+        ), patch("pypdf.PdfReader", return_value=mock_reader):
+            await process_docx_as_pdf(
+                db_session, doc, str(doc.id),
+                storage, _mock_rasterizer(), _mock_watermark()
+            )
+
+        sidecar_calls = [
+            c for c in storage.upload_file.call_args_list
+            if len(c.args) > 1 and f"toc/{doc.id}.json" in str(c.args[1])
+        ]
+        data = json.loads(sidecar_calls[-1].args[0])
+        assert data[0]["page"] == 1   # Chapter 1 → page 1
+        assert data[1]["page"] == 4   # Section 1.1 → page 4
