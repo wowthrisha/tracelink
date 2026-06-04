@@ -102,19 +102,25 @@ async def get_events(
     if not link_ids:
         return {"events": [], "total": 0}
 
+    # Count total — direct COUNT on the filtered set, not a subquery wrapper.
+    # The ix_access_events_link_id_created composite index satisfies both the
+    # count and the paginated SELECT below without a full table scan.
+    from sqlalchemy import func as _func
+    count_query = (
+        select(_func.count())
+        .select_from(AccessEvent)
+        .where(AccessEvent.link_id.in_(link_ids))
+    )
+    total_result = await db.execute(count_query)
+    total = total_result.scalar() or 0
+
     query = (
         select(AccessEvent)
         .where(AccessEvent.link_id.in_(link_ids))
         .order_by(AccessEvent.created_at.desc())
+        .offset(offset)
+        .limit(limit)
     )
-
-    # Count total
-    from sqlalchemy import func, select as sa_select
-    count_query = sa_select(func.count()).select_from(query.subquery())
-    total_result = await db.execute(count_query)
-    total = total_result.scalar() or 0
-
-    query = query.offset(offset).limit(limit)
     events_result = await db.execute(query)
     events = events_result.scalars().all()
 

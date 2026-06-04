@@ -101,12 +101,34 @@ class Settings(BaseSettings):
     # Leave False for AWS S3 and standard R2 which use virtual-hosted style.
     storage_path_style: bool = False
 
-    # Phase 8 — DB connection pool (extracted from hardcoded values so they are
-    # tunable via environment without rebuilding the image)
+    # DB connection pool (tunable via environment without rebuilding the image)
     db_pool_size: int = 10
     db_max_overflow: int = 20
     db_pool_timeout: int = 30
     db_pool_recycle: int = 1800
+
+    # ── Celery worker tuning ─────────────────────────────────────────────────────
+    # WORKER_CONCURRENCY: number of concurrent Celery worker processes.
+    # Each worker process handles one document at a time (CPU-bound rasterization).
+    # Sizing guide:
+    #   Development / 1 uploader / 10 viewers:     2  (default)
+    #   Production  / 10 uploaders / 100 viewers:  4–6 (requires 4GB+ RAM container)
+    # Note: PDF rasterization uses 800MB–4GB RAM per worker depending on page count.
+    # Increasing this beyond available memory will cause OOM kills.
+    worker_concurrency: int = 2
+
+    # WORKER_MAX_TASKS_PER_CHILD: recycle worker processes after N tasks.
+    # 0 = never recycle (default, fine for development).
+    # Setting to 10–50 in production guards against memory leaks in PDF processing
+    # libraries (pdf2image / Pillow) that accumulate memory across tasks.
+    worker_max_tasks_per_child: int = 0
+
+    # ── Download safety ──────────────────────────────────────────────────────────
+    # Maximum number of pages allowed in a single PDF download request.
+    # The download endpoint assembles all pages into memory simultaneously;
+    # a 500-page PDF requires ~4–10 GB RAM.  This limit prevents OOM on the API.
+    # Set to 0 to disable the limit (not recommended for production).
+    max_download_pages_pdf: int = 100
 
     @property
     def max_text_size_bytes(self) -> int:

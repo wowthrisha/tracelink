@@ -59,6 +59,12 @@ if settings.app_env == "production":
             "HTTPS: HTTPS_REDIRECT is not enabled. "
             "Set HTTPS_REDIRECT=true to enforce HTTPS in production."
         )
+    if settings.hsts_max_age == 0:
+        _warn_log.warning(
+            "HSTS: HSTS_MAX_AGE is 0 (disabled). "
+            "Set HSTS_MAX_AGE=31536000 once HTTPS is confirmed stable on your domain. "
+            "Without HSTS, browsers can be downgraded to HTTP via MITM attacks."
+        )
 
 
 @asynccontextmanager

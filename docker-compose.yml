@@ -104,12 +104,27 @@ services:
     restart: unless-stopped
 
   # ── Celery worker ──────────────────────────────────────────────────────────
+  # Concurrency and memory settings are driven by environment variables so they
+  # can be tuned per deployment without rebuilding the image.
+  #
+  # Sizing guide (set in backend/.env or Railway dashboard):
+  #   Development / 1 uploader:  WORKER_CONCURRENCY=2
+  #   Production  / 10 uploaders: WORKER_CONCURRENCY=4  (requires 4GB+ RAM container)
+  #
+  # WORKER_MAX_TASKS_PER_CHILD=50 is recommended for production to recycle worker
+  # processes and guard against memory accumulation in PDF processing libraries.
   worker:
     build:
       context: .
       dockerfile: backend/Dockerfile
-    command: ["celery", "-A", "app.workers.celery_app", "worker",
-              "--loglevel=info", "--concurrency=2"]
+    command:
+      - "sh"
+      - "-c"
+      - >
+        celery -A app.workers.celery_app worker
+        --loglevel=${WORKER_LOG_LEVEL:-info}
+        --concurrency=${WORKER_CONCURRENCY:-2}
+        ${WORKER_MAX_TASKS_PER_CHILD:+--max-tasks-per-child=$WORKER_MAX_TASKS_PER_CHILD}
     env_file: ./backend/.env
     environment:
       DATABASE_URL: postgresql+asyncpg://securedoc:password@db:5432/securedoc

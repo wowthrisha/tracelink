@@ -718,6 +718,21 @@ async def download_document(
     if not doc.page_count:
         raise HTTPException(status_code=404, detail="Document has no pages")
 
+    # Guard against memory exhaustion: assembling a watermarked PDF requires
+    # loading all pages as RGBA PIL images simultaneously (~20 MB each at 150 DPI).
+    # A 500-page PDF would need ~10 GB RAM on the API server.
+    # Refuse downloads that exceed the configured page limit.
+    _limit = settings.max_download_pages_pdf
+    if _limit > 0 and doc.page_count > _limit:
+        raise HTTPException(
+            status_code=413,
+            detail=(
+                f"PDF download is limited to {_limit} pages. "
+                f"This document has {doc.page_count} pages. "
+                "Contact the document owner for a split version."
+            ),
+        )
+
     pages_result = await db.execute(
         select(DocumentPage)
         .where(DocumentPage.document_id == doc.id)
