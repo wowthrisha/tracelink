@@ -113,13 +113,18 @@ class LibreOfficeConverter:
             with open(input_path, "wb") as fh:
                 fh.write(input_bytes)
 
+            # Each conversion gets its own LO profile dir so concurrent Celery
+            # workers don't share a lock file and javaldx is fully disabled.
+            lo_profile = os.path.join(tmp_dir, "lo_profile")
+            os.makedirs(lo_profile, exist_ok=True)
             cmd = [
                 binary,
                 "--headless",
-                "--nojava",           # Railway/Docker containers have no JRE; javaldx fails otherwise
+                "--nojava",           # Railway/Docker containers have no JRE
                 "--norestore",
                 "--nolockcheck",
                 "--nomacroexecution",  # prevents all macro execution (LibreOffice 7.2+)
+                f"-env:UserInstallation=file://{lo_profile}",
                 "--convert-to", "pdf",
                 "--outdir", tmp_dir,
                 input_path,
