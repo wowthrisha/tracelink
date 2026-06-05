@@ -563,7 +563,7 @@
               await fetchDocs();
               if (s.status === 'ready') {
                 setUploadDone(true);
-                const unit = fileType === 'pdf' ? 'pages' : 'chunks';
+                const unit = (fileType === 'pdf' || fileType === 'docx' || fileType === 'doc') ? 'pages' : 'chunks';
                 toast(`Upload complete — ${s.page_count} ${unit} ready`, 'success');
               } else toast(`Processing error: ${s.error_message || 'unknown'}`, 'error');
             }
@@ -576,20 +576,24 @@
       const _detectFileType = (file) => {
         const name = file.name.toLowerCase();
         if (name.endsWith('.pdf')) return 'pdf';
+        if (name.endsWith('.docx')) return 'docx';
+        if (name.endsWith('.doc')) return 'doc';
         if (name.endsWith('.txt')) return 'txt';
         if (name.endsWith('.md')) return 'md';
         if (name.endsWith('.log')) return 'log';
         return null;
       };
 
+      const _isDocType = (ft) => ft === 'pdf' || ft === 'docx' || ft === 'doc';
+
       const simulate = async (file) => {
         if (!file) return;
         const fileType = _detectFileType(file);
         if (!fileType) {
-          toast('Supported formats: PDF, TXT, MD, LOG', 'error'); return;
+          toast('Supported formats: PDF, DOCX, DOC, TXT, MD, LOG', 'error'); return;
         }
-        const sizeLimit = fileType === 'pdf' ? 100 * 1024 * 1024 : 10 * 1024 * 1024;
-        const sizeLabelMB = fileType === 'pdf' ? 100 : 10;
+        const sizeLimit = _isDocType(fileType) ? 100 * 1024 * 1024 : 10 * 1024 * 1024;
+        const sizeLabelMB = _isDocType(fileType) ? 100 : 10;
         if (file.size > sizeLimit) {
           toast(`File exceeds ${sizeLabelMB} MB limit.`, 'error'); return;
         }
@@ -597,7 +601,7 @@
         try {
           const res = await window.SecureDocAPI.uploadDocument(file, p => setProgress(p), selectedGroupId || null);
           setUploadedDoc(res);
-          toast(fileType === 'pdf' ? 'Upload complete — converting pages to images' : 'Upload complete — preparing text document', 'info');
+          toast(_isDocType(fileType) ? 'Upload complete — converting pages to images' : 'Upload complete — preparing text document', 'info');
           startPoll(res.id, fileType);
           await fetchDocs();
         } catch (e) { setUploading(false); toast(e.detail || 'Upload failed', 'error'); }
@@ -653,6 +657,15 @@
         finally { setDeleting(false); }
       };
 
+      const handleReprocess = async (doc) => {
+        try {
+          await window.SecureDocAPI.reprocessDocument(doc.id);
+          toast('Reprocessing started…', 'info');
+          await fetchDocs();
+          startPoll(doc.id, doc.file_type || 'pdf');
+        } catch (e) { toast(e.detail || 'Failed to reprocess', 'error'); }
+      };
+
       const filtered = docs.filter(d =>
         (d.filename || d.name || '').toLowerCase().includes(search.toLowerCase()) &&
         (!activeGroupFilter || d.group_id === activeGroupFilter)
@@ -694,7 +707,7 @@
                     background: dragging ? C.accentBg : 'transparent',
                     cursor: 'pointer', transition: 'all .15s'
                   }}>
-                  <input ref={fileRef} type="file" accept=".pdf,.txt,.md,.log" style={{ display: 'none' }} onChange={e => simulate(e.target.files[0])} />
+                  <input ref={fileRef} type="file" accept=".pdf,.docx,.doc,.txt,.md,.log" style={{ display: 'none' }} onChange={e => simulate(e.target.files[0])} />
                   <div style={{
                     width: 36, height: 36, borderRadius: 8, background: C.accentBg,
                     border: `1px solid ${C.borderMed}`, display: 'flex', alignItems: 'center',
@@ -703,7 +716,7 @@
                   <div style={{ fontSize: 13, color: C.textSecondary, fontWeight: 600, marginBottom: 4 }}>
                     Drop file here or <span style={{ color: C.teal2 }}>click to browse</span>
                   </div>
-                  <div style={{ ...mono, fontSize: 10, color: C.textMuted }}>PDF · TXT · MD · LOG · PDF max 100 MB · Text max 10 MB</div>
+                  <div style={{ ...mono, fontSize: 10, color: C.textMuted }}>PDF · DOCX · DOC · TXT · MD · LOG · Doc max 100 MB · Text max 10 MB</div>
                 </div>
                 {/* Group selector for upload */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -818,6 +831,7 @@
                       <DocRow key={d.id} doc={d} isLast={i === filtered.length - 1}
                         onView={() => onViewDoc(d)} onAccess={() => onAccessDoc(d)}
                         onDelete={() => setDeleteModal(d)}
+                        onReprocess={() => handleReprocess(d)}
                         groups={groups} onAssignGroup={handleAssignGroup} />
                     ))}
                   </tbody>
@@ -906,10 +920,12 @@
       );
     }
 
-    function DocRow({ doc, isLast, onView, onAccess, onDelete, groups, onAssignGroup }) {
+    function DocRow({ doc, isLast, onView, onAccess, onDelete, onReprocess, groups, onAssignGroup }) {
       const [hov, setHov] = useState(false);
       const isProcessing = doc.status === 'processing';
       const isError = doc.status === 'error';
+      const isUploaded = doc.status === 'uploaded';
+      const canRetry = isProcessing || isError || isUploaded;
       return (
         <tr onMouseEnter={() => setHov(true)} onMouseLeave={() => setHov(false)}
           onClick={onAccess}
@@ -957,6 +973,7 @@
           </td>
           <td style={{ padding: '12px 14px' }} onClick={e => e.stopPropagation()}>
             <div style={{ display: 'flex', gap: 4, opacity: hov ? 1 : 0, transition: 'opacity .15s', alignItems: 'center' }}>
+              {canRetry && <Btn variant="ghost" size="sm" onClick={onReprocess} style={{ color: C.warning }}>↺ Retry</Btn>}
               <Btn variant="ghost" size="sm" onClick={onView}>View</Btn>
               <Btn variant="ghost" size="sm" onClick={onAccess}>Access</Btn>
               {groups && groups.length > 0 && (

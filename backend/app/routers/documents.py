@@ -218,6 +218,44 @@ async def upload_document(
     )
 
 
+@router.post("/{document_id}/reprocess", status_code=202)
+async def reprocess_document(
+    document_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: dict = Depends(get_current_user),
+):
+    user_uuid = uuid.UUID(user["user_id"])
+    try:
+        doc_id = uuid.UUID(document_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid document ID")
+
+    result = await db.execute(
+        select(Document).where(Document.id == doc_id, Document.user_id == user_uuid)
+    )
+    doc = result.scalar_one_or_none()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+    if doc.status == "ready":
+        raise HTTPException(status_code=400, detail="Document is already processed")
+
+    doc.status = "uploaded"
+    doc.error_message = None
+    await db.commit()
+
+    if os.getenv("USE_DEMO_STORAGE") == "1":
+        asyncio.create_task(_run_demo_processing(str(doc_id)))
+    else:
+        try:
+            from app.workers.tasks import process_document
+            process_document.delay(str(doc_id))
+            logger.info("Requeued Celery task for document %s", doc_id)
+        except Exception as celery_exc:
+            logger.error("Failed to requeue document %s: %s", doc_id, celery_exc)
+
+    return {"id": str(doc_id), "status": "uploaded", "message": "Reprocessing started"}
+
+
 @router.get("", response_model=dict)
 async def list_documents(
     db: AsyncSession = Depends(get_db),
