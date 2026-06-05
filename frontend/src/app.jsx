@@ -1347,7 +1347,7 @@
       const docName = doc?.filename || doc?.name || session?.document_filename || 'Document';
       const docId = doc?.id || '';
       const PAGE_COUNT = session?.page_count || 1;
-      const isTextDoc = !!(session?.doc_type && session.doc_type !== 'pdf');
+      const isTextDoc = !!(session?.doc_type && ['txt', 'md', 'log'].includes(session.doc_type));
 
       const doValidate = async (token, email, password) => {
         setInit(true);
