@@ -1981,7 +1981,8 @@
       const [toc, setToc] = useState([]);
       const [loading, setLoading] = useState(true);
       const [error, setError] = useState(false);
-      const isPdf = docType === 'pdf';
+      // DOCX/DOC use the image pipeline — navigate by page, same as PDF
+      const isImageDoc = docType === 'pdf' || docType === 'docx' || docType === 'doc';
 
       useEffect(() => {
         if (!linkToken || !sessionId) return;
@@ -1997,7 +1998,7 @@
       }, [linkToken, sessionId]);
 
       // Resolve the navigation target for a TOC entry
-      const navTarget = (entry) => isPdf
+      const navTarget = (entry) => isImageDoc
         ? (entry.page != null ? entry.page : null)
         : (entry.chunk != null ? entry.chunk : null);
 
@@ -2031,7 +2032,7 @@
               <div style={{ padding: '16px 12px', color: C.textMuted, fontSize: 11 }}>Loading…</div>
             ) : error && toc.length === 0 ? (
               <div style={{ padding: '16px 12px', color: C.textDim, fontSize: 11 }}>
-                {isPdf ? 'No bookmarks in this PDF.' : 'No headings found.'}
+                {isImageDoc ? 'No bookmarks found.' : 'No headings found.'}
               </div>
             ) : toc.length === 0 ? (
               <div style={{ padding: '16px 12px', color: C.textDim, fontSize: 11 }}>No headings found</div>
@@ -2070,7 +2071,7 @@
                   <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', flex: 1 }}>
                     {entry.title}
                   </span>
-                  {isPdf && entry.page != null && (
+                  {isImageDoc && entry.page != null && (
                     <span style={{ color: C.textDim, fontSize: 9, flexShrink: 0, marginLeft: 4 }}>
                       {entry.page}
                     </span>
@@ -2082,7 +2083,7 @@
           {!loading && toc.length > 0 && (
             <div style={{ padding: '6px 12px', borderTop: `1px solid ${C.border}`, fontSize: 9, color: C.textDim }}>
               {toc.length} section{toc.length !== 1 ? 's' : ''}
-              {isPdf ? ' · click to jump' : ' · click to jump to chunk'}
+              {isImageDoc ? ' · click to jump' : ' · click to jump to chunk'}
             </div>
           )}
         </div>
