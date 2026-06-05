@@ -116,6 +116,7 @@ class LibreOfficeConverter:
             cmd = [
                 binary,
                 "--headless",
+                "--nojava",           # Railway/Docker containers have no JRE; javaldx fails otherwise
                 "--norestore",
                 "--nolockcheck",
                 "--nomacroexecution",  # prevents all macro execution (LibreOffice 7.2+)
