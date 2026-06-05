@@ -284,6 +284,18 @@ async def serve_app(token: Optional[str] = None):
         f'content="{settings.supabase_anon_key}"',
     )
 
+    # Cache-bust the bundle URL so browsers pick up new deploys immediately.
+    # Hash is based on the bundle file's mtime — changes on every deploy.
+    bundle_path = os.path.join(frontend_dir, "dist", "app.bundle.js")
+    try:
+        bundle_mtime = int(os.path.getmtime(bundle_path))
+    except OSError:
+        bundle_mtime = 0
+    content = content.replace(
+        'src="/static/dist/app.bundle.js"',
+        f'src="/static/dist/app.bundle.js?v={bundle_mtime}"',
+    )
+
     return HTMLResponse(
         content=content,
         headers={"Cache-Control": "no-cache, must-revalidate"},
