@@ -114,7 +114,7 @@ class LibreOfficeConverter:
                 fh.write(input_bytes)
 
             # Each conversion gets its own LO profile dir so concurrent Celery
-            # workers don't share a lock file and javaldx is fully disabled.
+            # workers don't share lock files.
             lo_profile = os.path.join(tmp_dir, "lo_profile")
             os.makedirs(lo_profile, exist_ok=True)
             cmd = [
@@ -129,9 +129,19 @@ class LibreOfficeConverter:
                 input_path,
             ]
 
+            # javaldx needs JAVA_HOME to locate the JVM shared library.
+            # Without it LibreOffice exits 1 on containers even when a JRE is installed.
+            env = os.environ.copy()
+            if "JAVA_HOME" not in env:
+                import glob as _glob
+                candidates = sorted(_glob.glob("/usr/lib/jvm/java-*-openjdk*"))
+                if candidates:
+                    env["JAVA_HOME"] = candidates[-1]  # pick newest
+
             logger.debug(
-                "lo_convert start suffix=%s input_size=%d timeout=%ds",
+                "lo_convert start suffix=%s input_size=%d timeout=%ds java_home=%s",
                 suffix, len(input_bytes), self.CONVERSION_TIMEOUT_SEC,
+                env.get("JAVA_HOME", "unset"),
             )
 
             try:
@@ -140,6 +150,7 @@ class LibreOfficeConverter:
                     capture_output=True,
                     timeout=self.CONVERSION_TIMEOUT_SEC,
                     check=False,
+                    env=env,
                 )
             except subprocess.TimeoutExpired as exc:
                 raise LibreOfficeTimeoutError(
@@ -147,9 +158,11 @@ class LibreOfficeConverter:
                 ) from exc
 
             if proc.returncode != 0:
-                stderr = proc.stderr.decode("utf-8", errors="replace")[:500]
+                stderr = proc.stderr.decode("utf-8", errors="replace")[:800]
+                stdout = proc.stdout.decode("utf-8", errors="replace")[:200]
                 raise LibreOfficeConversionError(
                     f"LibreOffice exited {proc.returncode}: {stderr}"
+                    + (f" | stdout: {stdout}" if stdout.strip() else "")
                 )
 
             if not os.path.exists(output_path):

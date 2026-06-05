@@ -26,12 +26,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     antiword \
     libreoffice-writer \
+    libreoffice-java-common \
     default-jre-headless \
     fonts-liberation \
     fonts-dejavu-core \
     fonts-crosextra-carlito \
     fonts-crosextra-caladea \
     && rm -rf /var/lib/apt/lists/*
+
+# Let javaldx find the JVM — without JAVA_HOME it searches blindly and exits 1
+RUN echo "export JAVA_HOME=$(readlink -f /usr/bin/java | sed 's|/bin/java||')" >> /etc/profile.d/java.sh
+ENV JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
 
 WORKDIR /app
 
