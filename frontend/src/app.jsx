@@ -1451,7 +1451,7 @@
       // the frontend only logs client-side events (print_attempt, copy_attempt, etc.)
       useEffect(() => {
         if (!session) return;
-        if (session.doc_type && session.doc_type !== 'pdf') return; // handled by text effect
+        if (isTextDoc) return; // text/md/log handled by text effect below
         // Skip network call entirely when document isn't ready yet — show status inline
         if (session.doc_status && session.doc_status !== 'ready') {
           const msgs = {
