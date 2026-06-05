@@ -122,7 +122,6 @@ class LibreOfficeConverter:
                 "--headless",
                 "--norestore",
                 "--nolockcheck",
-                "--nomacroexecution",  # prevents all macro execution (LibreOffice 7.2+)
                 f"-env:UserInstallation=file://{lo_profile}",
                 "--convert-to", "pdf",
                 "--outdir", tmp_dir,
