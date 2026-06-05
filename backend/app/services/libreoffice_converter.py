@@ -66,22 +66,10 @@ class LibreOfficeConverter:
 
     # ── Public API ────────────────────────────────────────────────────────────
 
-    # On Debian/Ubuntu the `libreoffice` command is a shell wrapper that
-    # unconditionally calls `javaldx` before processing --nojava, causing
-    # exit-1 failures in containers without a JRE.  Prefer the real binary.
-    _SOFFICE_BIN = "/usr/lib/libreoffice/program/soffice.bin"
-
-    @classmethod
-    def _find_binary(cls) -> str | None:
-        """Return soffice.bin if available (bypasses javaldx wrapper), else libreoffice."""
-        if os.path.isfile(cls._SOFFICE_BIN) and os.access(cls._SOFFICE_BIN, os.X_OK):
-            return cls._SOFFICE_BIN
-        return shutil.which("libreoffice")
-
-    @classmethod
-    def is_available(cls) -> bool:
+    @staticmethod
+    def is_available() -> bool:
         """Return True if the libreoffice binary is on PATH."""
-        return cls._find_binary() is not None
+        return shutil.which("libreoffice") is not None
 
     def convert_to_pdf(self, input_bytes: bytes, suffix: str = ".docx") -> bytes:
         """
@@ -109,7 +97,7 @@ class LibreOfficeConverter:
             If the conversion subprocess does not complete within
             CONVERSION_TIMEOUT_SEC.
         """
-        binary = self._find_binary()
+        binary = shutil.which("libreoffice")
         if binary is None:
             raise LibreOfficeNotAvailableError(
                 "LibreOffice is not installed or not on PATH. "
@@ -132,7 +120,6 @@ class LibreOfficeConverter:
             cmd = [
                 binary,
                 "--headless",
-                "--nojava",           # Railway/Docker containers have no JRE
                 "--norestore",
                 "--nolockcheck",
                 "--nomacroexecution",  # prevents all macro execution (LibreOffice 7.2+)

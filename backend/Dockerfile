@@ -26,6 +26,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     antiword \
     libreoffice-writer \
+    default-jre-headless \
     fonts-liberation \
     fonts-dejavu-core \
     fonts-crosextra-carlito \
