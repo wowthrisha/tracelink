@@ -236,22 +236,40 @@ def requeue_orphaned_uploads() -> dict:
 
 
 async def _requeue_orphaned_uploads_async() -> dict:
-    from sqlalchemy import select
+    from sqlalchemy import select, or_
     from app.models.document import Document
 
-    cutoff = datetime.now(timezone.utc) - timedelta(minutes=10)
+    now = datetime.now(timezone.utc)
+    # uploaded > 10 min: worker never picked it up
+    cutoff_uploaded = now - timedelta(minutes=10)
+    # processing > 20 min: worker died mid-task
+    cutoff_processing = now - timedelta(minutes=20)
+
     session_factory = _get_db_session_factory()
     requeued = 0
     async with session_factory() as db:
         result = await db.execute(
-            select(Document.id).where(
-                Document.status == "uploaded",
-                Document.updated_at < cutoff,
+            select(Document.id, Document.status).where(
+                or_(
+                    (Document.status == "uploaded") & (Document.updated_at < cutoff_uploaded),
+                    (Document.status == "processing") & (Document.updated_at < cutoff_processing),
+                )
             )
         )
-        orphan_ids = [str(row[0]) for row in result.all()]
+        orphans = [(str(row[0]), row[1]) for row in result.all()]
 
-    for doc_id in orphan_ids:
+        # Reset stuck-processing docs back to uploaded before re-queuing
+        if orphans:
+            stuck_processing_ids = [oid for oid, st in orphans if st == "processing"]
+            if stuck_processing_ids:
+                await db.execute(
+                    Document.__table__.update()
+                    .where(Document.id.in_(stuck_processing_ids))
+                    .values(status="uploaded", error_message=None)
+                )
+                await db.commit()
+
+    for doc_id, _ in orphans:
         try:
             process_document.delay(doc_id)
             logger.info("requeue_orphaned_uploads: re-queued doc_id=%s", doc_id)

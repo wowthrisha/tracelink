@@ -604,7 +604,11 @@
           toast(_isDocType(fileType) ? 'Upload complete — converting pages to images' : 'Upload complete — preparing text document', 'info');
           startPoll(res.id, fileType);
           await fetchDocs();
-        } catch (e) { setUploading(false); toast(e.detail || 'Upload failed', 'error'); }
+        } catch (e) {
+          setUploading(false);
+          const msg = (e && (e.detail || e.message)) || 'Upload failed';
+          toast(msg, 'error');
+        }
       };
 
       const handleSaveGroup = async () => {
@@ -699,7 +703,7 @@
             {!uploading && !uploadDone && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 <div onDragOver={e => { e.preventDefault(); setDragging(true); }}
-                  onDragLeave={() => setDragging(false)} onDrop={e => { e.preventDefault(); setDragging(false); simulate(e.dataTransfer.files[0]) }}
+                  onDragLeave={() => setDragging(false)} onDrop={e => { e.preventDefault(); setDragging(false); simulate(e.dataTransfer.files[0]).catch(() => {}); }}
                   onClick={() => fileRef.current.click()}
                   style={{
                     border: `1.5px dashed ${dragging ? C.teal1 : C.borderMed}`,
@@ -707,7 +711,7 @@
                     background: dragging ? C.accentBg : 'transparent',
                     cursor: 'pointer', transition: 'all .15s'
                   }}>
-                  <input ref={fileRef} type="file" accept=".pdf,.docx,.doc,.txt,.md,.log" style={{ display: 'none' }} onChange={e => simulate(e.target.files[0])} />
+                  <input ref={fileRef} type="file" accept=".pdf,.docx,.doc,.txt,.md,.log" style={{ display: 'none' }} onChange={e => simulate(e.target.files[0]).catch(() => {})} />
                   <div style={{
                     width: 36, height: 36, borderRadius: 8, background: C.accentBg,
                     border: `1px solid ${C.borderMed}`, display: 'flex', alignItems: 'center',
