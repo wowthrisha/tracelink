@@ -45,7 +45,7 @@ class AnalyticsService:
             viewer_email=mask_email(viewer_email) if viewer_email else None,
             ip_hash=hash_value(ip) if ip else None,
             user_agent_hash=hash_value(user_agent) if user_agent else None,
-            session_id=session_id,
+            session_id=session_id[:8] if session_id else None,
             metadata_json=json.dumps(metadata) if metadata else None,
         )
         db.add(event)

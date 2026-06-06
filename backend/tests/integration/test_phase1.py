@@ -194,11 +194,12 @@ class TestValidateBatchCommit:
         body = await _validate(client, active_link.token)
         sid = body["session_id"]
 
+        # AnalyticsService.log_event stores only session_id[:8] (SEC-05 truncation).
         result = await db_session.execute(
             select(AccessEvent).where(
                 AccessEvent.link_id == active_link.id,
                 AccessEvent.event_type == "opened",
-                AccessEvent.session_id == sid,
+                AccessEvent.session_id == sid[:8],
             )
         )
         events = result.scalars().all()

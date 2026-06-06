@@ -778,3 +778,304 @@ class TestE1Regression:
         sid2 = r2.json()["session_id"]
 
         assert sid1 == sid2, "Session reuse must return the same session_id"
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# J. SEC-09 — Analytics POST page_number must be a positive integer
+# ══════════════════════════════════════════════════════════════════════════════
+
+class TestSec09AnalyticsPageNumberValidation:
+    """POST /api/analytics/events must reject invalid page_number values."""
+
+    @pytest.mark.asyncio
+    async def test_negative_page_number_rejected(self, client, active_link, ready_document):
+        """page_number=-1 must return 400, not be stored."""
+        session_id = await _get_session(client, active_link.token)
+        r = await client.post("/api/analytics/events", json={
+            "token": active_link.token,
+            "session_id": session_id,
+            "event_type": "copy_attempt",
+            "page_number": -1,
+        })
+        assert r.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_zero_page_number_rejected(self, client, active_link, ready_document):
+        """page_number=0 must return 400 (pages are 1-indexed)."""
+        session_id = await _get_session(client, active_link.token)
+        r = await client.post("/api/analytics/events", json={
+            "token": active_link.token,
+            "session_id": session_id,
+            "event_type": "copy_attempt",
+            "page_number": 0,
+        })
+        assert r.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_string_page_number_rejected(self, client, active_link, ready_document):
+        """page_number='abc' must return 400, not cause a 500."""
+        session_id = await _get_session(client, active_link.token)
+        r = await client.post("/api/analytics/events", json={
+            "token": active_link.token,
+            "session_id": session_id,
+            "event_type": "copy_attempt",
+            "page_number": "abc",
+        })
+        assert r.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_boolean_page_number_rejected(self, client, active_link, ready_document):
+        """page_number=True (bool) must return 400 — bool is a subtype of int in Python."""
+        session_id = await _get_session(client, active_link.token)
+        r = await client.post("/api/analytics/events", json={
+            "token": active_link.token,
+            "session_id": session_id,
+            "event_type": "copy_attempt",
+            "page_number": True,
+        })
+        assert r.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_valid_page_number_accepted(self, client, active_link, ready_document):
+        """page_number=1 must succeed (positive integer)."""
+        session_id = await _get_session(client, active_link.token)
+        r = await client.post("/api/analytics/events", json={
+            "token": active_link.token,
+            "session_id": session_id,
+            "event_type": "copy_attempt",
+            "page_number": 1,
+        })
+        assert r.status_code == 200
+
+    @pytest.mark.asyncio
+    async def test_null_page_number_accepted(self, client, active_link, ready_document):
+        """page_number=null must succeed (optional field)."""
+        session_id = await _get_session(client, active_link.token)
+        r = await client.post("/api/analytics/events", json={
+            "token": active_link.token,
+            "session_id": session_id,
+            "event_type": "copy_attempt",
+            "page_number": None,
+        })
+        assert r.status_code == 200
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# K. SEC-10 — Analytics POST rejects events for revoked/expired links
+# ══════════════════════════════════════════════════════════════════════════════
+
+class TestSec10AnalyticsRevokedLinkDenied:
+    """POST /api/analytics/events must reject events for revoked or expired links."""
+
+    @pytest.mark.asyncio
+    async def test_revoked_link_analytics_rejected(self, client, db_session):
+        """A viewer with an active session cannot log events after the link is revoked."""
+        from app.services.link_service import LinkService
+
+        doc = await _insert_ready_doc(db_session)
+        svc = LinkService()
+        link = await svc.create_link(db_session, document_id=str(doc.id))
+
+        session_id = await _get_session(client, link.token)
+
+        # Revoke the link
+        await svc.revoke_link(db_session, str(link.id))
+
+        r = await client.post("/api/analytics/events", json={
+            "token": link.token,
+            "session_id": session_id,
+            "event_type": "copy_attempt",
+        })
+        assert r.status_code == 410, (
+            "Revoked link must return 410 on analytics POST even with active session"
+        )
+
+    @pytest.mark.asyncio
+    async def test_expired_link_analytics_rejected(self, client, db_session):
+        """A viewer with an active session cannot log events after the link expires."""
+        import datetime as _dt
+        from app.services.link_service import LinkService
+        from sqlalchemy import update
+        from app.models.link import ShareLink as _ShareLink
+
+        doc = await _insert_ready_doc(db_session)
+        svc = LinkService()
+        link = await svc.create_link(db_session, document_id=str(doc.id))
+
+        session_id = await _get_session(client, link.token)
+
+        # Force expiry by updating expires_at to the past
+        await db_session.execute(
+            update(_ShareLink)
+            .where(_ShareLink.id == link.id)
+            .values(expires_at=_dt.datetime.now(_dt.timezone.utc) - _dt.timedelta(hours=1))
+        )
+        await db_session.commit()
+        # Flush link cache so the endpoint reads fresh data
+        from app.services.viewer_cache import invalidate_link
+        invalidate_link(link.token)
+
+        r = await client.post("/api/analytics/events", json={
+            "token": link.token,
+            "session_id": session_id,
+            "event_type": "copy_attempt",
+        })
+        assert r.status_code == 410, (
+            "Expired link must return 410 on analytics POST even with active session"
+        )
+
+    @pytest.mark.asyncio
+    async def test_active_link_still_accepts_events(self, client, active_link, ready_document):
+        """An active (non-revoked, non-expired) link must still accept analytics events."""
+        session_id = await _get_session(client, active_link.token)
+        r = await client.post("/api/analytics/events", json={
+            "token": active_link.token,
+            "session_id": session_id,
+            "event_type": "copy_attempt",
+        })
+        assert r.status_code == 200
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# L. SEC-11 — Analytics POST rejects non-string token/session_id
+# ══════════════════════════════════════════════════════════════════════════════
+
+class TestSec11AnalyticsBodyTypeValidation:
+    """POST /api/analytics/events must not 500 on non-string body fields."""
+
+    @pytest.mark.asyncio
+    async def test_integer_token_returns_400(self, client):
+        """token=123 (int) must return 400, not 500."""
+        r = await client.post("/api/analytics/events", json={
+            "token": 123,
+            "session_id": "aabbccddeeff00112233445566778899",
+            "event_type": "copy_attempt",
+        })
+        assert r.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_null_token_returns_400(self, client):
+        """token=null must return 400."""
+        r = await client.post("/api/analytics/events", json={
+            "token": None,
+            "session_id": "aabbccddeeff00112233445566778899",
+            "event_type": "copy_attempt",
+        })
+        assert r.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_integer_session_id_returns_400(self, client):
+        """session_id=42 (int) must return 400, not 500."""
+        r = await client.post("/api/analytics/events", json={
+            "token": "sometoken",
+            "session_id": 42,
+            "event_type": "copy_attempt",
+        })
+        assert r.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_integer_event_type_returns_400(self, client):
+        """event_type=1 (int) must return 400, not 500."""
+        r = await client.post("/api/analytics/events", json={
+            "token": "sometoken",
+            "session_id": "aabbccddeeff00112233445566778899",
+            "event_type": 1,
+        })
+        assert r.status_code == 400
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# M. SEC-12 — LibreOffice subprocess uses filtered environment
+# ══════════════════════════════════════════════════════════════════════════════
+
+class TestSec12LibreOfficeEnvFiltering:
+    """LibreOfficeConverter must not pass application secrets to the LO subprocess."""
+
+    def _make_converter(self):
+        from app.services.libreoffice_converter import LibreOfficeConverter
+        c = LibreOfficeConverter()
+        c.CONVERSION_TIMEOUT_SEC = 5
+        return c
+
+    def test_database_url_not_in_subprocess_env(self, tmp_path, monkeypatch):
+        """DATABASE_URL must not be passed to the LibreOffice subprocess."""
+        import os
+        monkeypatch.setenv("DATABASE_URL", "postgresql://secret:pass@db/securedoc")
+        monkeypatch.setenv("STORAGE_SECRET_ACCESS_KEY", "my-s3-secret-key")
+
+        captured_env = []
+        fake_pdf = b"%PDF-1.4 fake"
+        converter = self._make_converter()
+
+        def capture_env(cmd, **kwargs):
+            captured_env.append(dict(kwargs.get("env", {})))
+            return MagicMock(returncode=0, stderr=b"", stdout=b"")
+
+        with patch("shutil.which", return_value="/usr/bin/libreoffice"), \
+             patch("subprocess.run", side_effect=capture_env), \
+             patch("tempfile.mkdtemp", return_value=str(tmp_path)), \
+             patch("shutil.rmtree"):
+
+            (tmp_path / "input.pdf").write_bytes(fake_pdf)
+            converter.convert_to_pdf(b"PK\x03\x04 fake", ".docx")
+
+        assert captured_env, "subprocess.run must be called"
+        env = captured_env[0]
+        assert "DATABASE_URL" not in env, (
+            "DATABASE_URL must not be passed to LibreOffice subprocess"
+        )
+        assert "STORAGE_SECRET_ACCESS_KEY" not in env, (
+            "STORAGE_SECRET_ACCESS_KEY must not be passed to LibreOffice subprocess"
+        )
+
+    def test_storage_secret_not_in_subprocess_env(self, tmp_path, monkeypatch):
+        """STORAGE_ACCESS_KEY_ID and STORAGE_SECRET_ACCESS_KEY must not leak."""
+        monkeypatch.setenv("STORAGE_ACCESS_KEY_ID", "AKIAIOSFODNN7EXAMPLE")
+        monkeypatch.setenv("SUPABASE_ANON_KEY", "eyJhbGc.secret.token")
+        monkeypatch.setenv("IP_HASH_SALT", "my-very-secret-salt")
+
+        captured_env = []
+        fake_pdf = b"%PDF-1.4 fake"
+        converter = self._make_converter()
+
+        def capture_env(cmd, **kwargs):
+            captured_env.append(dict(kwargs.get("env", {})))
+            return MagicMock(returncode=0, stderr=b"", stdout=b"")
+
+        with patch("shutil.which", return_value="/usr/bin/libreoffice"), \
+             patch("subprocess.run", side_effect=capture_env), \
+             patch("tempfile.mkdtemp", return_value=str(tmp_path)), \
+             patch("shutil.rmtree"):
+
+            (tmp_path / "input.pdf").write_bytes(fake_pdf)
+            converter.convert_to_pdf(b"PK\x03\x04 fake", ".docx")
+
+        assert captured_env, "subprocess.run must be called"
+        env = captured_env[0]
+        assert "STORAGE_ACCESS_KEY_ID" not in env
+        assert "SUPABASE_ANON_KEY" not in env
+        assert "IP_HASH_SALT" not in env
+
+    def test_java_home_present_in_subprocess_env(self, tmp_path, monkeypatch):
+        """JAVA_HOME must still be passed so LibreOffice can find the JVM."""
+        monkeypatch.setenv("JAVA_HOME", "/usr/lib/jvm/java-17-openjdk-amd64")
+
+        captured_env = []
+        fake_pdf = b"%PDF-1.4 fake"
+        converter = self._make_converter()
+
+        def capture_env(cmd, **kwargs):
+            captured_env.append(dict(kwargs.get("env", {})))
+            return MagicMock(returncode=0, stderr=b"", stdout=b"")
+
+        with patch("shutil.which", return_value="/usr/bin/libreoffice"), \
+             patch("subprocess.run", side_effect=capture_env), \
+             patch("tempfile.mkdtemp", return_value=str(tmp_path)), \
+             patch("shutil.rmtree"):
+
+            (tmp_path / "input.pdf").write_bytes(fake_pdf)
+            converter.convert_to_pdf(b"PK\x03\x04 fake", ".docx")
+
+        assert captured_env
+        env = captured_env[0]
+        assert "JAVA_HOME" in env, "JAVA_HOME must be present for LO JVM discovery"

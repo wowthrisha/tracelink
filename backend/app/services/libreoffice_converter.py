@@ -154,9 +154,23 @@ class LibreOfficeConverter:
                 input_path,
             ]
 
-            # javaldx needs JAVA_HOME to locate the JVM shared library.
-            # Without it LibreOffice exits 1 on containers even when a JRE is installed.
-            env = os.environ.copy()
+            # Build a minimal environment for the LibreOffice subprocess.
+            # SEC: do NOT inherit the full process environment — it contains DATABASE_URL,
+            # STORAGE_SECRET_ACCESS_KEY, SUPABASE_ANON_KEY, IP_HASH_SALT, and other
+            # application secrets that LibreOffice has no need of.  If an attacker
+            # achieves RCE via a malicious DOCX, a filtered env limits the blast radius
+            # to the whitelist below rather than exposing all credentials.
+            _LO_ENV_WHITELIST = frozenset({
+                "PATH", "HOME", "USER", "LOGNAME",
+                "TMPDIR", "TEMP", "TMP",
+                "LANG", "LC_ALL", "LC_CTYPE", "LC_MESSAGES",
+                "FONTCONFIG_PATH", "FONTCONFIG_FILE",
+                "XDG_DATA_HOME", "XDG_CONFIG_HOME", "XDG_RUNTIME_DIR",
+                "DISPLAY", "XAUTHORITY",
+                "JAVA_HOME", "JAVA_OPTS",
+                "LD_LIBRARY_PATH",
+            })
+            env = {k: v for k, v in os.environ.items() if k in _LO_ENV_WHITELIST}
             if "JAVA_HOME" not in env:
                 import glob as _glob
                 candidates = sorted(_glob.glob("/usr/lib/jvm/java-*-openjdk*"))

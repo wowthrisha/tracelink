@@ -157,19 +157,35 @@ async def log_viewer_event(
     Only viewer-initiated events are accepted; server-side security events
     (revoked, expired, ip_blocked, etc.) cannot be logged through this endpoint.
     """
+    from datetime import datetime, timezone
     from app.models.event import VIEWER_LOGGABLE_EVENTS
     from app.services.policy import enforcer
 
-    token = body.get("token", "").strip()
-    session_id = body.get("session_id", "").strip()
-    event_type = body.get("event_type", "").strip()
+    # SEC: validate body field types explicitly — body: dict accepts any JSON type.
+    # A non-string token/session_id would cause AttributeError on .strip() → 500.
+    _raw_token = body.get("token")
+    if not isinstance(_raw_token, str) or not _raw_token.strip():
+        raise HTTPException(status_code=400, detail="token is required")
+    token = _raw_token.strip()
+
+    _raw_session = body.get("session_id")
+    if not isinstance(_raw_session, str) or not _raw_session.strip():
+        raise HTTPException(status_code=400, detail="session_id is required")
+    session_id = _raw_session.strip()
+
+    _raw_event_type = body.get("event_type")
+    if not isinstance(_raw_event_type, str):
+        raise HTTPException(status_code=400, detail="event_type must be a string")
+    event_type = _raw_event_type.strip()
+
     page_number = body.get("page_number")
     metadata = body.get("metadata")
 
-    if not token:
-        raise HTTPException(status_code=400, detail="token is required")
-    if not session_id:
-        raise HTTPException(status_code=400, detail="session_id is required")
+    # SEC: page_number must be a positive integer when supplied — prevents analytics
+    # poisoning via out-of-range or negative page numbers from client-side code.
+    if page_number is not None:
+        if not isinstance(page_number, int) or isinstance(page_number, bool) or page_number < 1:
+            raise HTTPException(status_code=400, detail="page_number must be a positive integer")
 
     # Restrict metadata size to prevent storage-inflation attacks.
     # A viewer with a valid session could otherwise spam large payloads at the
@@ -198,6 +214,20 @@ async def log_viewer_event(
     link = link_result.scalar_one_or_none()
     if not link:
         raise HTTPException(status_code=404, detail="Link not found")
+
+    # SEC: reject event logging for revoked or expired links even when the viewer
+    # session is still technically active (sessions outlive link revocation by up to
+    # 2 h).  This prevents a revoked-link viewer from polluting analytics records
+    # after the link owner has cut access.
+    now = datetime.now(timezone.utc)
+    if link.revoked_at is not None:
+        raise HTTPException(status_code=410, detail="Link revoked")
+    if link.expires_at is not None:
+        expires = link.expires_at
+        if expires.tzinfo is None:
+            expires = expires.replace(tzinfo=timezone.utc)
+        if expires < now:
+            raise HTTPException(status_code=410, detail="Link expired")
 
     # Verify the session is active for this specific link — prevents anyone with
     # a valid token from logging events without an established viewer session.
