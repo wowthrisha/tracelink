@@ -376,6 +376,7 @@ class TestXCacheStatusHeader:
             mock_analytics.log_event = AsyncMock()
             mock_policy.ip_is_allowed.return_value = True
             mock_policy.upsert_session = AsyncMock()
+            mock_policy.is_active_session = AsyncMock(return_value=True)
 
             rp = await client.get(
                 f"/api/viewer/page/{ready_link}/1?session_id={session_id}"
@@ -412,6 +413,7 @@ class TestXCacheStatusHeader:
             mock_analytics.log_event = AsyncMock()
             mock_policy.ip_is_allowed.return_value = True
             mock_policy.upsert_session = AsyncMock()
+            mock_policy.is_active_session = AsyncMock(return_value=True)
 
             rp = await client.get(
                 f"/api/viewer/page/{ready_link}/1?session_id={session_id}"
@@ -452,6 +454,7 @@ class TestXCacheStatusHeader:
             mock_analytics.log_event = AsyncMock()
             mock_policy.ip_is_allowed.return_value = True
             mock_policy.upsert_session = AsyncMock()
+            mock_policy.is_active_session = AsyncMock(return_value=True)
 
             rp = await client.get(
                 f"/api/viewer/page/{ready_link}/1?session_id={session_id}"
@@ -485,6 +488,7 @@ class TestXCacheStatusHeader:
             mock_analytics.log_event = AsyncMock()
             mock_policy.ip_is_allowed.return_value = True
             mock_policy.upsert_session = AsyncMock()
+            mock_policy.is_active_session = AsyncMock(return_value=True)
 
             rt = await client.get(
                 f"/api/viewer/thumb/{ready_link}/1?session_id={session_id}"
@@ -962,6 +966,7 @@ class TestPhase8Regression:
             ma.log_event = AsyncMock()
             mp.ip_is_allowed.return_value = True
             mp.upsert_session = AsyncMock()
+            mp.is_active_session = AsyncMock(return_value=True)
 
             rp = await client.get(
                 f"/api/viewer/page/{link.token}/1?session_id={session_id}"

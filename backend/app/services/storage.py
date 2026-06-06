@@ -122,18 +122,8 @@ class StorageService(StorageBackend):
                     storage_key,
                     ExtraArgs={"ContentType": content_type},
                 )
-            except ClientError as e:
-                # If bucket doesn't exist, try creating it (useful for local Moto testing)
-                if e.response['Error']['Code'] == 'NoSuchBucket':
-                    client.create_bucket(Bucket=self._bucket)
-                    client.upload_fileobj(
-                        io.BytesIO(file_bytes),
-                        self._bucket,
-                        storage_key,
-                        ExtraArgs={"ContentType": content_type},
-                    )
-                else:
-                    raise
+            except ClientError:
+                raise
             except boto3.exceptions.S3UploadFailedError as e:
                 # upload_fileobj wraps underlying errors in S3UploadFailedError;
                 # unwrap and re-raise so callers get a consistent ClientError.

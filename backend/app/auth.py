@@ -31,17 +31,17 @@ async def _get_public_key(kid: Optional[str]):
         return _jwks_cache[kid]
     if len(_jwks_cache) == 1:
         return next(iter(_jwks_cache.values()))
-    raise HTTPException(status_code=401, detail=f"Key '{kid}' not in JWKS")
+    raise HTTPException(status_code=401, detail="Authentication failed")
 
 async def verify_supabase_token(token: str) -> dict:
     try:
         header = jwt.get_unverified_header(token)
-    except jwt.DecodeError as e:
-        raise HTTPException(status_code=401, detail=f"Bad JWT header: {e}")
+    except jwt.DecodeError:
+        raise HTTPException(status_code=401, detail="Authentication failed")
 
     alg = header.get("alg", "ES256")
     if alg not in ("ES256", "RS256"):
-        raise HTTPException(status_code=401, detail=f"Algorithm {alg} not accepted")
+        raise HTTPException(status_code=401, detail="Authentication failed")
 
     public_key = await _get_public_key(header.get("kid"))
 
@@ -49,14 +49,14 @@ async def verify_supabase_token(token: str) -> dict:
         payload = jwt.decode(token, public_key, algorithms=[alg], audience="authenticated")
     except jwt.ExpiredSignatureError:
         raise HTTPException(status_code=401, detail="Token expired. Please sign in again.")
-    except jwt.InvalidTokenError as e:
+    except jwt.InvalidTokenError:
         # Try once more after refreshing JWKS (handles key rotation)
         await _fetch_jwks()
         try:
             public_key = await _get_public_key(header.get("kid"))
             payload = jwt.decode(token, public_key, algorithms=[alg], audience="authenticated")
-        except jwt.InvalidTokenError as e2:
-            raise HTTPException(status_code=401, detail=f"Invalid token: {e2}")
+        except jwt.InvalidTokenError:
+            raise HTTPException(status_code=401, detail="Authentication failed")
 
     return {"user_id": payload["sub"], "email": payload.get("email", ""), "role": payload.get("role", "authenticated")}
 

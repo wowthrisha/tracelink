@@ -23,7 +23,9 @@ Security model
   • Input is written to a mkdtemp() directory with a random name.
   • Input filename is always 'input.docx', never user-supplied → no traversal.
   • Temp directory cleaned up unconditionally in a finally block.
-  • Macros disabled via --nomacroexecution (LibreOffice 7.2+, Debian bookworm ships 7.4+).
+  • Macros disabled via profile registry (MacroSecurityLevel=3, "Very High") written to
+    the per-conversion lo_profile before LibreOffice starts — the former CLI flag
+    --nomacroexecution was removed in LibreOffice 25.2.
   • Hard timeout at the subprocess level (default 60 s).
 """
 from __future__ import annotations
@@ -40,6 +42,22 @@ logger = logging.getLogger(__name__)
 # Default timeout for a single LibreOffice conversion subprocess.
 # 60 s is generous; a 200-page DOCX typically converts in < 30 s.
 _CONVERSION_TIMEOUT_SEC: int = 60
+
+# XCU registry fragment that sets macro security to "Very High" (level 3).
+# This prevents embedded macros from executing during headless conversion.
+# Written into each conversion's isolated lo_profile before LibreOffice starts.
+_MACRO_SECURITY_XCU = """\
+<?xml version="1.0" encoding="UTF-8"?>
+<oor:items xmlns:oor="http://openoffice.org/2001/registry"
+           xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <item oor:path="/org.openoffice.Office.Common/Security/Scripting">
+    <prop oor:name="MacroSecurityLevel" oor:op="fuse">
+      <value>3</value>
+    </prop>
+  </item>
+</oor:items>
+"""
 
 
 class LibreOfficeError(Exception):
@@ -117,6 +135,14 @@ class LibreOfficeConverter:
             # workers don't share lock files.
             lo_profile = os.path.join(tmp_dir, "lo_profile")
             os.makedirs(lo_profile, exist_ok=True)
+
+            # Write macro security profile before LibreOffice starts so embedded
+            # macros cannot execute during conversion (MacroSecurityLevel=3).
+            _xcu_dir = os.path.join(lo_profile, "user", "config")
+            os.makedirs(_xcu_dir, exist_ok=True)
+            with open(os.path.join(_xcu_dir, "registrymodifications.xcu"), "w", encoding="utf-8") as _xcu_fh:
+                _xcu_fh.write(_MACRO_SECURITY_XCU)
+
             cmd = [
                 binary,
                 "--headless",

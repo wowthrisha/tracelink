@@ -132,7 +132,7 @@ async def get_events(
                 "page_number": e.page_number,
                 "viewer_email": e.viewer_email,
                 "ip_hash": e.ip_hash,
-                "session_id": e.session_id,
+                "session_id": e.session_id[:8] if e.session_id else None,
                 "created_at": e.created_at.isoformat() if e.created_at else None,
                 "link_id": str(e.link_id),
             }

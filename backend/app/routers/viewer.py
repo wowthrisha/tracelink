@@ -327,6 +327,10 @@ async def get_page(
 
     link_snap, doc_snap, ip, now = await _get_cached_link_and_doc(link_token, db, request)
 
+    # ── Session validation (SEC-03) ───────────────────────────────────────────
+    if not await policy_enforcer.is_active_session(db, link_snap.id, session_id):
+        raise HTTPException(status_code=401, detail="Session not recognized. Please re-validate.")
+
     # ── Page record (TTL-cached, 5 min; immutable after creation) ─────────────
     _page_key = f"{link_snap.document_id}:{page_number}"
     page_snap: Optional[PageSnapshot] = page_cache.get(_page_key)
@@ -454,6 +458,10 @@ async def get_thumb(
 
     link_snap, doc_snap, ip, now = await _get_cached_link_and_doc(link_token, db, request)
 
+    # ── Session validation (SEC-01) ───────────────────────────────────────────
+    if not await policy_enforcer.is_active_session(db, link_snap.id, session_id):
+        raise HTTPException(status_code=401, detail="Session not recognized. Please re-validate.")
+
     # ── Page record (TTL-cached, 5 min) ───────────────────────────────────────
     _page_key = f"{link_snap.document_id}:{page_number}"
     page_snap: Optional[PageSnapshot] = page_cache.get(_page_key)
@@ -558,6 +566,10 @@ async def get_toc(
         raise HTTPException(status_code=400, detail="session_id is required")
 
     link_snap, doc_snap, ip, now = await _get_cached_link_and_doc(link_token, db, request)
+
+    # ── Session validation (SEC-01) ───────────────────────────────────────────
+    if not await policy_enforcer.is_active_session(db, link_snap.id, session_id):
+        raise HTTPException(status_code=401, detail="Session not recognized. Please re-validate.")
 
     file_type = doc_snap.file_type
     doc_id_str = str(link_snap.document_id)
@@ -811,6 +823,10 @@ async def get_text_chunk(
         raise HTTPException(status_code=400, detail="chunk_number must be ≥ 1")
 
     link_snap, doc_snap, ip, now = await _get_cached_link_and_doc(link_token, db, request)
+
+    # ── Session validation (SEC-03) ───────────────────────────────────────────
+    if not await policy_enforcer.is_active_session(db, link_snap.id, session_id):
+        raise HTTPException(status_code=401, detail="Session not recognized. Please re-validate.")
 
     # ── Verify this is a text document (uses cached DocSnapshot — no extra DB read) ──
     file_type = doc_snap.file_type

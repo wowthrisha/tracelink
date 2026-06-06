@@ -96,7 +96,30 @@ class TestConvertToPdfSuccess:
         assert "--headless" in cmd
         assert "--convert-to" in cmd
         assert "pdf" in cmd
-        assert "--nomacroexecution" in cmd  # Fix 3: macro execution must be disabled
+        # --nomacroexecution was removed in LibreOffice 25.2; macro security is
+        # now enforced via registrymodifications.xcu (MacroSecurityLevel=3).
+        assert "--nomacroexecution" not in cmd
+
+    def test_macro_security_xcu_written_before_subprocess(self, tmp_path):
+        """Macro security profile must be written to lo_profile/user/config/ before LO runs."""
+        converter = self._make_converter()
+        fake_pdf = b"%PDF-1.4 fake"
+
+        with patch("shutil.which", return_value="/usr/bin/libreoffice"), \
+             patch("subprocess.run") as mock_run, \
+             patch("tempfile.mkdtemp", return_value=str(tmp_path)), \
+             patch("shutil.rmtree"):
+
+            mock_run.return_value = MagicMock(returncode=0, stderr=b"")
+            (tmp_path / "input.pdf").write_bytes(fake_pdf)
+
+            converter.convert_to_pdf(b"PK\x03\x04 fake docx", ".docx")
+
+        xcu_path = tmp_path / "lo_profile" / "user" / "config" / "registrymodifications.xcu"
+        assert xcu_path.exists(), "XCU macro security profile must be created"
+        content = xcu_path.read_text()
+        assert "MacroSecurityLevel" in content
+        assert "<value>3</value>" in content
 
     def test_input_filename_is_fixed_not_user_supplied(self, tmp_path):
         """The input filename must be 'input.docx', never derived from user data."""

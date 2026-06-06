@@ -55,6 +55,12 @@ COPY --from=frontend-builder /frontend-src/dist/app.bundle.js /frontend/dist/app
 
 RUN chmod +x entrypoint.sh
 
+# Run as non-root to limit blast radius if the app is compromised.
+# UID 1001 avoids conflicts with common system users.
+RUN useradd -r -u 1001 -s /bin/false appuser \
+    && chown -R appuser:appuser /app
+USER appuser
+
 EXPOSE 8000
 
 ENTRYPOINT ["./entrypoint.sh"]

@@ -178,6 +178,14 @@ class PolicyEnforcer:
         now = datetime.now(timezone.utc)
         existing = await db.get(ViewerSession, session_id)
         if existing:
+            if existing.link_id != link_id:
+                # Cross-link session replay attempt — refuse to refresh heartbeat
+                # and return None so caller cannot derive any email from this session.
+                logger.warning(
+                    "session_link_mismatch session=%s... expected_link=%s actual_link=%s",
+                    session_id[:6], link_id, existing.link_id,
+                )
+                return None
             last_seen = existing.last_seen_at
             if last_seen.tzinfo is None:
                 last_seen = last_seen.replace(tzinfo=timezone.utc)
