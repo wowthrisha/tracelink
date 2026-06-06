@@ -205,29 +205,37 @@ window.SecureDocAPI = {
   // construct URLs consistently without duplicating the auto-detect logic.
   apiBase: API_BASE,
 
-  getPageUrl(linkToken, pageNumber, sessionId) {
-    if (!linkToken || !sessionId) {
-      console.error('[SecureDoc] getPageUrl: linkToken or sessionId is missing', { linkToken, pageNumber, sessionId });
-    }
-    // Guard against accidentally injecting extra slashes when API_BASE is empty.
-    const base = API_BASE.replace(/\/$/, '');
-    const page = Math.max(1, parseInt(pageNumber, 10) || 1);
-    return `${base}/api/viewer/page/${linkToken}/${page}?session_id=${encodeURIComponent(sessionId || '')}`;
+  // Build the X-Session-ID header object for secure session transport.
+  // Replaces query-param session_id on all viewer endpoints so the token
+  // is never written into URLs, access logs, or the browser history.
+  sessionHeaders(sessionId) {
+    return sessionId ? { 'X-Session-ID': sessionId } : {};
   },
 
-  getThumbUrl(linkToken, pageNumber, sessionId) {
-    if (!linkToken || !sessionId) {
-      console.error('[SecureDoc] getThumbUrl: linkToken or sessionId is missing', { linkToken, pageNumber, sessionId });
+  getPageUrl(linkToken, pageNumber) {
+    if (!linkToken) {
+      console.error('[SecureDoc] getPageUrl: linkToken is missing', { linkToken, pageNumber });
+    }
+    // session_id is no longer in the URL — callers must add X-Session-ID header.
+    const base = API_BASE.replace(/\/$/, '');
+    const page = Math.max(1, parseInt(pageNumber, 10) || 1);
+    return `${base}/api/viewer/page/${linkToken}/${page}`;
+  },
+
+  getThumbUrl(linkToken, pageNumber) {
+    if (!linkToken) {
+      console.error('[SecureDoc] getThumbUrl: linkToken is missing', { linkToken, pageNumber });
     }
     const base = API_BASE.replace(/\/$/, '');
     const page = Math.max(1, parseInt(pageNumber, 10) || 1);
-    return `${base}/api/viewer/thumb/${linkToken}/${page}?session_id=${encodeURIComponent(sessionId || '')}`;
+    return `${base}/api/viewer/thumb/${linkToken}/${page}`;
   },
 
   async getToc(linkToken, sessionId) {
     const base = API_BASE.replace(/\/$/, '');
     const r = await fetch(
-      `${base}/api/viewer/toc/${encodeURIComponent(linkToken)}?session_id=${encodeURIComponent(sessionId || '')}`
+      `${base}/api/viewer/toc/${encodeURIComponent(linkToken)}`,
+      { headers: this.sessionHeaders(sessionId) }
     );
     if (!r.ok) throw await r.json();
     return r.json();
@@ -237,7 +245,8 @@ window.SecureDocAPI = {
     const base = API_BASE.replace(/\/$/, '');
     const chunk = Math.max(1, parseInt(chunkNumber, 10) || 1);
     const r = await fetch(
-      `${base}/api/viewer/text/${encodeURIComponent(linkToken)}/${chunk}?session_id=${encodeURIComponent(sessionId || '')}`
+      `${base}/api/viewer/text/${encodeURIComponent(linkToken)}/${chunk}`,
+      { headers: this.sessionHeaders(sessionId) }
     );
     if (!r.ok) throw await r.json();
     return r.json();
@@ -246,7 +255,8 @@ window.SecureDocAPI = {
   async downloadDocument(linkToken, sessionId, filename) {
     const base = API_BASE.replace(/\/$/, '');
     const r = await fetch(
-      `${base}/api/viewer/download/${encodeURIComponent(linkToken)}?session_id=${encodeURIComponent(sessionId || '')}`
+      `${base}/api/viewer/download/${encodeURIComponent(linkToken)}`,
+      { headers: this.sessionHeaders(sessionId) }
     );
     if (!r.ok) throw await r.json().catch(() => ({ detail: 'Download failed' }));
     const blob = await r.blob();

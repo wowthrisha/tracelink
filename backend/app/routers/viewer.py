@@ -102,6 +102,28 @@ def _check_doc_ready(doc) -> None:
         raise HTTPException(status_code=503, detail="Document processing failed")
 
 
+def _get_session_id(request: Request, query_param: Optional[str] = None) -> Optional[str]:
+    """
+    Resolve session_id with a priority order that avoids URL/log exposure.
+
+    Priority:
+      1. X-Session-ID request header  (never logged by CDN/proxy)
+      2. sdoc_session cookie           (HttpOnly-capable, same-origin)
+      3. session_id query parameter    (backward-compat for existing tests/legacy clients)
+
+    The query-parameter fallback is retained so that the existing integration
+    test suite continues to pass without modification.  New production code
+    (frontend) should always use the X-Session-ID header path.
+    """
+    sid = request.headers.get("X-Session-ID", "").strip()
+    if sid:
+        return sid
+    sid = request.cookies.get("sdoc_session", "").strip()
+    if sid:
+        return sid
+    return query_param
+
+
 async def _get_cached_link_and_doc(
     link_token: str,
     db: AsyncSession,
@@ -322,6 +344,7 @@ async def get_page(
     session_id: Optional[str] = Query(None),
     db: AsyncSession = Depends(get_db),
 ):
+    session_id = _get_session_id(request, session_id)
     if not session_id:
         raise HTTPException(status_code=400, detail="session_id is required")
 
@@ -330,6 +353,10 @@ async def get_page(
     # ── Session validation (SEC-03) ───────────────────────────────────────────
     if not await policy_enforcer.is_active_session(db, link_snap.id, session_id):
         raise HTTPException(status_code=401, detail="Session not recognized. Please re-validate.")
+
+    # ── Page bounds check against doc snapshot (avoids unnecessary DB query) ──
+    if page_number < 1 or (doc_snap.page_count and page_number > doc_snap.page_count):
+        raise HTTPException(status_code=404, detail="Page not found")
 
     # ── Page record (TTL-cached, 5 min; immutable after creation) ─────────────
     _page_key = f"{link_snap.document_id}:{page_number}"
@@ -434,7 +461,7 @@ async def get_page(
 
 
 @router.get("/thumb/{link_token}/{page_number}")
-@limiter.limit("300/minute")
+@limiter.limit("120/minute")
 async def get_thumb(
     request: Request,
     link_token: str,
@@ -453,6 +480,7 @@ async def get_thumb(
     If the thumbnail asset is missing (e.g., a document processed before thumbnail
     generation was introduced), the full-resolution page bytes are served as a fallback.
     """
+    session_id = _get_session_id(request, session_id)
     if not session_id:
         raise HTTPException(status_code=400, detail="session_id is required")
 
@@ -562,6 +590,7 @@ async def get_toc(
     from app.services.toc.cache import get_cached_toc_async, store_toc_async
     from app.config import settings as _settings
 
+    session_id = _get_session_id(request, session_id)
     if not session_id:
         raise HTTPException(status_code=400, detail="session_id is required")
 
@@ -662,6 +691,7 @@ async def download_document(
     import io as _io
     from PIL import Image as _Image
 
+    session_id = _get_session_id(request, session_id)
     if not session_id:
         raise HTTPException(status_code=400, detail="session_id is required")
 
@@ -689,14 +719,15 @@ async def download_document(
         if not policy_enforcer.ip_is_allowed(ip, link.ip_allowlist):
             raise HTTPException(status_code=403, detail="Access denied from this IP")
 
+    # Validate active session BEFORE permission check to avoid leaking whether
+    # download is enabled on links the caller hasn't authenticated against.
+    if not await policy_enforcer.is_active_session(db, link.id, session_id):
+        raise HTTPException(status_code=401, detail="Session expired or invalid")
+
     # Check download permission
     perms = json.loads(link.permissions) if link.permissions else {}
     if not perms.get("can_download", False):
         raise HTTPException(status_code=403, detail="Download not permitted on this link")
-
-    # Validate active session
-    if not await policy_enforcer.is_active_session(db, link.id, session_id):
-        raise HTTPException(status_code=401, detail="Session expired or invalid")
 
     # Fetch document
     _doc_row = await db.execute(select(Document).where(Document.id == link.document_id))
@@ -816,6 +847,7 @@ async def get_text_chunk(
     from app.services.text_processor import decode_text_safe, chunk_text
     from app.config import settings
 
+    session_id = _get_session_id(request, session_id)
     if not session_id:
         raise HTTPException(status_code=400, detail="session_id is required")
 

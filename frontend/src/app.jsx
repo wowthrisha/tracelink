@@ -1289,10 +1289,10 @@
         setImgLoading(true);
         setPageError(null);
 
-        const url = window.SecureDocAPI.getPageUrl(token, pageNum, sessionId);
+        const url = window.SecureDocAPI.getPageUrl(token, pageNum);
         const fetchPromise = (async () => {
           try {
-            const r = await fetch(url);
+            const r = await fetch(url, { headers: window.SecureDocAPI.sessionHeaders(sessionId) });
             if (!r.ok) {
               let detail = null;
               try { detail = (await r.json()).detail; } catch {}
@@ -1324,7 +1324,7 @@
         if (pageNum < 1 || pageNum > total) return;
         const key = `${token}:${pageNum}`;
         if (pageCache.current.has(key)) return;
-        fetch(window.SecureDocAPI.getPageUrl(token, pageNum, sessionId))
+        fetch(window.SecureDocAPI.getPageUrl(token, pageNum), { headers: window.SecureDocAPI.sessionHeaders(sessionId) })
           .then(r => r.ok ? r.blob() : Promise.reject())
           .then(blob => { _cacheSet(key, URL.createObjectURL(blob)); })
           .catch(() => {});
@@ -2137,11 +2137,16 @@
 
           _thumbQueue.acquire().then(release => {
             if (cancelled) { release(); return; }
-            const url = window.SecureDocAPI.getThumbUrl(token, p, sessionId);
-            const img = new Image();
-            img.onload = () => { if (!cancelled) setThumbSrc(url); release(); };
-            img.onerror = () => { if (!cancelled) setThumbError(true); release(); };
-            img.src = url;
+            // Use fetch + blob so X-Session-ID header is sent — keeps session_id
+            // out of URLs, access logs, and the browser's image request history.
+            const url = window.SecureDocAPI.getThumbUrl(token, p);
+            fetch(url, { headers: window.SecureDocAPI.sessionHeaders(sessionId) })
+              .then(r => r.ok ? r.blob() : Promise.reject())
+              .then(blob => {
+                if (!cancelled) setThumbSrc(URL.createObjectURL(blob));
+                release();
+              })
+              .catch(() => { if (!cancelled) setThumbError(true); release(); });
           }).catch(() => {});
         };
 

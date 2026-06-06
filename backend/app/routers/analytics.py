@@ -234,6 +234,18 @@ async def log_viewer_event(
     if not await enforcer.is_active_session(db, link.id, session_id):
         raise HTTPException(status_code=403, detail="Invalid or expired session")
 
+    # SEC: validate page_number against document page_count — prevents poisoning
+    # analytics with out-of-range page numbers (e.g., page 9999 on a 5-page doc).
+    if page_number is not None:
+        from app.models.document import Document as _Document
+        _doc_row = await db.execute(select(_Document).where(_Document.id == link.document_id))
+        _doc = _doc_row.scalar_one_or_none()
+        if _doc and _doc.page_count and page_number > _doc.page_count:
+            raise HTTPException(
+                status_code=400,
+                detail=f"page_number {page_number} exceeds document page count",
+            )
+
     await analytics_svc.log_event(
         db,
         link_id=link.id,

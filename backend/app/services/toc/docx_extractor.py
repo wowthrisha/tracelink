@@ -258,11 +258,17 @@ def doc_to_text(doc_bytes: bytes, doc_id: str = "") -> str:
             tmp.write(doc_bytes)
             tmp_path = tmp.name
 
+        # Whitelist only variables antiword needs; strip all secrets from the
+        # inherited environment (DATABASE_URL, REDIS_URL, AWS keys, etc.).
+        _ANTIWORD_ENV_WHITELIST = {"HOME", "TMPDIR", "TEMP", "TMP", "PATH", "LANG", "LC_ALL"}
+        _antiword_env = {k: v for k, v in os.environ.items() if k in _ANTIWORD_ENV_WHITELIST}
+
         result = subprocess.run(
             ["antiword", tmp_path],
             capture_output=True,
             timeout=30,
             check=False,
+            env=_antiword_env,
         )
         if result.returncode == 0:
             return result.stdout.decode("utf-8", errors="replace")
