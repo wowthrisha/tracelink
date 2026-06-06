@@ -40,8 +40,17 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 # Default timeout for a single LibreOffice conversion subprocess.
-# 60 s is generous; a 200-page DOCX typically converts in < 30 s.
-_CONVERSION_TIMEOUT_SEC: int = 60
+# Read from settings so it is tunable without rebuilding the image.
+# Default is 120 s (was 60 s) — covers large DOCX files on Railway/Render
+# where LibreOffice startup adds ~3–5 s to every conversion.
+def _default_conversion_timeout() -> int:
+    try:
+        from app.config import settings
+        return settings.lo_conversion_timeout_sec
+    except Exception:
+        return 120
+
+_CONVERSION_TIMEOUT_SEC: int = _default_conversion_timeout()
 
 # XCU registry fragment that sets macro security to "Very High" (level 3).
 # This prevents embedded macros from executing during headless conversion.

@@ -118,10 +118,17 @@ class Settings(BaseSettings):
     worker_concurrency: int = 2
 
     # WORKER_MAX_TASKS_PER_CHILD: recycle worker processes after N tasks.
-    # 0 = never recycle (default, fine for development).
-    # Setting to 10–50 in production guards against memory leaks in PDF processing
-    # libraries (pdf2image / Pillow) that accumulate memory across tasks.
-    worker_max_tasks_per_child: int = 0
+    # 0 = never recycle.  10 is the production default: enough to amortise
+    # worker startup cost (~2 s) while flushing any memory accumulated by
+    # pdf2image / Pillow / LibreOffice across tasks.  Increase to 20–50 on
+    # high-throughput instances where startup cost matters more.
+    worker_max_tasks_per_child: int = 10
+
+    # LibreOffice conversion timeout per document (seconds).
+    # 120 s covers large DOCX files (50+ pages, embedded images, complex styles).
+    # The old default was 60 s which caused spurious timeouts on Railway.
+    # Set higher (e.g. 300) for documents with many embedded images or macros.
+    lo_conversion_timeout_sec: int = 120
 
     # ── Download safety ──────────────────────────────────────────────────────────
     # Maximum number of pages allowed in a single PDF download request.

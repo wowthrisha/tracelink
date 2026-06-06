@@ -1,11 +1,19 @@
 """PDF document processing pipeline."""
+import asyncio
 import logging
-from app.models.document import DocumentPage
 import uuid
+
+from app.models.document import DocumentPage
 
 logger = logging.getLogger(__name__)
 
 _THUMBNAIL_WIDTH_PX = 200
+
+# Maximum concurrent R2 upload pairs (page image + thumbnail) per document.
+# Each pair is 2 parallel PUT requests.  With 8 slots → 16 concurrent PUTs,
+# well within R2's per-connection limits while saturating the worker's
+# network uplink on typical Railway / Render environments.
+_UPLOAD_CONCURRENCY = 8
 
 
 def _make_thumbnail(image_bytes: bytes) -> bytes:
@@ -25,6 +33,50 @@ def _make_thumbnail(image_bytes: bytes) -> bytes:
     buf = _io.BytesIO()
     thumb.save(buf, format="WEBP", quality=60)
     return buf.getvalue()
+
+
+async def _process_and_upload_page(
+    storage, watermark, semaphore: asyncio.Semaphore, page, document_id: str
+) -> DocumentPage:
+    """
+    Stamp, thumbnail, and upload one page; return the DB row.
+
+    The page image and thumbnail are uploaded concurrently (asyncio.gather)
+    within a shared semaphore that caps how many pages are processed in
+    parallel at any moment.  All upload I/O is bounded by _UPLOAD_CONCURRENCY
+    to prevent thundering-herd against R2/S3 on large documents.
+    """
+    page_key = f"pages/{document_id}/{page.page_number:04d}.webp"
+    thumb_key = f"thumbs/{document_id}/{page.page_number:04d}.webp"
+
+    stamped = watermark.apply_forensic_stamp(page.image_bytes, document_id, page.page_number)
+
+    thumb_bytes = None
+    try:
+        thumb_bytes = _make_thumbnail(stamped)
+    except Exception as thumb_exc:
+        logger.warning(
+            "Document %s: thumbnail failed for page %d: %s",
+            document_id, page.page_number, thumb_exc,
+        )
+
+    async with semaphore:
+        upload_coros = [storage.upload_file(stamped, page_key, content_type="image/webp")]
+        if thumb_bytes is not None:
+            upload_coros.append(
+                storage.upload_file(thumb_bytes, thumb_key, content_type="image/webp")
+            )
+        await asyncio.gather(*upload_coros)
+
+    logger.debug("Document %s: uploaded page %d → %s", document_id, page.page_number, page_key)
+
+    return DocumentPage(
+        document_id=uuid.UUID(document_id),
+        page_number=page.page_number,
+        storage_key=page_key,
+        width_px=page.width_px,
+        height_px=page.height_px,
+    )
 
 
 async def process_pdf_document(
@@ -47,45 +99,22 @@ async def process_pdf_document(
         pdf_bytes = await storage.download_bytes(doc.storage_key)
     logger.info("Document %s: pdf_bytes %d bytes", document_id, len(pdf_bytes))
 
-    # Rasterize — raises RasterizerError on bad/malicious PDF (permanent failure)
+    # Rasterize — raises RasterizerError on bad/malicious PDF (permanent failure).
+    # Streaming implementation: peak RAM = O(1 page) not O(N pages).
     logger.info("Document %s: rasterizing PDF", document_id)
     pages = await rasterizer.rasterize_document(pdf_bytes, document_id)
     logger.info("Document %s: rasterized %d page(s)", document_id, len(pages))
 
-    for page in pages:
-        stamped = watermark.apply_forensic_stamp(
-            page.image_bytes, document_id, page.page_number
-        )
-        page_key = f"pages/{document_id}/{page.page_number:04d}.webp"
-        await storage.upload_file(stamped, page_key, content_type="image/webp")
-        logger.debug(
-            "Document %s: uploaded page %d → %s", document_id, page.page_number, page_key
-        )
+    # Upload pages + thumbnails with bounded concurrency.
+    # asyncio.gather preserves result order so db_pages[i] matches pages[i].
+    semaphore = asyncio.Semaphore(_UPLOAD_CONCURRENCY)
+    db_pages = await asyncio.gather(*[
+        _process_and_upload_page(storage, watermark, semaphore, page, document_id)
+        for page in pages
+    ])
 
-        # Thumbnail — best-effort: failure must not block document processing
-        try:
-            thumb_bytes = _make_thumbnail(stamped)
-            thumb_key = f"thumbs/{document_id}/{page.page_number:04d}.webp"
-            await storage.upload_file(thumb_bytes, thumb_key, content_type="image/webp")
-            logger.debug(
-                "Document %s: uploaded thumbnail %d → %s",
-                document_id, page.page_number, thumb_key,
-            )
-        except Exception as thumb_exc:
-            logger.warning(
-                "Document %s: thumbnail generation failed for page %d: %s",
-                document_id, page.page_number, thumb_exc,
-            )
-
-        db_page = DocumentPage(
-            document_id=uuid.UUID(document_id),
-            page_number=page.page_number,
-            storage_key=page_key,
-            width_px=page.width_px,
-            height_px=page.height_px,
-        )
+    for db_page in db_pages:
         db.add(db_page)
-
     doc.status = "ready"
     doc.page_count = len(pages)
     await db.commit()

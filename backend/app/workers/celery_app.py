@@ -24,6 +24,14 @@ celery_app.conf.update(
     # does not remain stuck in "processing" permanently (pairs with acks_late=True).
     task_reject_on_worker_lost=True,
     worker_prefetch_multiplier=1,
+    # Per-task time limits (seconds).
+    # soft_time_limit raises SoftTimeLimitExceeded inside the task coroutine,
+    # allowing graceful cleanup before the hard limit kills the process.
+    # 600 s / 10 min covers a 200-page PDF under normal R2 upload conditions.
+    # The hard limit (660 s) gives the task 60 s to handle the soft exception
+    # before the worker process is force-killed and the task re-queued.
+    task_soft_time_limit=600,
+    task_time_limit=660,
     beat_schedule={
         "purge-stale-sessions-every-30-min": {
             "task": "securedoc.purge_stale_sessions",

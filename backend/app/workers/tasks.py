@@ -181,6 +181,20 @@ async def _process_document_async(task, document_id: str) -> dict:
         raise
 
     except Exception as exc:
+        # SoftTimeLimitExceeded means the task ran past the configured
+        # task_soft_time_limit (600 s).  Treat as permanent: a document
+        # that needs more than 10 minutes is either pathologically large
+        # or the worker is resource-constrained — retrying would just
+        # consume more queue capacity with the same outcome.
+        from celery.exceptions import SoftTimeLimitExceeded
+        if isinstance(exc, SoftTimeLimitExceeded):
+            logger.error(
+                "Document %s: soft time limit exceeded (>600 s) — marking error, no retry",
+                document_id,
+            )
+            await _mark_document_error(document_id, "Processing timed out after 600 s")
+            raise
+
         logger.error(
             "Document %s: transient failure (%s): %s — retrying",
             document_id, type(exc).__name__, exc,
