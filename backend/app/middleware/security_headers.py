@@ -74,7 +74,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             is_https = (request.url.scheme == "https") or (proto == "https")
             if is_https and "Strict-Transport-Security" not in response.headers:
                 response.headers["Strict-Transport-Security"] = (
-                    f"max-age={self._hsts_max_age}; includeSubDomains"
+                    f"max-age={self._hsts_max_age}; includeSubDomains; preload"
                 )
 
         # Static asset cache headers

@@ -6,7 +6,7 @@ import time
 from datetime import datetime, timezone
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Request, Query
-from fastapi.responses import Response as FastAPIResponse
+from fastapi.responses import Response as FastAPIResponse, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
@@ -102,26 +102,21 @@ def _check_doc_ready(doc) -> None:
         raise HTTPException(status_code=503, detail="Document processing failed")
 
 
-def _get_session_id(request: Request, query_param: Optional[str] = None) -> Optional[str]:
+def _get_session_id(request: Request) -> Optional[str]:
     """
-    Resolve session_id with a priority order that avoids URL/log exposure.
+    Resolve session_id from header or cookie only — never from query parameters.
 
     Priority:
       1. X-Session-ID request header  (never logged by CDN/proxy)
-      2. sdoc_session cookie           (HttpOnly-capable, same-origin)
-      3. session_id query parameter    (backward-compat for existing tests/legacy clients)
+      2. sdoc_session cookie           (HttpOnly Secure SameSite=Strict)
 
-    The query-parameter fallback is retained so that the existing integration
-    test suite continues to pass without modification.  New production code
-    (frontend) should always use the X-Session-ID header path.
+    Query parameter support has been removed to prevent session IDs from
+    appearing in server access logs, CDN logs, and browser history.
     """
     sid = request.headers.get("X-Session-ID", "").strip()
     if sid:
         return sid
-    sid = request.cookies.get("sdoc_session", "").strip()
-    if sid:
-        return sid
-    return query_param
+    return request.cookies.get("sdoc_session", "").strip() or None
 
 
 async def _get_cached_link_and_doc(
@@ -244,10 +239,8 @@ async def validate_link(
     link = validation.link
     session_id = validation.session_id
 
-    # Stage view count increment (no commit yet)
-    await link_svc.increment_view_count(db, str(link.id), commit=False)
-
-    # Log opened event — commit=True (default) flushes session + view_count + event atomically
+    # View count was already atomically incremented inside validate_link().
+    # Log opened event — commit=True (default) flushes session + event atomically
     await analytics_svc.log_event(
         db,
         link_id=link.id,
@@ -320,6 +313,27 @@ async def validate_link(
         except Exception:
             pass
 
+    # Trigger link.viewed webhook (fire-and-forget, never blocks the response)
+    _link_viewed_data = {
+        "document_id": str(doc.id),
+        "filename": doc.filename,
+        "link_id": str(link.id),
+        "link_label": link.label,
+        "session_id_prefix": session_id[:8] if session_id else None,
+    }
+    try:
+        from app.services.webhook_service import dispatch_webhook_event as _dispatch_wh
+        await _dispatch_wh(db, user_id=str(doc.user_id), event_type="link.viewed", data=_link_viewed_data)
+    except Exception as _wh_exc:
+        logger.warning("link.viewed webhook trigger failed: %s", _wh_exc)
+
+    # Publish SSE notification to document owner
+    try:
+        from app.services.notification_service import publish_notification as _pub_notif
+        await _pub_notif(str(doc.user_id), "link.viewed", _link_viewed_data)
+    except Exception as _notif_exc:
+        logger.debug("link.viewed SSE notification failed: %s", _notif_exc)
+
     return {
         "session_id": session_id,
         "document_id": str(doc.id),
@@ -341,10 +355,9 @@ async def get_page(
     request: Request,
     link_token: str,
     page_number: int,
-    session_id: Optional[str] = Query(None),
     db: AsyncSession = Depends(get_db),
 ):
-    session_id = _get_session_id(request, session_id)
+    session_id = _get_session_id(request)
     if not session_id:
         raise HTTPException(status_code=400, detail="session_id is required")
 
@@ -411,17 +424,22 @@ async def get_page(
 
     t1 = time.perf_counter()
 
-    # Apply visible watermark — CPU-bound PIL work offloaded to thread pool so it
-    # does not block the async event loop while other requests are being served.
-    # angle is session-specific (deterministic per session, varies across
-    # sessions) to deter composite-removal attacks.
+    # Apply visible watermark + viewer forensic stamp in a single executor call.
+    # Both are CPU-bound PIL operations; batching them avoids two thread hand-offs.
+    # Visible watermark: tiled diagonal text with viewer email, date, session prefix.
+    # Viewer forensic stamp: near-invisible lower-left corner mark with session hash
+    #   (1.5% opacity) — encodes VS:{sha256(session)[:8]}:{page}.  Allows session
+    #   attribution even if visible watermark is cropped or removed.
     now_str = now.strftime("%Y-%m-%d")
     watermark_text = f"{viewer_email_masked or 'anonymous'} · {now_str} · sess:{session_id[:6]}"
     _wm_angle = _session_watermark_angle(session_id)
-    watermarked = await asyncio.get_running_loop().run_in_executor(
-        None,
-        lambda: watermark_svc.apply_visible_watermark(image_bytes, watermark_text, angle=_wm_angle),
-    )
+    _page_num = page_number
+
+    def _apply_all_watermarks(raw: bytes) -> bytes:
+        visible = watermark_svc.apply_visible_watermark(raw, watermark_text, angle=_wm_angle)
+        return watermark_svc.apply_viewer_forensic_stamp(visible, session_id, _page_num)
+
+    watermarked = await asyncio.get_running_loop().run_in_executor(None, _apply_all_watermarks, image_bytes)
     t2 = time.perf_counter()
     # structured log with doc_id, cache source, and latency breakdown
     logger.info(
@@ -466,7 +484,6 @@ async def get_thumb(
     request: Request,
     link_token: str,
     page_number: int,
-    session_id: Optional[str] = Query(None),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -480,7 +497,7 @@ async def get_thumb(
     If the thumbnail asset is missing (e.g., a document processed before thumbnail
     generation was introduced), the full-resolution page bytes are served as a fallback.
     """
-    session_id = _get_session_id(request, session_id)
+    session_id = _get_session_id(request)
     if not session_id:
         raise HTTPException(status_code=400, detail="session_id is required")
 
@@ -510,9 +527,24 @@ async def get_thumb(
         )
         page_cache.put(_page_key, page_snap)
 
-    # ── Thumbnail bytes: L1 → L2 → Storage ───────────────────────────────────
+    # ── CDN offload: redirect to presigned R2 URL when enabled ───────────────
+    # Thumbnails are pre-rendered (same for all viewers) so they can be served
+    # directly from R2/CDN after session validation. Full page bytes are NEVER
+    # redirected — they carry the session-specific forensic stamp.
     thumb_key = f"thumbs/{link_snap.document_id}/{page_number:04d}.webp"
     storage = get_storage_service()
+
+    if settings.cdn_thumbnail_enabled:
+        try:
+            presigned_url = await storage.generate_presigned_url(
+                thumb_key,
+                expires_in_seconds=settings.cdn_thumbnail_presign_ttl_sec,
+            )
+            from fastapi.responses import RedirectResponse as _Redirect
+            return _Redirect(url=presigned_url, status_code=302,
+                             headers={"Cache-Control": "no-store"})
+        except NotImplementedError:
+            pass  # backend doesn't support presigned URLs — fall through to proxy
 
     thumb_bytes, thumb_source = await fetch_thumb_bytes(thumb_key)
     if thumb_bytes is None:
@@ -567,7 +599,6 @@ async def get_thumb(
 async def get_toc(
     request: Request,
     link_token: str,
-    session_id: Optional[str] = Query(None),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -590,7 +621,7 @@ async def get_toc(
     from app.services.toc.cache import get_cached_toc_async, store_toc_async
     from app.config import settings as _settings
 
-    session_id = _get_session_id(request, session_id)
+    session_id = _get_session_id(request)
     if not session_id:
         raise HTTPException(status_code=400, detail="session_id is required")
 
@@ -681,7 +712,6 @@ async def _load_toc_sidecar(sidecar_key: str):
 async def download_document(
     request: Request,
     link_token: str,
-    session_id: Optional[str] = Query(None),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -689,9 +719,11 @@ async def download_document(
     Requires an active session with can_download=true on the link.
     """
     import io as _io
+    import os as _os
+    import tempfile as _tempfile
     from PIL import Image as _Image
 
-    session_id = _get_session_id(request, session_id)
+    session_id = _get_session_id(request)
     if not session_id:
         raise HTTPException(status_code=400, detail="session_id is required")
 
@@ -760,14 +792,10 @@ async def download_document(
             },
         )
 
-    # ── PDF document: fetch all pages, watermark, assemble PDF via PIL ─────────
+    # ── PDF document: stream pages one-at-a-time through pypdf ────────────────
     if not doc.page_count:
         raise HTTPException(status_code=404, detail="Document has no pages")
 
-    # Guard against memory exhaustion: assembling a watermarked PDF requires
-    # loading all pages as RGBA PIL images simultaneously (~20 MB each at 150 DPI).
-    # A 500-page PDF would need ~10 GB RAM on the API server.
-    # Refuse downloads that exceed the configured page limit.
     _limit = settings.max_download_pages_pdf
     if _limit > 0 and doc.page_count > _limit:
         raise HTTPException(
@@ -788,28 +816,72 @@ async def download_document(
     if not page_rows:
         raise HTTPException(status_code=404, detail="Pages not found")
 
-    pil_images = []
+    # True streaming PDF assembly:
+    # 1. Process each page one-at-a-time (O(1) PIL RAM per page)
+    # 2. Write the assembled PDF to a temp file (not a BytesIO in-process buffer)
+    # 3. Stream from the temp file in 64 KB chunks
+    # 4. Clean up the temp file in the finally block
+    #
+    # This eliminates the prior triple-copy: pypdf internal + BytesIO + bytes object.
+    # Peak RSS = max(one PIL page image, pypdf's internal XRef table) rather than
+    # (N pages * page_size) + (2 * total_pdf_size).
+    from pypdf import PdfWriter, PdfReader
     loop = asyncio.get_running_loop()
+    writer = PdfWriter()
+
     for page_row in page_rows:
         raw_bytes, _ = await fetch_page_bytes(page_row.storage_key)
         if raw_bytes is None:
             raw_bytes = await storage.download_bytes(page_row.storage_key)
-        watermarked = await loop.run_in_executor(
-            None, lambda b=raw_bytes: watermark_svc.apply_visible_watermark(b, watermark_text)
-        )
-        pil_images.append(_Image.open(_io.BytesIO(watermarked)).convert("RGB"))
 
-    buf = _io.BytesIO()
-    pil_images[0].save(buf, format="PDF", save_all=True, append_images=pil_images[1:])
-    pdf_bytes = buf.getvalue()
+        # Watermark + convert to single-page PDF in thread-pool executor.
+        # The PIL Image and watermarked bytes are discarded after add_page().
+        def _wm_and_encode(b: bytes) -> bytes:
+            wm = watermark_svc.apply_visible_watermark(b, watermark_text)
+            img = _Image.open(_io.BytesIO(wm)).convert("RGB")
+            page_buf = _io.BytesIO()
+            img.save(page_buf, format="PDF")
+            return page_buf.getvalue()
+
+        page_pdf_bytes = await loop.run_in_executor(None, _wm_and_encode, raw_bytes)
+        reader = PdfReader(_io.BytesIO(page_pdf_bytes))
+        writer.add_page(reader.pages[0])
+        del page_pdf_bytes, reader  # release page memory before next page
 
     filename = (doc.filename or "document").rsplit(".", 1)[0] + "_watermarked.pdf"
-    return FastAPIResponse(
-        content=pdf_bytes,
+
+    # Write to a temp file so the bytes object (3rd copy) is never allocated
+    tmp_fd, tmp_path = _tempfile.mkstemp(suffix=".pdf", prefix="sdoc_dl_")
+    try:
+        with _os.fdopen(tmp_fd, "wb") as tmp_f:
+            writer.write(tmp_f)
+        del writer  # free pypdf internal structures now that we've written to disk
+        total_size = _os.path.getsize(tmp_path)
+    except Exception:
+        _os.unlink(tmp_path)
+        raise
+
+    async def _stream_from_tmp():
+        try:
+            with open(tmp_path, "rb") as f:
+                while True:
+                    chunk = f.read(65536)
+                    if not chunk:
+                        break
+                    yield chunk
+        finally:
+            try:
+                _os.unlink(tmp_path)
+            except OSError:
+                pass
+
+    return StreamingResponse(
+        _stream_from_tmp(),
         media_type="application/pdf",
         headers={
             "Content-Disposition": f'attachment; filename="{filename}"',
             "Cache-Control": "no-store",
+            "Content-Length": str(total_size),
         },
     )
 
@@ -820,7 +892,6 @@ async def get_text_chunk(
     request: Request,
     link_token: str,
     chunk_number: int,
-    session_id: Optional[str] = Query(None),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -847,7 +918,7 @@ async def get_text_chunk(
     from app.services.text_processor import decode_text_safe, chunk_text
     from app.config import settings
 
-    session_id = _get_session_id(request, session_id)
+    session_id = _get_session_id(request)
     if not session_id:
         raise HTTPException(status_code=400, detail="session_id is required")
 

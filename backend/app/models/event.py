@@ -52,6 +52,7 @@ class AccessEvent(Base):
         Enum(*EVENT_TYPES, name="event_type_enum"), nullable=False
     )
     page_number: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    time_spent_ms: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     viewer_email: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     ip_hash: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     user_agent_hash: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)

@@ -270,7 +270,8 @@ class TestGateEndpoint:
             document_id=str(ready_document.id),
             max_views=1,
         )
-        await svc.increment_view_count(db_session, str(link.id))
+        # Use the validate endpoint to atomically increment view_count
+        await svc.validate_link(db_session, token=link.token)
         r = await client.get(f"/api/viewer/gate/{link.token}")
         assert r.status_code == 200
         assert r.json()["status"] == "expired"

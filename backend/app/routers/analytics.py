@@ -10,7 +10,7 @@ from app.models.link import ShareLink
 from app.models.document import Document
 from app.services.analytics_service import AnalyticsService
 from app.middleware.rate_limit import limiter
-from app.auth import get_current_user
+from app.auth import get_current_user, require_scope
 
 router = APIRouter(prefix="/api/analytics", tags=["analytics"])
 analytics_svc = AnalyticsService()
@@ -19,7 +19,7 @@ analytics_svc = AnalyticsService()
 @router.get("/overview")
 async def get_overview(
     db: AsyncSession = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: dict = Depends(require_scope("analytics:read")),
 ):
     return await analytics_svc.get_overview(db, user_id=uuid.UUID(user["user_id"]))
 
@@ -28,7 +28,7 @@ async def get_overview(
 async def get_document_analytics(
     group_id: Optional[str] = Query(None),
     db: AsyncSession = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: dict = Depends(require_scope("analytics:read")),
 ):
     group_uuid: Optional[uuid.UUID] = None
     if group_id:
@@ -49,7 +49,7 @@ async def get_document_analytics(
 @router.get("/groups")
 async def get_group_analytics(
     db: AsyncSession = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: dict = Depends(require_scope("analytics:read")),
 ):
     groups = await analytics_svc.get_group_analytics(db, user_id=uuid.UUID(user["user_id"]))
     for g in groups:
@@ -64,7 +64,7 @@ async def get_events(
     limit: int = Query(50, ge=1, le=500),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: dict = Depends(require_scope("analytics:read")),
 ):
     user_uuid = uuid.UUID(user["user_id"])
 
@@ -130,6 +130,7 @@ async def get_events(
                 "id": str(e.id),
                 "event_type": e.event_type,
                 "page_number": e.page_number,
+                "time_spent_ms": e.time_spent_ms,
                 "viewer_email": e.viewer_email,
                 "ip_hash": e.ip_hash,
                 "session_id": e.session_id[:8] if e.session_id else None,
@@ -180,12 +181,24 @@ async def log_viewer_event(
 
     page_number = body.get("page_number")
     metadata = body.get("metadata")
+    time_spent_ms = body.get("time_spent_ms")
 
     # SEC: page_number must be a positive integer when supplied — prevents analytics
     # poisoning via out-of-range or negative page numbers from client-side code.
     if page_number is not None:
         if not isinstance(page_number, int) or isinstance(page_number, bool) or page_number < 1:
             raise HTTPException(status_code=400, detail="page_number must be a positive integer")
+
+    # time_spent_ms must be a non-negative integer when supplied.
+    if time_spent_ms is not None:
+        if not isinstance(time_spent_ms, int) or isinstance(time_spent_ms, bool) or time_spent_ms < 0:
+            raise HTTPException(
+                status_code=400,
+                detail="time_spent_ms must be a non-negative integer (milliseconds)",
+            )
+        # Cap at 4 hours to prevent absurd values that would skew averages.
+        if time_spent_ms > 14_400_000:
+            time_spent_ms = 14_400_000
 
     # Restrict metadata size to prevent storage-inflation attacks.
     # A viewer with a valid session could otherwise spam large payloads at the
@@ -255,6 +268,33 @@ async def log_viewer_event(
         ip=getattr(request.state, "client_ip", None) or (request.client.host if request.client else None),
         user_agent=request.headers.get("user-agent"),
         metadata=metadata,
+        time_spent_ms=time_spent_ms,
     )
+
+    # Trigger analytics.completed webhook (fire-and-forget, never fails the response)
+    if event_type == "completed":
+        try:
+            from app.models.document import Document as _Document
+            _doc_row = await db.execute(
+                select(_Document).where(_Document.id == link.document_id)
+            )
+            _doc = _doc_row.scalar_one_or_none()
+            if _doc:
+                from app.services.webhook_service import dispatch_webhook_event
+                await dispatch_webhook_event(
+                    db,
+                    user_id=str(_doc.user_id),
+                    event_type="analytics.completed",
+                    data={
+                        "document_id": str(link.document_id),
+                        "filename": _doc.filename,
+                        "link_id": str(link.id),
+                        "session_id_prefix": session_id[:8] if session_id else None,
+                        "page_count": _doc.page_count,
+                        "time_spent_ms": time_spent_ms,
+                    },
+                )
+        except Exception as _exc:
+            logger.warning("analytics.completed webhook trigger failed: %s", _exc)
 
     return {"logged": True}

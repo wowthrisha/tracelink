@@ -326,13 +326,16 @@ class TestDownloadPageLimit:
         )
 
     def test_max_download_pages_default_is_safe(self):
-        """Default max_download_pages_pdf must be ≤ 200 to protect API memory."""
+        """Default max_download_pages_pdf must be ≤ 500 to protect API memory.
+
+        Phase 6 streaming download raised this from 100 → 500: pages are now
+        assembled one-at-a-time via pypdf, so peak RSS is O(1 page) not O(N).
+        """
         from app.config import Settings
         s = Settings()
-        assert 0 < s.max_download_pages_pdf <= 200, (
-            f"Default max_download_pages_pdf={s.max_download_pages_pdf} is unsafe. "
-            "At 150 DPI, each page ~20MB in memory; 200 pages = 4GB. "
-            "Keep default ≤ 200, recommend 100."
+        assert 0 < s.max_download_pages_pdf <= 500, (
+            f"Default max_download_pages_pdf={s.max_download_pages_pdf} is outside safe range. "
+            "Must be > 0 (disabled is unsafe) and ≤ 500."
         )
 
 

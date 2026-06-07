@@ -231,31 +231,55 @@ class TestValidateBatchCommit:
         assert len(ev_result.scalars().all()) == 1
 
     @pytest.mark.asyncio
-    async def test_increment_view_count_commit_false_defers_write(
+    async def test_validate_increments_view_count_atomically(
         self, db_session, ready_document
     ):
-        """increment_view_count(commit=False) must stage the update without committing it."""
+        """validate_link must increment view_count via atomic UPDATE and reflect the change."""
+        from app.services.analytics_service import AnalyticsService
         svc = LinkService()
         link = await svc.create_link(db_session, document_id=str(ready_document.id))
         initial = link.view_count  # 0
 
-        await svc.increment_view_count(db_session, str(link.id), commit=False)
-
-        # Roll back the un-committed write; count must return to initial
-        await db_session.rollback()
+        await svc.validate_link(
+            db=db_session,
+            token=link.token,
+            analytics_svc=AnalyticsService(),
+            commit=True,
+        )
         await db_session.refresh(link)
-        assert link.view_count == initial
+        assert link.view_count == initial + 1
 
     @pytest.mark.asyncio
-    async def test_increment_view_count_commit_true_persists(
+    async def test_validate_does_not_exceed_max_views(
         self, db_session, ready_document
     ):
-        """increment_view_count(commit=True) must persist the increment immediately."""
+        """validate_link with max_views=1 must reject the second call with 410."""
+        from app.services.analytics_service import AnalyticsService
+        from fastapi import HTTPException
         svc = LinkService()
-        link = await svc.create_link(db_session, document_id=str(ready_document.id))
-        await svc.increment_view_count(db_session, str(link.id), commit=True)
-        await db_session.refresh(link)
-        assert link.view_count == 1
+        link = await svc.create_link(
+            db_session,
+            document_id=str(ready_document.id),
+            max_views=1,
+        )
+
+        # First validate: should succeed
+        await svc.validate_link(
+            db=db_session,
+            token=link.token,
+            analytics_svc=AnalyticsService(),
+            commit=True,
+        )
+
+        # Second validate: must raise 410
+        with pytest.raises(HTTPException) as exc_info:
+            await svc.validate_link(
+                db=db_session,
+                token=link.token,
+                analytics_svc=AnalyticsService(),
+                commit=True,
+            )
+        assert exc_info.value.status_code == 410
 
     @pytest.mark.asyncio
     async def test_validate_link_commit_false_defers_session(
@@ -293,6 +317,9 @@ class TestValidateBatchCommit:
         link = await svc.create_link(db_session, document_id=str(ready_document.id))
         initial_views = link.view_count  # 0
 
+        # validate_link now atomically increments view_count inside a single call.
+        # With commit=False, the session upsert and view_count update are staged
+        # but not flushed; rollback undoes both.
         result = await svc.validate_link(
             db=db_session,
             token=link.token,
@@ -300,8 +327,6 @@ class TestValidateBatchCommit:
             commit=False,
         )
         sid = result.session_id
-
-        await svc.increment_view_count(db_session, str(link.id), commit=False)
 
         await analytics_svc.log_event(
             db_session,
@@ -311,7 +336,7 @@ class TestValidateBatchCommit:
             commit=False,
         )
 
-        # Roll back everything — none of the three writes must be durable
+        # Roll back everything — none of the writes must be durable
         await db_session.rollback()
 
         session_row = await db_session.get(ViewerSession, sid)

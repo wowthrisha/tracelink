@@ -340,10 +340,17 @@ class TestLogEventNoBatchRoundtrip:
             "log_event called db.refresh(event) — this was supposed to be removed"
         )
 
-    async def test_batch_commit_three_writes_in_one_roundtrip(
+    async def test_batch_commit_two_writes_in_one_roundtrip(
         self, db_session, ready_document, active_link
     ):
-        """validate→increment→log_event pattern: 3 staged writes, 1 commit."""
+        """validate(commit=False)→log_event(commit=True): 2 staged writes, 1 commit.
+
+        view_count is now incremented atomically inside validate_link() via a
+        single UPDATE ... RETURNING statement, so the caller no longer calls
+        increment_view_count() separately.  The remaining staged writes are:
+          1. session upsert (ORM INSERT/UPDATE, flushed on commit)
+          2. analytics event INSERT (committed by log_event)
+        """
         commit_count = [0]
         original_commit = db_session.commit
 
@@ -361,7 +368,6 @@ class TestLogEventNoBatchRoundtrip:
             token=active_link.token,
             commit=False,
         )
-        await link_svc.increment_view_count(db_session, str(active_link.id), commit=False)
         await analytics_svc.log_event(
             db_session,
             link_id=active_link.id,
@@ -371,7 +377,7 @@ class TestLogEventNoBatchRoundtrip:
         )
 
         assert commit_count[0] == 1, (
-            f"Expected 1 commit for the entire validate+increment+log batch, got {commit_count[0]}"
+            f"Expected 1 commit for the validate+log batch, got {commit_count[0]}"
         )
 
 

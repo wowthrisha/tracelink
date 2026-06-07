@@ -24,7 +24,7 @@ from app.schemas.document import (
 from app.services.storage import get_storage_service
 from app.config import settings
 from app.middleware.rate_limit import limiter
-from app.auth import get_current_user
+from app.auth import get_current_user, require_scope
 from app.models.billing import UserBilling, PLAN_PRO
 
 router = APIRouter(prefix="/api/documents", tags=["documents"])
@@ -111,8 +111,9 @@ async def upload_document(
     file: UploadFile = File(...),
     filename: Optional[str] = Form(None),
     group_id: Optional[str] = Form(None),
+    parent_document_id: Optional[str] = Form(None),
     db: AsyncSession = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: dict = Depends(require_scope("documents:write")),
 ):
     user_uuid = uuid.UUID(user["user_id"])
 
@@ -179,6 +180,26 @@ async def upload_document(
         logger.error("Storage upload failed for key %s: %s", storage_key, exc)
         raise HTTPException(status_code=502, detail="Storage upload failed. Please try again.")
 
+    # Version chain: validate and resolve parent_document_id
+    resolved_parent_id = None
+    doc_version = 1
+    if parent_document_id:
+        try:
+            parent_uuid = uuid.UUID(parent_document_id)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid parent_document_id format")
+        parent_result = await db.execute(
+            select(Document).where(
+                Document.id == parent_uuid,
+                Document.user_id == user_uuid,
+            )
+        )
+        parent_doc = parent_result.scalar_one_or_none()
+        if not parent_doc:
+            raise HTTPException(status_code=404, detail="Parent document not found")
+        resolved_parent_id = parent_uuid
+        doc_version = (parent_doc.version or 1) + 1
+
     doc = Document(
         id=doc_id,
         filename=original_filename,
@@ -188,6 +209,8 @@ async def upload_document(
         file_size_bytes=len(file_bytes),
         group_id=resolved_group_id,
         user_id=user_uuid,
+        version=doc_version,
+        parent_document_id=resolved_parent_id,
     )
     db.add(doc)
     await db.commit()
@@ -222,7 +245,7 @@ async def upload_document(
 async def reprocess_document(
     document_id: str,
     db: AsyncSession = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: dict = Depends(require_scope("documents:write")),
 ):
     user_uuid = uuid.UUID(user["user_id"])
     try:
@@ -259,13 +282,34 @@ async def reprocess_document(
 @router.get("", response_model=dict)
 async def list_documents(
     db: AsyncSession = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: dict = Depends(require_scope("documents:read")),
 ):
-    result = await db.execute(
-        select(Document)
-        .where(Document.user_id == uuid.UUID(user["user_id"]))
-        .order_by(Document.created_at.desc())
+    from sqlalchemy import or_ as _or
+    user_uuid = uuid.UUID(user["user_id"])
+
+    # Find all orgs the user is a member of (for org-scoped document visibility)
+    from app.models.org import OrgMembership as _OrgMembership
+    org_result = await db.execute(
+        select(_OrgMembership.org_id).where(_OrgMembership.user_id == user_uuid)
     )
+    org_ids = [row.org_id for row in org_result.all()]
+
+    # Return user-owned documents PLUS org documents the user has access to
+    if org_ids:
+        result = await db.execute(
+            select(Document)
+            .where(_or(
+                Document.user_id == user_uuid,
+                Document.org_id.in_(org_ids),
+            ))
+            .order_by(Document.created_at.desc())
+        )
+    else:
+        result = await db.execute(
+            select(Document)
+            .where(Document.user_id == user_uuid)
+            .order_by(Document.created_at.desc())
+        )
     documents = result.scalars().all()
 
     if not documents:
@@ -324,19 +368,45 @@ async def list_documents(
     return {"documents": summaries}
 
 
+async def _get_accessible_document(
+    document_id: uuid.UUID, user: dict, db
+) -> Document:
+    """Return document if user owns it or is a member of the document's org."""
+    from sqlalchemy import or_ as _or
+    from app.models.org import OrgMembership as _OrgMembership
+    user_uuid = uuid.UUID(user["user_id"])
+
+    doc_result = await db.execute(
+        select(Document).where(Document.id == document_id)
+    )
+    doc = doc_result.scalar_one_or_none()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    if doc.user_id == user_uuid:
+        return doc
+
+    # Check org membership for org-owned documents
+    if doc.org_id:
+        m_result = await db.execute(
+            select(_OrgMembership).where(
+                _OrgMembership.org_id == doc.org_id,
+                _OrgMembership.user_id == user_uuid,
+            )
+        )
+        if m_result.scalar_one_or_none():
+            return doc
+
+    raise HTTPException(status_code=404, detail="Document not found")
+
+
 @router.get("/{document_id}/status", response_model=DocumentStatusResponse)
 async def get_document_status(
     document_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: dict = Depends(require_scope("documents:read")),
 ):
-    result = await db.execute(
-        select(Document).where(
-            Document.id == document_id,
-            Document.user_id == uuid.UUID(user["user_id"]),
-        )
-    )
-    doc = result.scalar_one_or_none()
+    doc = await _get_accessible_document(document_id, user, db)
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
 
@@ -351,17 +421,9 @@ async def get_document_status(
 async def get_document(
     document_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: dict = Depends(require_scope("documents:read")),
 ):
-    result = await db.execute(
-        select(Document).where(
-            Document.id == document_id,
-            Document.user_id == uuid.UUID(user["user_id"]),
-        )
-    )
-    doc = result.scalar_one_or_none()
-    if not doc:
-        raise HTTPException(status_code=404, detail="Document not found")
+    doc = await _get_accessible_document(document_id, user, db)
 
     # Link count + view count in a single JOIN query
     stats_result = await db.execute(
@@ -427,7 +489,7 @@ async def get_document(
 async def delete_document(
     document_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: dict = Depends(require_scope("documents:write")),
 ):
     result = await db.execute(
         select(Document).where(
@@ -463,5 +525,103 @@ async def delete_document(
     # Delete original
     await storage.delete_file(doc.storage_key)
 
+    doc_filename = doc.filename
+    doc_id_str = str(document_id)
     await db.delete(doc)
     await db.commit()
+
+    # Audit log: document.deleted
+    try:
+        from app.services.audit_service import log_audit_event as _log_audit
+        await _log_audit(
+            db,
+            event_type="document.deleted",
+            actor_user_id=user["user_id"],
+            target_type="document",
+            target_id=doc_id_str,
+            details={"filename": doc_filename},
+        )
+    except Exception:
+        pass
+
+
+@router.get("/{document_id}/versions")
+async def get_document_versions(
+    document_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    user: dict = Depends(require_scope("documents:read")),
+):
+    """Return the full version chain for a document, ordered oldest → newest.
+
+    Uses a two-step recursive CTE to resolve the entire chain in a single DB
+    round-trip (O(1) queries regardless of chain depth), replacing the former
+    N+1 walk-to-root + collect-descendants loop.
+    """
+    from sqlalchemy import text as _text
+
+    user_uuid = uuid.UUID(user["user_id"])
+
+    # Confirm caller owns this document (ownership check on the entry point)
+    ownership_result = await db.execute(
+        select(Document.id).where(
+            Document.id == document_id,
+            Document.user_id == user_uuid,
+        )
+    )
+    if not ownership_result.scalar_one_or_none():
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    # Single recursive CTE query:
+    #   Step 1 (ancestors): walk UP the chain from doc_id to find the root
+    #   Step 2 (root_doc): pick the ancestor with no parent (= chain root)
+    #   Step 3 (chain): collect ALL descendants from the root downward
+    # PostgreSQL and SQLite both support WITH RECURSIVE.
+    cte_query = _text("""
+        WITH RECURSIVE ancestors AS (
+            SELECT id, parent_document_id
+            FROM documents
+            WHERE id = :doc_id
+            UNION ALL
+            SELECT d.id, d.parent_document_id
+            FROM documents d
+            JOIN ancestors a ON d.id = a.parent_document_id
+            WHERE a.parent_document_id IS NOT NULL
+        ),
+        root_doc AS (
+            SELECT id FROM ancestors
+            WHERE parent_document_id IS NULL
+            LIMIT 1
+        ),
+        chain AS (
+            SELECT d.id, d.parent_document_id, d.filename, d.version,
+                   d.status, d.page_count, d.file_type, d.created_at
+            FROM documents d
+            JOIN root_doc ON d.id = root_doc.id
+            UNION ALL
+            SELECT d.id, d.parent_document_id, d.filename, d.version,
+                   d.status, d.page_count, d.file_type, d.created_at
+            FROM documents d
+            JOIN chain c ON d.parent_document_id = c.id
+        )
+        SELECT id, filename, version, status, page_count, file_type, created_at
+        FROM chain
+        ORDER BY version
+    """)
+
+    result = await db.execute(cte_query, {"doc_id": str(document_id)})
+    rows = result.fetchall()
+
+    return {
+        "versions": [
+            {
+                "id": str(row.id),
+                "filename": row.filename,
+                "version": row.version,
+                "status": row.status,
+                "page_count": row.page_count,
+                "file_type": row.file_type or "pdf",
+                "created_at": row.created_at.isoformat() if row.created_at else None,
+            }
+            for row in rows
+        ]
+    }

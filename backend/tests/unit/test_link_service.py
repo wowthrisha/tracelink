@@ -108,9 +108,10 @@ class TestLinkService:
     async def test_validate_link_fails_when_max_views_exceeded(self, db_and_doc):
         db, doc = db_and_doc
         svc = LinkService()
+        # max_views=2: two successful validates, third must fail.
         link = await svc.create_link(db, document_id=str(doc.id), max_views=2)
-        await svc.increment_view_count(db, str(link.id))
-        await svc.increment_view_count(db, str(link.id))
+        await svc.validate_link(db, token=link.token)
+        await svc.validate_link(db, token=link.token)
         with pytest.raises(HTTPException) as exc:
             await svc.validate_link(db, token=link.token)
         assert exc.value.status_code == 410
@@ -154,13 +155,14 @@ class TestLinkService:
         assert revoked.revoked_at is not None
 
     @pytest.mark.asyncio
-    async def test_increment_view_count_is_atomic(self, db_and_doc):
+    async def test_validate_increments_view_count_atomically(self, db_and_doc):
+        """Each successful validate increments view_count by exactly 1."""
         db, doc = db_and_doc
         svc = LinkService()
         link = await svc.create_link(db, document_id=str(doc.id))
         assert link.view_count == 0
-        await svc.increment_view_count(db, str(link.id))
-        await svc.increment_view_count(db, str(link.id))
+        await svc.validate_link(db, token=link.token)
+        await svc.validate_link(db, token=link.token)
         await db.refresh(link)
         assert link.view_count == 2
 

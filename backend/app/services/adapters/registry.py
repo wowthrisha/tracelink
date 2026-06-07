@@ -45,6 +45,8 @@ def _bootstrap() -> None:
     from app.services.adapters.pdf import PDFAdapter
     from app.services.adapters.text import TXTAdapter, MDAdapter, LOGAdapter
     from app.services.adapters.word import DOCXAdapter, DOCAdapter
+    from app.services.adapters.presentation import PPTXAdapter
+    from app.services.adapters.spreadsheet import XLSXAdapter
 
     for adapter in (
         PDFAdapter(),
@@ -53,6 +55,8 @@ def _bootstrap() -> None:
         LOGAdapter(),
         DOCXAdapter(),
         DOCAdapter(),
+        PPTXAdapter(),
+        XLSXAdapter(),
     ):
         register(adapter)
 

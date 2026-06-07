@@ -1187,10 +1187,34 @@
       );
     }
 
+    // ── Viewer Layout System constants ─────────────────────────────────────────
+    const LAYOUT = { FIT_WIDTH: 'fit-width', FIT_HEIGHT: 'fit-height', CUSTOM: 'custom' };
+    const ZOOM_PRESETS = [25, 50, 75, 100, 125, 150, 200, 300, 400];
+    const ZOOM_MIN = 10;
+    const ZOOM_MAX = 400;
+    const ZOOM_STEP = 10;
+
+    // Persist layout preferences across sessions
+    function _saveLayoutPref(mode, zoom) {
+      try { localStorage.setItem('sdoc-layout-mode', mode); } catch {}
+      try { localStorage.setItem('sdoc-layout-zoom', String(zoom)); } catch {}
+    }
+    function _loadLayoutPref() {
+      let mode = LAYOUT.FIT_WIDTH, zoom = 100;
+      try { const m = localStorage.getItem('sdoc-layout-mode'); if (m) mode = m; } catch {}
+      try { const z = parseInt(localStorage.getItem('sdoc-layout-zoom') || '100', 10); if (z >= ZOOM_MIN && z <= ZOOM_MAX) zoom = z; } catch {}
+      return { mode, zoom };
+    }
+
     function ViewerScreen({ doc, publicToken, onSelectDoc }) {
       const toast = useToast();
       const [page, setPage] = useState(1);
-      const [zoom, setZoom] = useState(100);
+      // Layout system: fit-width, fit-height, or custom zoom
+      const _initPref = _loadLayoutPref();
+      const [layoutMode, setLayoutMode] = useState(_initPref.mode);
+      const [customZoom, setCustomZoom] = useState(_initPref.zoom);
+      // Legacy zoom alias (kept for sessionStorage restore compat)
+      const zoom = layoutMode === LAYOUT.CUSTOM ? customZoom : 100;
       const [showInfo, setShowInfo] = useState(false);
       const [session, setSession] = useState(null);
       const [imgSrc, setImgSrc] = useState('');
@@ -1211,8 +1235,8 @@
       const [showSearch, setShowSearch] = useState(false);
       // Phase 7: TOC sidebar for text/md documents
       const [showToc, setShowToc] = useState(false);
-      // Phase 7: mobile/touch support
-      const touchRef = useRef({ x: null, y: null });
+      // Phase 7: mobile/touch support — extended for pinch-to-zoom
+      const touchRef = useRef({ x: null, y: null, pinchDist: null });
 
       // ── Phase 7: request deduplication — one inflight fetch per page key ─────
       const inflightRef = useRef(new Map());
@@ -1508,6 +1532,28 @@
       const goNext = useCallback(() => setPage(p => Math.min(p + 1, PAGE_COUNT)), [PAGE_COUNT]);
       const goPrev = useCallback(() => setPage(p => Math.max(p - 1, 1)), []);
 
+      // Layout helpers (stable identity — no setState in dep array needed)
+      const _setLayout = useCallback((mode, zoom) => {
+        setLayoutMode(mode);
+        if (zoom !== undefined) setCustomZoom(zoom);
+        _saveLayoutPref(mode, zoom !== undefined ? zoom : customZoom);
+      }, [customZoom]);
+
+      const _zoomBy = useCallback((delta) => {
+        setCustomZoom(z => {
+          const next = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, z + delta));
+          setLayoutMode(LAYOUT.CUSTOM);
+          _saveLayoutPref(LAYOUT.CUSTOM, next);
+          return next;
+        });
+      }, []);
+
+      const _zoomTo = useCallback((pct) => {
+        setCustomZoom(pct);
+        setLayoutMode(LAYOUT.CUSTOM);
+        _saveLayoutPref(LAYOUT.CUSTOM, pct);
+      }, []);
+
       useEffect(() => {
         const h = e => {
           if (e.key === 'ArrowRight' || e.key === 'ArrowDown') goNext();
@@ -1517,10 +1563,25 @@
             e.preventDefault();
             setShowSearch(v => !v);
           }
+          // Layout: Ctrl+= / Ctrl++ → zoom in
+          if ((e.ctrlKey || e.metaKey) && (e.key === '=' || e.key === '+')) {
+            e.preventDefault();
+            _zoomBy(ZOOM_STEP);
+          }
+          // Layout: Ctrl+- → zoom out
+          if ((e.ctrlKey || e.metaKey) && e.key === '-') {
+            e.preventDefault();
+            _zoomBy(-ZOOM_STEP);
+          }
+          // Layout: Ctrl+0 → fit width
+          if ((e.ctrlKey || e.metaKey) && e.key === '0') {
+            e.preventDefault();
+            _setLayout(LAYOUT.FIT_WIDTH);
+          }
         };
         window.addEventListener('keydown', h);
         return () => window.removeEventListener('keydown', h);
-      }, [goNext, goPrev, session]);
+      }, [goNext, goPrev, session, _zoomBy, _setLayout]);
 
       // Phase 7: viewer state persistence — restore page/zoom from sessionStorage
       useEffect(() => {
@@ -1530,7 +1591,10 @@
           if (saved) {
             const { pg, zm } = JSON.parse(saved);
             if (pg && pg >= 1 && pg <= (session.page_count || 1)) setPage(pg);
-            if (zm && zm >= 50 && zm <= 200) setZoom(zm);
+            if (zm && zm >= ZOOM_MIN && zm <= ZOOM_MAX) {
+              setCustomZoom(zm);
+              setLayoutMode(LAYOUT.CUSTOM);
+            }
           }
         } catch {}
       }, [session?.session_id]);
@@ -1541,10 +1605,10 @@
         try {
           sessionStorage.setItem(
             `securedoc_vstate_${session.session_id}`,
-            JSON.stringify({ pg: page, zm: zoom })
+            JSON.stringify({ pg: page, zm: customZoom })
           );
         } catch {}
-      }, [session?.session_id, page, zoom]);
+      }, [session?.session_id, page, customZoom]);
 
       // Phase 7: keep imgSrcRef in sync so loadPage (empty-deps callback) can
       // capture the current page URL for the crossfade background layer.
@@ -1711,13 +1775,59 @@
                   Opening secure viewer…
                 </div>
               )}
-              {!initializing && session && !isTextDoc && (
+              {!initializing && session && !isTextDoc && (() => {
+                // Compute page dimensions based on layout mode
+                const _pgStyle = (() => {
+                  if (layoutMode === LAYOUT.FIT_WIDTH) {
+                    return { width: '100%', maxWidth: '100%', height: undefined };
+                  }
+                  if (layoutMode === LAYOUT.FIT_HEIGHT) {
+                    return { width: 'auto', maxWidth: '100%', height: 'calc(100vh - 220px)', maxHeight: '100%' };
+                  }
+                  // CUSTOM zoom: 100% = 590px (fits a letter-size PDF at typical DPI)
+                  return { width: `${customZoom * 5.9}px`, maxWidth: '100%', height: undefined };
+                })();
+                return (
                 <div className="viewer-page" style={{
-                  position: 'relative', width: `${zoom * 5.9}px`, maxWidth: '100%',
-                  aspectRatio: '8.5/11', flexShrink: 0, transition: 'width .25s ease',
+                  position: 'relative', ...(_pgStyle),
+                  aspectRatio: layoutMode === LAYOUT.FIT_HEIGHT ? undefined : '8.5/11',
+                  flexShrink: 0, transition: 'width .25s ease, height .25s ease',
                   borderRadius: 2, overflow: 'hidden', boxShadow: '0 8px 48px rgba(0,0,0,0.7)'
                 }}
-                  onContextMenu={e => e.preventDefault()}>
+                  onContextMenu={e => e.preventDefault()}
+                  onWheel={e => {
+                    if (!e.ctrlKey && !e.metaKey) return;
+                    e.preventDefault();
+                    _zoomBy(e.deltaY < 0 ? ZOOM_STEP : -ZOOM_STEP);
+                  }}
+                  onTouchStart={e => {
+                    if (e.touches.length === 2) {
+                      const dx = e.touches[0].clientX - e.touches[1].clientX;
+                      const dy = e.touches[0].clientY - e.touches[1].clientY;
+                      touchRef.current.pinchDist = Math.sqrt(dx * dx + dy * dy);
+                    } else {
+                      touchRef.current.pinchDist = null;
+                    }
+                  }}
+                  onTouchMove={e => {
+                    if (e.touches.length === 2 && touchRef.current.pinchDist != null) {
+                      e.preventDefault();
+                      const dx = e.touches[0].clientX - e.touches[1].clientX;
+                      const dy = e.touches[0].clientY - e.touches[1].clientY;
+                      const dist = Math.sqrt(dx * dx + dy * dy);
+                      const ratio = dist / touchRef.current.pinchDist;
+                      touchRef.current.pinchDist = dist;
+                      // Each move event = scale the zoom by the delta ratio
+                      setCustomZoom(z => {
+                        const next = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, Math.round(z * ratio)));
+                        if (next !== z) {
+                          setLayoutMode(LAYOUT.CUSTOM);
+                          _saveLayoutPref(LAYOUT.CUSTOM, next);
+                        }
+                        return next;
+                      });
+                    }
+                  }}>
 
                   {/* Phase 7 crossfade: background layer holds previous page while next loads */}
                   {prevImgSrc && prevImgSrc !== imgSrc && (
@@ -1781,7 +1891,8 @@
                     background: 'repeating-linear-gradient(0deg, transparent, transparent 3px, rgba(0,0,0,0.025) 3px, rgba(0,0,0,0.025) 4px)'
                   }} />
                 </div>
-              )}
+                );
+              })()}
 
               {!initializing && session && isTextDoc && (
                 <div className="viewer-page" style={{
@@ -1866,24 +1977,62 @@
                 {!isTextDoc && (
                   <>
                     <div style={{ width: 1, height: 18, background: C.border, margin: '0 4px' }} />
-                    <Btn variant="ghost" size="sm" onClick={() => setZoom(z => Math.max(50, z - 15))}
-                      style={{ padding: '5px 9px', fontSize: 14 }}>−</Btn>
-                    <div style={{
-                      ...mono, fontSize: 11, color: C.textMuted,
-                      minWidth: 40, textAlign: 'center', cursor: 'pointer'
-                    }}
-                      onClick={() => setZoom(100)}>{zoom}%</div>
-                    <Btn variant="ghost" size="sm" onClick={() => setZoom(z => Math.min(200, z + 15))}
-                      style={{ padding: '5px 9px', fontSize: 14 }}>+</Btn>
-                    <Btn variant="ghost" size="sm" onClick={() => setZoom(100)}
-                      style={{ fontSize: 10, padding: '5px 8px', color: C.teal3 }}>FIT</Btn>
+                    {/* Layout mode buttons */}
+                    {[
+                      { key: LAYOUT.FIT_WIDTH,  label: '↔', title: 'Fit Width (Ctrl+0)' },
+                      { key: LAYOUT.FIT_HEIGHT, label: '↕', title: 'Fit Height' },
+                      { key: LAYOUT.CUSTOM,     label: '⊡', title: 'Custom Zoom' },
+                    ].map(({ key, label, title }) => (
+                      <Btn key={key} variant="ghost" size="sm"
+                        title={title}
+                        style={{
+                          padding: '4px 7px', fontSize: 12,
+                          background: layoutMode === key ? C.accentBg : undefined,
+                          color: layoutMode === key ? C.teal1 : C.textMuted,
+                        }}
+                        onClick={() => _setLayout(key, key === LAYOUT.CUSTOM ? customZoom : undefined)}>
+                        {label}
+                      </Btn>
+                    ))}
+                    {/* Zoom controls (only active in CUSTOM mode) */}
+                    <div style={{ width: 1, height: 18, background: C.border, margin: '0 3px' }} />
+                    <Btn variant="ghost" size="sm"
+                      title="Zoom out (Ctrl+-)"
+                      onClick={() => _zoomBy(-ZOOM_STEP)}
+                      style={{ padding: '5px 9px', fontSize: 14, opacity: layoutMode !== LAYOUT.CUSTOM ? 0.45 : 1 }}>−</Btn>
+                    {/* Zoom % — click to open preset picker */}
+                    <select
+                      value={layoutMode === LAYOUT.CUSTOM ? customZoom : ''}
+                      onChange={e => { const v = parseInt(e.target.value, 10); if (v) _zoomTo(v); }}
+                      title="Zoom preset"
+                      style={{
+                        ...mono, fontSize: 11, color: C.textMuted,
+                        background: C.surfaceAlt, border: `1px solid ${C.border}`,
+                        borderRadius: 4, padding: '2px 2px', cursor: 'pointer',
+                        minWidth: 56, textAlign: 'center', appearance: 'none',
+                        WebkitAppearance: 'none', outline: 'none',
+                      }}>
+                      {layoutMode !== LAYOUT.CUSTOM && <option value="">–</option>}
+                      {ZOOM_PRESETS.map(p => (
+                        <option key={p} value={p}>{p}%</option>
+                      ))}
+                      {layoutMode === LAYOUT.CUSTOM && !ZOOM_PRESETS.includes(customZoom) && (
+                        <option value={customZoom}>{customZoom}%</option>
+                      )}
+                    </select>
+                    <Btn variant="ghost" size="sm"
+                      title="Zoom in (Ctrl+=)"
+                      onClick={() => _zoomBy(ZOOM_STEP)}
+                      style={{ padding: '5px 9px', fontSize: 14, opacity: layoutMode !== LAYOUT.CUSTOM ? 0.45 : 1 }}>+</Btn>
                   </>
                 )}
               </div>
 
               {/* Keyboard hint */}
               <div style={{ ...mono, fontSize: 9, color: C.textDim, letterSpacing: '0.5px' }}>
-                {isTextDoc ? '← → arrow keys to navigate chunks' : '← → arrow keys to navigate pages'}
+                {isTextDoc
+                  ? '← → navigate chunks'
+                  : '← → navigate pages · Ctrl+= / Ctrl+- zoom · Ctrl+0 fit width · Ctrl+wheel zoom'}
               </div>
             </div>
 

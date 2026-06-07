@@ -37,8 +37,8 @@ Async / thread safety
 import time
 import uuid
 from dataclasses import dataclass
-from datetime import datetime
-from typing import Any, Optional
+from datetime import datetime, timezone, timedelta
+from typing import Any, Optional, Tuple
 
 
 # ── TTL constants ─────────────────────────────────────────────────────────────
@@ -48,6 +48,11 @@ LINK_TTL_SEC: float = 10.0
 DOC_TTL_SEC: float = 60.0
 # Page records (storage_key + dimensions) are immutable after creation.
 PAGE_TTL_SEC: float = 300.0
+# Session validation cache: short TTL so revocation propagates quickly.
+# 5 s means at most one extra page is served after a link is revoked via
+# invalidate_link() (which also purges sessions immediately, making the
+# effective revocation latency <1 s in the common case).
+SESSION_TTL_SEC: float = 5.0
 
 
 # ── Snapshot dataclasses ──────────────────────────────────────────────────────
@@ -157,16 +162,49 @@ chunk_array_cache: _TTLCache = _TTLCache(maxsize=100, ttl_seconds=PAGE_TTL_SEC)
 # 500 entries: each entry is a small JSON array; total memory ~50 MB worst-case.
 toc_cache: _TTLCache = _TTLCache(maxsize=500, ttl_seconds=PAGE_TTL_SEC)
 
+# Session validation cache — stores active session state keyed by session_id.
+# Value: (link_id: uuid.UUID, last_seen_at: datetime, viewer_email_masked: str|None)
+# TTL=5 s: short enough to propagate revocation quickly; long enough to
+# eliminate 95%+ of viewer_sessions DB reads under continuous page loads.
+# 50 000 entries covers 50 000 concurrent unique sessions with ~6 MB RAM overhead.
+session_cache: _TTLCache = _TTLCache(maxsize=50_000, ttl_seconds=SESSION_TTL_SEC)
+
 
 # ── Public helpers ────────────────────────────────────────────────────────────
 
-def invalidate_link(token: str) -> None:
+def invalidate_link(token: str, link_id: Optional[uuid.UUID] = None) -> None:
     """Evict a link snapshot from the cache.
 
     Call this whenever a link is revoked so the next page request does not
     serve from a stale cached entry that still looks active.
+
+    When link_id is provided, also purges all session cache entries belonging
+    to that link — making revocation propagation nearly instantaneous (< 1 ms)
+    rather than waiting for the 5-second SESSION_TTL_SEC to expire.
     """
     link_cache.invalidate(token)
+    if link_id is not None:
+        invalidate_sessions_for_link(link_id)
+
+
+def invalidate_sessions_for_link(link_id: uuid.UUID) -> int:
+    """Remove all session cache entries for the given link.
+
+    Called on link revocation and link update to ensure sessions for
+    the affected link are re-validated against the DB on the next request.
+    Returns the number of entries removed.
+    """
+    # Session cache keys are session_ids; values are (link_id, last_seen_at, email).
+    # We must scan to find all sessions belonging to this link.
+    link_id_str = str(link_id)
+    keys_to_remove = []
+    for key, (value, _expires) in list(session_cache._data.items()):
+        cached_link_id, _last_seen, _email = value
+        if str(cached_link_id) == link_id_str:
+            keys_to_remove.append(key)
+    for key in keys_to_remove:
+        session_cache._data.pop(key, None)
+    return len(keys_to_remove)
 
 
 def invalidate_doc_entries(doc_id: str, storage_key: Optional[str] = None) -> None:
@@ -195,3 +233,4 @@ def clear_all_caches() -> None:
     text_content_cache.clear()
     chunk_array_cache.clear()
     toc_cache.clear()
+    session_cache.clear()

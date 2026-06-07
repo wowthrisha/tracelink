@@ -30,6 +30,11 @@ class Document(Base):
     )
     file_type: Mapped[str] = mapped_column(String(10), default="pdf", nullable=False)
     user_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
+    org_id: Mapped[Optional[uuid.UUID]] = mapped_column(nullable=True)
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    parent_document_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        ForeignKey("documents.id", ondelete="SET NULL"), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=func.now(), nullable=False
     )

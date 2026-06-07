@@ -1,4 +1,5 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import model_validator
 from functools import lru_cache
 from typing import Optional
 
@@ -80,8 +81,11 @@ class Settings(BaseSettings):
     # Log a warning when a single share link has more than this many concurrent sessions.
     # This is detection-only — it never blocks access.
     max_concurrent_sessions_per_link: int = 50
-    # Set True in production to emit JSON log lines for Grafana Loki / Datadog / CloudWatch.
-    enable_json_logging: bool = False
+    # Emit JSON log lines for Grafana Loki / Datadog / CloudWatch.
+    # Default: True — structured logs are the correct default for all environments
+    # that use a log aggregator (Docker, Kubernetes, Railway, Render, AWS).
+    # Set ENABLE_JSON_LOGGING=false for local development terminal output.
+    enable_json_logging: bool = True
     # Watermark angle variation per session: ±this many degrees from the base -32°.
     # Randomises placement slightly per session to deter composite-removal attacks.
     watermark_angle_jitter_deg: float = 5.0
@@ -90,10 +94,12 @@ class Settings(BaseSettings):
     # Redirect HTTP → HTTPS by checking X-Forwarded-Proto header from the proxy.
     # Enable when the app is behind Cloudflare or another TLS-terminating proxy.
     https_redirect: bool = False
-    # HSTS max-age in seconds.  0 = disabled (default for new deployments).
-    # Set to 31536000 (1 year) once HTTPS is confirmed stable.
-    # Only injected when > 0; never injected in development.
-    hsts_max_age: int = 0
+    # HSTS max-age in seconds.
+    # Default: 31536000 (1 year) — protects against SSL strip attacks.
+    # The middleware only injects this header when the request arrived over HTTPS
+    # (X-Forwarded-Proto: https), so HTTP-only local development is unaffected.
+    # Set HSTS_MAX_AGE=0 to disable (not recommended for production).
+    hsts_max_age: int = 31536000
     # Cache-Control max-age for static JS/CSS assets served by /static/*.
     # Set higher (e.g. 86400) when assets are fingerprinted (hash in filename).
     static_asset_max_age: int = 3600
@@ -130,12 +136,56 @@ class Settings(BaseSettings):
     # Set higher (e.g. 300) for documents with many embedded images or macros.
     lo_conversion_timeout_sec: int = 120
 
+    # ── CDN offload for thumbnails ───────────────────────────────────────────────
+    # When true, the thumbnail endpoint returns a presigned R2/S3 redirect URL
+    # instead of proxying bytes. Full page images are always proxied (never redirect).
+    # Requires the storage bucket to be accessible from the CDN / client.
+    cdn_thumbnail_enabled: bool = False
+    # Presigned URL TTL in seconds (default: 5 minutes).
+    cdn_thumbnail_presign_ttl_sec: int = 300
+
+    # ── OpenTelemetry tracing ────────────────────────────────────────────────────
+    # Set OTEL_EXPORTER_OTLP_ENDPOINT to enable distributed tracing.
+    # Example: http://tempo:4318  (Grafana Tempo)
+    #          http://localhost:4318  (local Jaeger/collector)
+    # Leave empty to disable tracing (default — zero overhead via no-op tracer).
+    otel_exporter_otlp_endpoint: str = ""
+    otel_service_name: str = "securedoc"
+
+    # ── Custom domain verification ───────────────────────────────────────────────
+    # Salt for computing the DNS TXT verification token for org custom domains.
+    # MUST be set to a secret random value in production.
+    # Generate with: python -c "import secrets; print(secrets.token_hex(32))"
+    domain_verify_salt: str = "securedoc_domain_salt_change_in_production"
+
+    # ── Metrics endpoint security ────────────────────────────────────────────────
+    # When non-empty, the /metrics endpoint requires:
+    #   Authorization: Bearer <metrics_token>
+    # Generate with: python -c "import secrets; print(secrets.token_hex(32))"
+    # Leave empty to fall back to metrics_allowed_ips only.
+    metrics_token: str = ""
+    # Comma-separated list of IPs/CIDRs allowed to access /metrics without a token.
+    # Empty string means no IP allowlist (combine with metrics_token for protection).
+    # Default allows only localhost.
+    metrics_allowed_ips: str = "127.0.0.1,::1"
+
     # ── Download safety ──────────────────────────────────────────────────────────
     # Maximum number of pages allowed in a single PDF download request.
     # The download endpoint assembles all pages into memory simultaneously;
     # a 500-page PDF requires ~4–10 GB RAM.  This limit prevents OOM on the API.
     # Set to 0 to disable the limit (not recommended for production).
-    max_download_pages_pdf: int = 100
+    # Raised from 100 → 500: streaming assembly keeps peak RSS at O(1 page).
+    max_download_pages_pdf: int = 500
+
+    @model_validator(mode="after")
+    def _validate_production_hsts(self) -> "Settings":
+        if self.app_env == "production" and self.hsts_max_age == 0:
+            raise RuntimeError(
+                "HSTS_MAX_AGE is 0 (disabled) in production. "
+                "Set HSTS_MAX_AGE=31536000 to protect against SSL strip attacks. "
+                "The header is only sent over HTTPS so enabling it is always safe."
+            )
+        return self
 
     @property
     def max_text_size_bytes(self) -> int:

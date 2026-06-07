@@ -156,6 +156,52 @@ async def _mark_document_error(document_id: str, message: str) -> None:
         logger.error("Failed to update error status for %s: %s", document_id, inner)
 
 
+async def _fire_document_processed_event(document_id: str, status: str, error: str = "") -> None:
+    """Dispatch document.processed webhook and SSE notification (both fire-and-forget)."""
+    from sqlalchemy import select
+    from app.models.document import Document
+
+    session_factory = _get_db_session_factory()
+    user_id: Optional[str] = None
+    data: dict = {}
+
+    try:
+        async with session_factory() as db:
+            result = await db.execute(
+                select(Document).where(Document.id == uuid.UUID(document_id))
+            )
+            doc = result.scalar_one_or_none()
+            if not doc:
+                return
+            user_id = str(doc.user_id)
+            data = {
+                "document_id": document_id,
+                "filename": doc.filename,
+                "status": status,
+                "page_count": doc.page_count,
+                "file_type": getattr(doc, "file_type", "pdf") or "pdf",
+            }
+            if error:
+                data["error"] = error[:500]
+
+            try:
+                from app.services.webhook_service import dispatch_webhook_event
+                await dispatch_webhook_event(db, user_id=user_id, event_type="document.processed", data=data)
+            except Exception as _wh_exc:
+                logger.warning("document.processed webhook failed for doc %s: %s", document_id, _wh_exc)
+
+    except Exception as exc:
+        logger.warning("_fire_document_processed_event DB lookup failed for doc %s: %s", document_id, exc)
+        return
+
+    if user_id:
+        try:
+            from app.services.notification_service import publish_notification
+            await publish_notification(user_id, "document.processed", data)
+        except Exception as _notif_exc:
+            logger.debug("SSE notification failed for doc %s: %s", document_id, _notif_exc)
+
+
 async def _process_document_async(task, document_id: str) -> dict:
     from app.services.storage import get_storage_service
     from app.services.rasterizer import RasterizerService, RasterizerError
@@ -168,9 +214,11 @@ async def _process_document_async(task, document_id: str) -> dict:
 
     try:
         async with session_factory() as db:
-            return await process_document_with_session(
+            result = await process_document_with_session(
                 db, document_id, storage, rasterizer, watermark
             )
+        await _fire_document_processed_event(document_id, status=result.get("status", "ready"))
+        return result
 
     except (RasterizerError, ValueError) as exc:
         logger.error(
@@ -178,6 +226,7 @@ async def _process_document_async(task, document_id: str) -> dict:
             document_id, type(exc).__name__, exc,
         )
         await _mark_document_error(document_id, str(exc))
+        await _fire_document_processed_event(document_id, status="error", error=str(exc))
         raise
 
     except Exception as exc:
@@ -193,6 +242,9 @@ async def _process_document_async(task, document_id: str) -> dict:
                 document_id,
             )
             await _mark_document_error(document_id, "Processing timed out after 600 s")
+            await _fire_document_processed_event(
+                document_id, status="error", error="Processing timed out after 600 s"
+            )
             raise
 
         logger.error(

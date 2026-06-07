@@ -123,6 +123,69 @@ class WatermarkService:
         return buf.getvalue()
 
 
+    def apply_viewer_forensic_stamp(
+        self,
+        image_bytes: bytes,
+        session_id: str,
+        page_number: int,
+    ) -> bytes:
+        """Embed a viewer-identity stamp in API-served page images.
+
+        Complements apply_forensic_stamp (document-level, stored in R2) by
+        adding viewer-session identity to bytes served through the API.
+
+        The stamp encodes a SHA-256 prefix of the session_id so the raw
+        session_id is never burned into the image, but the session (and thus
+        viewer email) is recoverable by anyone with database access.
+
+        Two visual cues are used:
+          - Near-invisible pixel mark (1.5% opacity) in the LOWER-LEFT corner
+            (document stamp occupies lower-right — separate corners allow
+             independent forensic recovery of each stamp).
+          - EXIF UserComment field embedding the session hash.
+
+        Applied AFTER the visible watermark in the same thread-pool executor
+        call to avoid an extra PIL round-trip.
+        """
+        session_hash = hashlib.sha256(session_id.encode()).hexdigest()[:8]
+        mark_text = f"VS:{session_hash}:{page_number:04d}"
+
+        img = Image.open(io.BytesIO(image_bytes)).convert("RGBA")
+        width, height = img.size
+
+        overlay = Image.new("RGBA", (width, height), (255, 255, 255, 0))
+        draw = ImageDraw.Draw(overlay)
+
+        font_size = max(8, int(min(width, height) * 0.012))
+        font = _load_font(font_size)
+
+        bbox = draw.textbbox((0, 0), mark_text, font=font)
+        text_width = bbox[2] - bbox[0]
+        text_height = bbox[3] - bbox[1]
+
+        margin = max(4, int(min(width, height) * 0.01))
+        # Lower-LEFT corner (document stamp is lower-right)
+        x = margin
+        y = height - text_height - margin
+
+        # 1.5% opacity — between invisible (1%) and barely-detectable (3%)
+        alpha = int(255 * 0.015)
+        draw.text((x, y), mark_text, font=font, fill=(0, 0, 0, alpha))
+
+        combined = Image.alpha_composite(img, overlay)
+        result = combined.convert("RGB")
+
+        buf = io.BytesIO()
+        try:
+            exif = img.getexif()
+            # EXIF tag 37510 = UserComment
+            exif[37510] = f"VS:{session_hash}:{page_number:04d}".encode()
+            result.save(buf, format="WEBP", exif=exif.tobytes())
+        except Exception:
+            result.save(buf, format="WEBP")
+        return buf.getvalue()
+
+
 def _load_font(size: int) -> ImageFont.FreeTypeFont:
     for path in (
         "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",

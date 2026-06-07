@@ -125,21 +125,46 @@ class PolicyEnforcer:
     async def is_active_session(
         self, db: AsyncSession, link_id, session_id: str
     ) -> bool:
+        """Return True if session_id is an active (non-stale) session for this link.
+
+        Checks the process-local session cache first (5 s TTL) to avoid a DB
+        read on every page request.  On cache miss, falls back to DB and
+        populates the cache for subsequent requests.
+
+        Cross-link session replay is validated on both cache hits and DB reads.
         """
-        Return True if session_id is an active (non-stale) session for this link.
-        Validates link ownership to prevent cross-link session ID forgery.
-        """
-        from app.models.session import ViewerSession
+        from app.services.viewer_cache import session_cache
 
         cutoff = datetime.now(timezone.utc) - timedelta(minutes=SESSION_ACTIVE_MINUTES)
+
+        # ── L1: process-local session cache ──────────────────────────────────
+        cached = session_cache.get(session_id)
+        if cached is not None:
+            cached_link_id, last_seen_at, _email = cached
+            if str(cached_link_id) != str(link_id):
+                return False  # cross-link replay
+            last_seen = last_seen_at
+            if last_seen.tzinfo is None:
+                last_seen = last_seen.replace(tzinfo=timezone.utc)
+            return last_seen >= cutoff
+
+        # ── DB fallback ───────────────────────────────────────────────────────
+        from app.models.session import ViewerSession
+
         row = await db.get(ViewerSession, session_id)
-        if row is None or row.link_id != link_id:
+        if row is None or str(row.link_id) != str(link_id):
             return False
-        # Normalize to UTC-aware for comparison (SQLite stores naive datetimes)
         last_seen = row.last_seen_at
         if last_seen.tzinfo is None:
             last_seen = last_seen.replace(tzinfo=timezone.utc)
-        return last_seen >= cutoff
+        is_active = last_seen >= cutoff
+        if is_active:
+            # Populate cache so subsequent requests in this TTL window skip DB.
+            session_cache.put(
+                session_id,
+                (row.link_id, last_seen, row.viewer_email_masked),
+            )
+        return is_active
 
     async def purge_stale_sessions(self, db: AsyncSession, link_id) -> int:
         """Delete sessions inactive past the timeout. Returns number of rows deleted."""
@@ -172,15 +197,46 @@ class PolicyEnforcer:
         For existing sessions, the heartbeat write is throttled to at most once
         per SESSION_HEARTBEAT_INTERVAL_SEC to reduce DB write amplification when
         a viewer rapidly pages through a document.
+
+        Also updates the process-local session cache so subsequent is_active_session
+        calls in the same TTL window skip the DB entirely.
         """
         from app.models.session import ViewerSession
+        from app.services.viewer_cache import session_cache
 
         now = datetime.now(timezone.utc)
+
+        # ── Check session cache first to avoid an extra DB round-trip ─────────
+        cached = session_cache.get(session_id)
+        if cached is not None:
+            cached_link_id, cached_last_seen, cached_email = cached
+            if str(cached_link_id) != str(link_id):
+                logger.warning(
+                    "session_link_mismatch session=%s... expected_link=%s actual_link=%s",
+                    session_id[:6], link_id, cached_link_id,
+                )
+                return None
+            # Update cache timestamp and fall through to DB heartbeat logic.
+            resolved_email = cached_email
+
+            # Only write to DB if heartbeat interval has elapsed (throttle writes).
+            last_seen = cached_last_seen
+            if last_seen.tzinfo is None:
+                last_seen = last_seen.replace(tzinfo=timezone.utc)
+            elapsed = (now - last_seen).total_seconds()
+            if elapsed >= SESSION_HEARTBEAT_INTERVAL_SEC:
+                # Refresh DB row and cache.
+                existing = await db.get(ViewerSession, session_id)
+                if existing:
+                    existing.last_seen_at = now
+                    session_cache.put(session_id, (link_id, now, cached_email))
+            # else: within heartbeat interval — update cache timestamp only.
+            return resolved_email
+
+        # ── Cache miss: full DB path ──────────────────────────────────────────
         existing = await db.get(ViewerSession, session_id)
         if existing:
-            if existing.link_id != link_id:
-                # Cross-link session replay attempt — refuse to refresh heartbeat
-                # and return None so caller cannot derive any email from this session.
+            if str(existing.link_id) != str(link_id):
                 logger.warning(
                     "session_link_mismatch session=%s... expected_link=%s actual_link=%s",
                     session_id[:6], link_id, existing.link_id,
@@ -192,7 +248,9 @@ class PolicyEnforcer:
             elapsed = (now - last_seen).total_seconds()
             if elapsed >= SESSION_HEARTBEAT_INTERVAL_SEC:
                 existing.last_seen_at = now
-            # else: skip the write — session is still fresh within the interval
+                session_cache.put(session_id, (existing.link_id, now, existing.viewer_email_masked))
+            else:
+                session_cache.put(session_id, (existing.link_id, last_seen, existing.viewer_email_masked))
             return existing.viewer_email_masked
         else:
             db.add(
@@ -205,6 +263,8 @@ class PolicyEnforcer:
                     last_seen_at=now,
                 )
             )
+            # Populate cache for the new session immediately.
+            session_cache.put(session_id, (link_id, now, viewer_email_masked))
             return viewer_email_masked
         # caller must commit
 

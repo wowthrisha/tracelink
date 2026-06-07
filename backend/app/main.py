@@ -17,10 +17,12 @@ from app.middleware.rate_limit import limiter
 from app.middleware.trusted_proxy import TrustedProxyMiddleware
 from app.middleware.security_headers import SecurityHeadersMiddleware
 from app.middleware.request_id import RequestIDMiddleware
-from app.routers import documents, links, viewer, analytics, groups, billing
+from app.middleware.metrics import PrometheusMiddleware
+from app.routers import documents, links, viewer, analytics, groups, billing, webhooks, api_keys, orgs, admin, notifications
 from app.auth import _fetch_jwks
 
 _IP_SALT_DEFAULT = "securedoc_ip_salt_change_in_production"
+_DOMAIN_SALT_DEFAULT = "securedoc_domain_salt_change_in_production"
 
 if settings.app_env == "production":
     _errors = []
@@ -33,6 +35,11 @@ if settings.app_env == "production":
     if settings.ip_hash_salt == _IP_SALT_DEFAULT:
         _errors.append(
             "  IP_HASH_SALT is still set to the default placeholder value "
+            "(generate with: python -c \"import secrets; print(secrets.token_hex(32))\")"
+        )
+    if settings.domain_verify_salt == _DOMAIN_SALT_DEFAULT:
+        _errors.append(
+            "  DOMAIN_VERIFY_SALT is still set to the default placeholder value "
             "(generate with: python -c \"import secrets; print(secrets.token_hex(32))\")"
         )
     if _errors:
@@ -60,10 +67,16 @@ if settings.app_env == "production":
             "Set HTTPS_REDIRECT=true to enforce HTTPS in production."
         )
     if settings.hsts_max_age == 0:
-        _warn_log.warning(
-            "HSTS: HSTS_MAX_AGE is 0 (disabled). "
-            "Set HSTS_MAX_AGE=31536000 once HTTPS is confirmed stable on your domain. "
-            "Without HSTS, browsers can be downgraded to HTTP via MITM attacks."
+        _errors.append(
+            "  HSTS_MAX_AGE is 0 (disabled). "
+            "Set HSTS_MAX_AGE=31536000 to enable HSTS. "
+            "Without HSTS, browsers can be downgraded to HTTP via MITM attacks. "
+            "The header is only sent over HTTPS so this is safe to enable now."
+        )
+    if _errors:
+        raise RuntimeError(
+            "Refusing to start in production with unsafe configuration:\n"
+            + "\n".join(_errors)
         )
 
 
@@ -76,6 +89,11 @@ async def lifespan(app: FastAPI):
         from app.middleware.json_logging import configure_json_logging
         configure_json_logging()
         _log.info("LOGGING: JSON structured logging enabled")
+
+    # OpenTelemetry tracing (no-op when endpoint not configured)
+    from app.telemetry import setup_tracing, instrument_app
+    setup_tracing(settings.otel_exporter_otlp_endpoint, settings.otel_service_name)
+    instrument_app(app)
 
     # Log which storage backend is active
     from app.services.storage import _storage_service
@@ -127,6 +145,10 @@ if settings.https_redirect:
     from app.middleware.https_redirect import HTTPSRedirectMiddleware
     app.add_middleware(HTTPSRedirectMiddleware)
 
+# Prometheus — must be innermost of the non-route middleware so it sees
+# the real request after proxy headers are resolved.
+app.add_middleware(PrometheusMiddleware)
+
 app.add_middleware(
     SecurityHeadersMiddleware,
     hsts_max_age=settings.hsts_max_age,
@@ -177,6 +199,68 @@ app.include_router(viewer.router)
 app.include_router(analytics.router)
 app.include_router(groups.router)
 app.include_router(billing.router)
+app.include_router(webhooks.router)
+app.include_router(api_keys.router)
+app.include_router(orgs.router)
+app.include_router(admin.router)
+app.include_router(notifications.router)
+
+
+@app.get("/metrics", include_in_schema=False)
+async def metrics(request: Request):
+    """
+    Prometheus metrics endpoint.
+
+    Protected by:
+      1. METRICS_TOKEN bearer token (when configured)
+      2. METRICS_ALLOWED_IPS IP allowlist (default: 127.0.0.1, ::1)
+
+    When neither is configured (blank token + empty allowed IPs), the endpoint
+    is accessible by anyone — suitable only for isolated internal deployments.
+    """
+    import ipaddress as _ipaddress
+
+    client_ip = getattr(request.state, "client_ip", None) or (
+        request.client.host if request.client else "unknown"
+    )
+
+    # Token check (takes priority over IP allowlist)
+    if settings.metrics_token:
+        auth_header = request.headers.get("Authorization", "")
+        parts = auth_header.split(" ", 1)
+        if len(parts) != 2 or parts[0].lower() != "bearer" or parts[1] != settings.metrics_token:
+            return JSONResponse(status_code=401, content={"detail": "Unauthorized"})
+    elif settings.metrics_allowed_ips:
+        # IP allowlist check — supports individual IPs and CIDR ranges
+        allowed = False
+        for entry in settings.metrics_allowed_ips.split(","):
+            entry = entry.strip()
+            if not entry:
+                continue
+            try:
+                if "/" in entry:
+                    if _ipaddress.ip_address(client_ip) in _ipaddress.ip_network(entry, strict=False):
+                        allowed = True
+                        break
+                else:
+                    if client_ip == entry:
+                        allowed = True
+                        break
+            except ValueError:
+                continue
+        if not allowed:
+            return JSONResponse(status_code=403, content={"detail": "Forbidden"})
+
+    from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
+    from fastapi.responses import Response as _Response
+    from app.metrics import active_sessions
+    from app.services.viewer_cache import session_cache
+    active_sessions.set(len(session_cache._data))
+    return _Response(
+        content=generate_latest(),
+        media_type=CONTENT_TYPE_LATEST,
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 @app.get("/health")

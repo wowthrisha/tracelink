@@ -136,6 +136,12 @@ services:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "celery", "-A", "app.workers.celery_app", "inspect", "ping", "--timeout=5"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
     restart: unless-stopped
 
   # ── Celery Beat (periodic task scheduler) ──────────────────────────────────
@@ -159,6 +165,30 @@ services:
         condition: service_completed_successfully
     restart: unless-stopped
 
+  # ── Automated backup ──────────────────────────────────────────────────────────
+  # Runs pg_dump daily at 02:00 UTC; keeps 7 daily backups.
+  # Mount a persistent volume or bind-mount to an external path for off-host storage.
+  # Set BACKUP_ENABLED=false in .env to disable.
+  backup:
+    image: postgres:16-alpine
+    entrypoint: >
+      sh -c "
+        apk add --no-cache dcron &&
+        echo '0 2 * * * pg_dump -h db -U securedoc securedoc | gzip > /backups/securedoc_\$(date +%Y%m%d_%H%M%S).sql.gz && find /backups -name \"*.sql.gz\" -mtime +7 -delete' > /etc/crontabs/root &&
+        crond -f -l 6
+      "
+    environment:
+      PGPASSWORD: password
+    volumes:
+      - backups:/backups
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+    profiles:
+      - backup
+
 volumes:
   pgdata:
   redisdata:
+  backups:

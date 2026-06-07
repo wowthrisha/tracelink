@@ -373,6 +373,7 @@ class TestXCacheStatusHeader:
              patch("app.routers.viewer.policy_enforcer") as mock_policy:
             mock_fetch.return_value = (b"\x89PNG\r\n\x1a\n" + b"\x00" * 100, "local")
             mock_wm.apply_visible_watermark.return_value = b"\x89PNG\r\n\x1a\n" + b"\x00" * 50
+            mock_wm.apply_viewer_forensic_stamp.side_effect = lambda img, *a, **kw: img
             mock_analytics.log_event = AsyncMock()
             mock_policy.ip_is_allowed.return_value = True
             mock_policy.upsert_session = AsyncMock()
@@ -410,6 +411,7 @@ class TestXCacheStatusHeader:
              patch("app.routers.viewer.policy_enforcer") as mock_policy:
             mock_fetch.return_value = (b"\x89PNG\r\n\x1a\n" + b"\x00" * 100, "local")
             mock_wm.apply_visible_watermark.return_value = b"\x89PNG\r\n\x1a\n" + b"\x00" * 50
+            mock_wm.apply_viewer_forensic_stamp.side_effect = lambda img, *a, **kw: img
             mock_analytics.log_event = AsyncMock()
             mock_policy.ip_is_allowed.return_value = True
             mock_policy.upsert_session = AsyncMock()
@@ -451,6 +453,7 @@ class TestXCacheStatusHeader:
                 return_value=b"\x89PNG\r\n\x1a\n" + b"\x00" * 100
             )
             mock_wm.apply_visible_watermark.return_value = b"\x89PNG\r\n\x1a\n" + b"\x00" * 50
+            mock_wm.apply_viewer_forensic_stamp.side_effect = lambda img, *a, **kw: img
             mock_analytics.log_event = AsyncMock()
             mock_policy.ip_is_allowed.return_value = True
             mock_policy.upsert_session = AsyncMock()
@@ -677,9 +680,9 @@ class TestPhase8ConfigDefaults:
         from app.config import Settings
         assert Settings(app_env="development").https_redirect is False
 
-    def test_hsts_max_age_default_zero(self):
+    def test_hsts_max_age_default_one_year(self):
         from app.config import Settings
-        assert Settings(app_env="development").hsts_max_age == 0
+        assert Settings(app_env="development").hsts_max_age == 31536000
 
     def test_static_asset_max_age_default(self):
         from app.config import Settings
@@ -963,6 +966,7 @@ class TestPhase8Regression:
              patch("app.routers.viewer.policy_enforcer") as mp:
             mf.return_value = (b"\x00" * 100, "local")
             mw.apply_visible_watermark.return_value = b"\x00" * 50
+            mw.apply_viewer_forensic_stamp.side_effect = lambda img, *a, **kw: img
             ma.log_event = AsyncMock()
             mp.ip_is_allowed.return_value = True
             mp.upsert_session = AsyncMock()

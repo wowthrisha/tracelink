@@ -8,7 +8,7 @@ from typing import Optional, List
 
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, update
+from sqlalchemy import select, update, or_
 
 from app.models.link import ShareLink
 from app.utils.crypto import hash_password, verify_password, hash_value, mask_email
@@ -119,12 +119,7 @@ class LinkService:
                 await analytics_svc.log_event(db, link.id, "expired", ip=ip, user_agent=user_agent)
                 raise HTTPException(status_code=410, detail="Link expired")
 
-        # 4. View count < max_views
-        if link.max_views is not None and link.view_count >= link.max_views:
-            await analytics_svc.log_event(
-                db, link.id, "max_views_reached", ip=ip, user_agent=user_agent
-            )
-            raise HTTPException(status_code=410, detail="Max views reached")
+        # 4. View count < max_views — checked later atomically; skip eager check here.
 
         # 5. Password check
         if link.password_hash is not None:
@@ -231,6 +226,29 @@ class LinkService:
             ip_hash=ip_hash,
             viewer_email_masked=email_masked,
         )
+
+        # Atomic check-and-increment view_count.
+        # A single UPDATE with a conditional WHERE clause is atomic at the PostgreSQL
+        # row level (READ COMMITTED: re-checks WHERE after acquiring lock) and
+        # serialized at the SQLite table level.  No separate SELECT or explicit lock.
+        # RETURNING tells us whether 0 rows were matched (max_views hit) vs ≥1 (OK).
+        result = await db.execute(
+            update(ShareLink)
+            .where(
+                ShareLink.id == link.id,
+                or_(ShareLink.max_views.is_(None), ShareLink.view_count < ShareLink.max_views),
+            )
+            .values(view_count=ShareLink.view_count + 1)
+            .returning(ShareLink.id)
+        )
+        row = result.fetchone()
+        if row is None:
+            # max_views was hit between our earlier read and now.
+            await analytics_svc.log_event(
+                db, link.id, "max_views_reached", ip=ip, user_agent=user_agent
+            )
+            raise HTTPException(status_code=410, detail="Max views reached")
+
         if commit:
             await db.commit()
 
@@ -246,20 +264,11 @@ class LinkService:
         link.revoked_at = datetime.now(timezone.utc)
         await db.commit()
         await db.refresh(link)
-        # Immediately evict from the viewer metadata cache so the next page
-        # request does not serve a stale snapshot that still looks active.
+        # Evict link snapshot AND all session cache entries for this link so
+        # the next page request from any active session is immediately denied.
         from app.services.viewer_cache import invalidate_link
-        invalidate_link(link.token)
+        invalidate_link(link.token, link_id=link.id)
         return link
-
-    async def increment_view_count(self, db: AsyncSession, link_id: str, commit: bool = True) -> None:
-        await db.execute(
-            update(ShareLink)
-            .where(ShareLink.id == uuid.UUID(link_id))
-            .values(view_count=ShareLink.view_count + 1)
-        )
-        if commit:
-            await db.commit()
 
     def _generate_session_id(self) -> str:
         return secrets.token_hex(16)  # 32 hex chars = 128-bit entropy

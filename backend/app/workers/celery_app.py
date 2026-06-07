@@ -1,5 +1,7 @@
+import logging
 import os
 from celery import Celery
+from celery.signals import worker_process_init
 from app.config import settings
 
 if os.getenv("USE_DEMO_STORAGE") == "1":
@@ -43,3 +45,20 @@ celery_app.conf.update(
         },
     },
 )
+
+
+@worker_process_init.connect
+def _configure_worker_logging(**kwargs):
+    """Configure structured JSON logging in Celery worker processes.
+
+    Called once per worker process after fork.  Mirrors the API server's
+    logging setup so worker logs are parseable by the same log aggregators.
+    Controlled by the same ENABLE_JSON_LOGGING config flag.
+    """
+    if settings.enable_json_logging:
+        from app.middleware.json_logging import configure_json_logging
+        configure_json_logging()
+        logging.getLogger("securedoc.worker").info(
+            "Worker JSON logging configured",
+            extra={"event": "worker_startup"},
+        )

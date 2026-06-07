@@ -20,13 +20,26 @@ from app.services.link_service import LinkService
 from app.services.viewer_cache import invalidate_link
 from app.utils.crypto import hash_password
 from app.config import settings
-from app.auth import get_current_user
+from app.auth import get_current_user, require_scope
 
 router = APIRouter(prefix="/api/links", tags=["links"])
 link_svc = LinkService()
 
 
-def _link_to_summary(link: ShareLink, request: Request) -> LinkSummary:
+async def _get_base_url_for_doc(doc: Document, db) -> str:
+    """Return the share-link base URL, preferring the org's verified custom domain."""
+    if doc.org_id is not None:
+        try:
+            from app.models.org import Organization
+            org_result = await db.get(Organization, doc.org_id)
+            if org_result and org_result.custom_domain_verified and org_result.custom_domain:
+                return f"https://{org_result.custom_domain}"
+        except Exception:
+            pass
+    return settings.app_public_base_url
+
+
+def _link_to_summary(link: ShareLink, base_url: str = "") -> LinkSummary:
     now = datetime.now(timezone.utc)
     expires = link.expires_at
     if expires and expires.tzinfo is None:
@@ -45,10 +58,11 @@ def _link_to_summary(link: ShareLink, request: Request) -> LinkSummary:
         except Exception:
             pass
 
+    url_base = base_url or settings.app_public_base_url
     return LinkSummary(
         id=link.id,
         token=link.token,
-        share_url=f"{settings.app_public_base_url}/v/{link.token}",
+        share_url=f"{url_base}/v/{link.token}",
         label=link.label,
         expires_at=link.expires_at,
         max_views=link.max_views,
@@ -66,7 +80,7 @@ async def create_link(
     request: Request,
     payload: LinkCreateRequest,
     db: AsyncSession = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: dict = Depends(require_scope("links:write")),
 ):
     # Verify document exists and belongs to this user
     doc_result = await db.execute(
@@ -94,10 +108,11 @@ async def create_link(
         created_by=uuid.UUID(user["user_id"]),
     )
 
+    base_url = await _get_base_url_for_doc(doc, db)
     return LinkResponse(
         id=link.id,
         token=link.token,
-        share_url=f"{settings.app_public_base_url}/v/{link.token}",
+        share_url=f"{base_url}/v/{link.token}",
         label=link.label,
         expires_at=link.expires_at,
         max_views=link.max_views,
@@ -111,7 +126,7 @@ async def list_links(
     request: Request,
     document_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: dict = Depends(require_scope("links:read")),
 ):
     # Verify document belongs to this user
     doc_result = await db.execute(
@@ -129,14 +144,20 @@ async def list_links(
         .order_by(ShareLink.created_at.desc())
     )
     links = result.scalars().all()
-    return {"links": [_link_to_summary(l, request) for l in links]}
+    # Resolve org custom domain once for all links on this document
+    doc_result2 = await db.execute(
+        select(Document).where(Document.id == document_id)
+    )
+    doc_for_url = doc_result2.scalar_one_or_none()
+    base_url = await _get_base_url_for_doc(doc_for_url, db) if doc_for_url else settings.app_public_base_url
+    return {"links": [_link_to_summary(l, base_url) for l in links]}
 
 
 @router.delete("/{link_id}", response_model=RevokeResponse)
 async def revoke_link(
     link_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: dict = Depends(require_scope("links:write")),
 ):
     # Fetch link and verify its document belongs to this user
     link_result = await db.execute(select(ShareLink).where(ShareLink.id == link_id))
@@ -154,6 +175,21 @@ async def revoke_link(
         raise HTTPException(status_code=403, detail="Not authorized")
 
     revoked = await link_svc.revoke_link(db, str(link_id))
+
+    # Audit log: link.revoked
+    try:
+        from app.services.audit_service import log_audit_event as _log_audit
+        await _log_audit(
+            db,
+            event_type="link.revoked",
+            actor_user_id=user["user_id"],
+            target_type="link",
+            target_id=str(link_id),
+            details={"document_id": str(revoked.document_id), "token": revoked.token[:8] + "..."},
+        )
+    except Exception:
+        pass
+
     return RevokeResponse(
         id=revoked.id,
         revoked_at=revoked.revoked_at,
@@ -163,11 +199,10 @@ async def revoke_link(
 
 @router.patch("/{link_id}", response_model=LinkSummary)
 async def update_link(
-    request: Request,
     link_id: uuid.UUID,
     payload: LinkUpdateRequest,
     db: AsyncSession = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: dict = Depends(require_scope("links:write")),
 ):
     result = await db.execute(select(ShareLink).where(ShareLink.id == link_id))
     link = result.scalar_one_or_none()
@@ -180,7 +215,8 @@ async def update_link(
             Document.user_id == uuid.UUID(user["user_id"]),
         )
     )
-    if not doc_result.scalar_one_or_none():
+    doc_for_patch = doc_result.scalar_one_or_none()
+    if not doc_for_patch:
         raise HTTPException(status_code=403, detail="Not authorized")
 
     if payload.label is not None:
@@ -209,6 +245,8 @@ async def update_link(
     await db.commit()
     await db.refresh(link)
     # Policy changes (email list, IP allowlist, expiry, revoke) must be visible
-    # on the next viewer request — evict the cached snapshot immediately.
-    invalidate_link(link.token)
-    return _link_to_summary(link, request)
+    # on the next viewer request — evict link snapshot AND all session cache
+    # entries for this link so any active viewer re-validates against the DB.
+    invalidate_link(link.token, link_id=link.id)
+    base_url = await _get_base_url_for_doc(doc_for_patch, db)
+    return _link_to_summary(link, base_url)

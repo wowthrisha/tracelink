@@ -24,11 +24,11 @@ class TestRegistry:
             assert adapter.file_type == ft
 
     def test_unknown_type_falls_back_to_pdf(self):
-        adapter = get_adapter("pptx")
+        adapter = get_adapter("unknown_format_xyz")
         assert adapter.file_type == "pdf"
 
-    def test_all_adapters_returns_six_entries(self):
-        assert len(all_adapters()) == 6
+    def test_all_adapters_returns_eight_entries(self):
+        assert len(all_adapters()) == 8
 
     def test_allowed_content_types_contains_pdf(self):
         assert "application/pdf" in allowed_content_types()

@@ -30,6 +30,7 @@ class AnalyticsService:
         user_agent: Optional[str] = None,
         session_id: Optional[str] = None,
         metadata: Optional[Dict[str, Any]] = None,
+        time_spent_ms: Optional[int] = None,
         commit: bool = True,
     ) -> AccessEvent:
         """Add an access event.
@@ -37,11 +38,15 @@ class AnalyticsService:
         Pass commit=False when the caller will issue its own db.commit() — this
         lets callers batch the analytics write with other pending DB changes into
         a single round-trip instead of an extra commit per event.
+
+        time_spent_ms: milliseconds the viewer spent on the page before this
+        event was fired. Used for time-on-page analytics (Action 12).
         """
         event = AccessEvent(
             link_id=link_id,
             event_type=event_type,
             page_number=page_number,
+            time_spent_ms=time_spent_ms,
             viewer_email=mask_email(viewer_email) if viewer_email else None,
             ip_hash=hash_value(ip) if ip else None,
             user_agent_hash=hash_value(user_agent) if user_agent else None,

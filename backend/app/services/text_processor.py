@@ -64,6 +64,26 @@ def detect_file_type(filename: str, content_type: str, file_bytes: bytes) -> str
             )
         return "docx"
 
+    # PPTX — ZIP-based XML format (PK magic bytes)
+    if ext == "pptx" or content_type in (
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    ):
+        if not _is_zip_magic(file_bytes):
+            raise ValueError(
+                f"File {filename!r} does not appear to be a valid PPTX (missing ZIP header)."
+            )
+        return "pptx"
+
+    # XLSX — ZIP-based XML format (PK magic bytes)
+    if ext == "xlsx" or content_type in (
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    ):
+        if not _is_zip_magic(file_bytes):
+            raise ValueError(
+                f"File {filename!r} does not appear to be a valid XLSX (missing ZIP header)."
+            )
+        return "xlsx"
+
     # DOC — Legacy OLE2 compound document (D0CF magic bytes)
     if ext == "doc" or content_type == "application/msword":
         if not _is_ole2_magic(file_bytes):
@@ -83,7 +103,7 @@ def detect_file_type(filename: str, content_type: str, file_bytes: bytes) -> str
 
     raise ValueError(
         f"Unsupported file type: extension={ext!r}, content-type={content_type!r}. "
-        "Supported formats: .pdf, .docx, .doc, .txt, .md, .log"
+        "Supported formats: .pdf, .docx, .pptx, .xlsx, .doc, .txt, .md, .log"
     )
 
 
