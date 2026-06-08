@@ -1006,7 +1006,13 @@ class TestPDFRegression:
 
         mock_rasterizer = MagicMock()
         rast_page = MagicMock(page_number=1, image_bytes=b"webp", width_px=595, height_px=842)
-        mock_rasterizer.rasterize_document = AsyncMock(return_value=[rast_page])
+        _pages_k = [rast_page]
+        def _side_effect_k(*args, **kwargs):
+            async def _gen():
+                for p in _pages_k:
+                    yield p
+            return _gen()
+        mock_rasterizer.stream_rasterized_pages = MagicMock(side_effect=_side_effect_k)
 
         mock_watermark = MagicMock()
         mock_watermark.apply_forensic_stamp = MagicMock(return_value=b"stamped")
@@ -1016,7 +1022,7 @@ class TestPDFRegression:
             mock_db, doc_id, mock_storage, mock_rasterizer, mock_watermark
         )
         assert result["status"] == "ready"
-        mock_rasterizer.rasterize_document.assert_called_once()
+        mock_rasterizer.stream_rasterized_pages.assert_called_once()
         mock_watermark.apply_forensic_stamp.assert_called_once()
 
 
@@ -1282,11 +1288,11 @@ class TestTextWorkerPipeline:
         mock_storage.upload_file = AsyncMock()
 
         mock_rasterizer = MagicMock()
-        mock_rasterizer.rasterize_document = AsyncMock()
+        mock_rasterizer.stream_rasterized_pages = MagicMock()
 
         await process_document_with_session(
             mock_db, doc_id, mock_storage, mock_rasterizer, MagicMock()
         )
 
         # Rasterizer must NOT be called for text documents
-        mock_rasterizer.rasterize_document.assert_not_called()
+        mock_rasterizer.stream_rasterized_pages.assert_not_called()

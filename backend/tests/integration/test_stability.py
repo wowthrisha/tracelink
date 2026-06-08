@@ -464,7 +464,13 @@ class TestProcessDocumentWithSession:
         storage.upload_file = AsyncMock(return_value=None)
 
         rasterizer = MagicMock()
-        rasterizer.rasterize_document = AsyncMock(return_value=[page_result])
+        _pages_a = [page_result]
+        def _side_effect_a(*args, **kwargs):
+            async def _gen():
+                for p in _pages_a:
+                    yield p
+            return _gen()
+        rasterizer.stream_rasterized_pages = MagicMock(side_effect=_side_effect_a)
 
         watermark = MagicMock()
         watermark.apply_forensic_stamp = MagicMock(return_value=webp)
@@ -518,7 +524,13 @@ class TestProcessDocumentWithSession:
         storage.upload_file = AsyncMock(return_value=None)
 
         rasterizer = MagicMock()
-        rasterizer.rasterize_document = AsyncMock(return_value=[page_result])
+        _pages_b = [page_result]
+        def _side_effect_b(*args, **kwargs):
+            async def _gen():
+                for p in _pages_b:
+                    yield p
+            return _gen()
+        rasterizer.stream_rasterized_pages = MagicMock(side_effect=_side_effect_b)
 
         watermark = MagicMock()
         watermark.apply_forensic_stamp = MagicMock(return_value=webp)

@@ -537,7 +537,13 @@ class TestCacheInvalidationOnReprocess:
         page_result.image_bytes = _make_webp_bytes()
         page_result.width_px = 595
         page_result.height_px = 842
-        mock_rasterizer.rasterize_document = AsyncMock(return_value=[page_result])
+        _pages = [page_result]
+        def _side_effect(*args, **kwargs):
+            async def _gen():
+                for p in _pages:
+                    yield p
+            return _gen()
+        mock_rasterizer.stream_rasterized_pages = MagicMock(side_effect=_side_effect)
 
         mock_watermark = MagicMock()
         mock_watermark.apply_forensic_stamp = MagicMock(return_value=_make_webp_bytes())

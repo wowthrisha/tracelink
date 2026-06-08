@@ -15,6 +15,13 @@ _THUMBNAIL_WIDTH_PX = 200
 # network uplink on typical Railway / Render environments.
 _UPLOAD_CONCURRENCY = 8
 
+# Maximum rasterized pages held in the sliding window at once.
+# One window slot = one page being watermarked/uploaded (≈100–400 KB WEBP).
+# Keeping this at 2× the upload concurrency keeps R2 upload slots fully
+# saturated while bounding peak WEBP RAM to ~6 MB (16 × 400 KB) vs the
+# old O(N) approach that accumulated all pages before any uploading started.
+_TASK_WINDOW = _UPLOAD_CONCURRENCY * 2
+
 
 def _make_thumbnail(image_bytes: bytes) -> bytes:
     """
@@ -99,33 +106,44 @@ async def process_pdf_document(
         pdf_bytes = await storage.download_bytes(doc.storage_key)
     logger.info("Document %s: pdf_bytes %d bytes", document_id, len(pdf_bytes))
 
-    # Rasterize — raises RasterizerError on bad/malicious PDF (permanent failure).
-    # Streaming implementation: peak RAM = O(1 page) not O(N pages).
-    logger.info("Document %s: rasterizing PDF", document_id)
-    pages = await rasterizer.rasterize_document(pdf_bytes, document_id)
-    logger.info("Document %s: rasterized %d page(s)", document_id, len(pages))
-
-    # Upload pages + thumbnails with bounded concurrency.
-    # asyncio.gather preserves result order so db_pages[i] matches pages[i].
+    # V3.1 + V3.2: stream one page at a time through a bounded sliding window.
+    # stream_rasterized_pages() yields pages as they are encoded (one at a time).
+    # We immediately schedule an upload task for each page and drain the oldest
+    # task when the window reaches _TASK_WINDOW, capping peak WEBP RAM to
+    # _TASK_WINDOW pages (≈16 × 400 KB = 6 MB) instead of O(N pages).
+    logger.info("Document %s: rasterizing PDF (streaming)", document_id)
     semaphore = asyncio.Semaphore(_UPLOAD_CONCURRENCY)
-    db_pages = await asyncio.gather(*[
-        _process_and_upload_page(storage, watermark, semaphore, page, document_id)
-        for page in pages
-    ])
+    pending: list = []
+    db_pages: list = []
+
+    async for page in rasterizer.stream_rasterized_pages(pdf_bytes, document_id):
+        task = asyncio.create_task(
+            _process_and_upload_page(storage, watermark, semaphore, page, document_id)
+        )
+        pending.append(task)
+        if len(pending) >= _TASK_WINDOW:
+            db_pages.append(await pending.pop(0))
+
+    for task in pending:
+        db_pages.append(await task)
+
+    db_pages.sort(key=lambda p: p.page_number)
+    page_count = len(db_pages)
+    logger.info("Document %s: rasterized %d page(s)", document_id, page_count)
 
     for db_page in db_pages:
         db.add(db_page)
     doc.status = "ready"
-    doc.page_count = len(pages)
+    doc.page_count = page_count
     await db.commit()
-    logger.info("Document %s: status → ready (%d pages)", document_id, len(pages))
+    logger.info("Document %s: status → ready (%d pages)", document_id, page_count)
 
     # Extract PDF TOC from bookmarks (best-effort: never blocks processing)
     await extract_and_store_pdf_toc(document_id, pdf_bytes, storage)
 
     return {
         "document_id": document_id,
-        "page_count": len(pages),
+        "page_count": page_count,
         "status": "ready",
     }
 

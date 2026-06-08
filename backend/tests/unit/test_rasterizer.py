@@ -111,3 +111,75 @@ class TestRasterizerService:
             await svc.rasterize_document(sample_pdf_bytes, "doc_123")
         assert captured_tmp
         assert not os.path.exists(captured_tmp[0]), "temp dir should be cleaned up on error"
+
+
+class TestStreamRasterizedPages:
+    """V3.1 — stream_rasterized_pages async generator tests."""
+
+    @pytest.mark.asyncio
+    @patch("pdf2image.convert_from_bytes")
+    async def test_stream_yields_correct_page_count(self, mock_convert, sample_pdf_bytes):
+        mock_convert.side_effect = _fake_convert_factory(page_count=4)
+        svc = RasterizerService()
+        pages = []
+        async for page in svc.stream_rasterized_pages(sample_pdf_bytes, "doc_stream"):
+            pages.append(page)
+        assert len(pages) == 4
+
+    @pytest.mark.asyncio
+    @patch("pdf2image.convert_from_bytes")
+    async def test_stream_yields_sequential_page_numbers(self, mock_convert, sample_pdf_bytes):
+        mock_convert.side_effect = _fake_convert_factory(page_count=3)
+        svc = RasterizerService()
+        page_numbers = []
+        async for page in svc.stream_rasterized_pages(sample_pdf_bytes, "doc_stream"):
+            page_numbers.append(page.page_number)
+        assert page_numbers == [1, 2, 3]
+
+    @pytest.mark.asyncio
+    @patch("pdf2image.convert_from_bytes")
+    async def test_stream_yields_one_at_a_time(self, mock_convert, sample_pdf_bytes):
+        """Each yield produces exactly one page before proceeding."""
+        mock_convert.side_effect = _fake_convert_factory(page_count=5)
+        svc = RasterizerService()
+        seen = []
+        async for page in svc.stream_rasterized_pages(sample_pdf_bytes, "doc_stream"):
+            seen.append(page.page_number)
+            # At yield time, only pages up to current have been emitted
+            assert seen == list(range(1, page.page_number + 1))
+
+    @pytest.mark.asyncio
+    async def test_stream_raises_on_invalid_pdf(self, invalid_bytes):
+        svc = RasterizerService()
+        with pytest.raises(RasterizerError):
+            async for _ in svc.stream_rasterized_pages(invalid_bytes, "doc_bad"):
+                pass
+
+    @pytest.mark.asyncio
+    @patch("pdf2image.convert_from_bytes")
+    async def test_stream_temp_dir_cleaned_after_exhaustion(self, mock_convert, sample_pdf_bytes):
+        captured_tmp = []
+
+        def _fake_and_capture(pdf_bytes, dpi=200, output_folder=None, paths_only=False, **kwargs):
+            captured_tmp.append(output_folder)
+            img = Image.new("RGB", (100, 100))
+            path = os.path.join(output_folder, "output-0001.ppm")
+            img.save(path, format="PPM")
+            return [path]
+
+        mock_convert.side_effect = _fake_and_capture
+        svc = RasterizerService()
+        async for _ in svc.stream_rasterized_pages(sample_pdf_bytes, "doc_stream"):
+            pass
+        assert captured_tmp
+        assert not os.path.exists(captured_tmp[0]), "temp dir must be removed after generator exhaustion"
+
+    @pytest.mark.asyncio
+    @patch("pdf2image.convert_from_bytes")
+    async def test_rasterize_document_is_wrapper_around_stream(self, mock_convert, sample_pdf_bytes):
+        """rasterize_document() must return the same pages as stream_rasterized_pages()."""
+        mock_convert.side_effect = _fake_convert_factory(page_count=3)
+        svc = RasterizerService()
+        list_result = await svc.rasterize_document(sample_pdf_bytes, "doc_wrapper")
+        assert len(list_result) == 3
+        assert [p.page_number for p in list_result] == [1, 2, 3]

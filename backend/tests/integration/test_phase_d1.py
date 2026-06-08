@@ -38,12 +38,13 @@ class _FakePage:
 
 def _make_mock_rasterizer(page_count: int = 1):
     r = MagicMock()
-    r.rasterize_document = AsyncMock(
-        return_value=[
-            _FakePage(page_number=i, image_bytes=_make_webp_bytes())
-            for i in range(1, page_count + 1)
-        ]
-    )
+    pages = [_FakePage(page_number=i, image_bytes=_make_webp_bytes()) for i in range(1, page_count + 1)]
+    def _side_effect(*args, **kwargs):
+        async def _gen():
+            for p in pages:
+                yield p
+        return _gen()
+    r.stream_rasterized_pages = MagicMock(side_effect=_side_effect)
     return r
 
 
