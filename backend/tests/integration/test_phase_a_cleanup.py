@@ -223,7 +223,7 @@ class TestViewerCacheHelper:
 
         r = await client.get(
             "/api/viewer/page/nonexistent-token-xyz/1",
-            params={"session_id": "a" * 32},
+            headers={"X-Session-ID": "a" * 32},
         )
         assert r.status_code == 404
 
@@ -247,7 +247,7 @@ class TestViewerCacheHelper:
 
         r_page = await client.get(
             f"/api/viewer/page/{token}/1",
-            params={"session_id": "b" * 32},
+            headers={"X-Session-ID": "b" * 32},
         )
         assert r_page.status_code == 410
 
@@ -270,7 +270,7 @@ class TestViewerCacheHelper:
 
         r_thumb = await client.get(
             f"/api/viewer/thumb/{token}/1",
-            params={"session_id": "c" * 32},
+            headers={"X-Session-ID": "c" * 32},
         )
         assert r_thumb.status_code == 410
 
@@ -506,7 +506,7 @@ class TestThumbnailIPEnforcement:
         # testclient sends from testclient — not in 10.0.0.0/8
         r_thumb = await client.get(
             f"/api/viewer/thumb/{token}/1",
-            params={"session_id": "c" * 32},
+            headers={"X-Session-ID": "c" * 32},
         )
         # Should be 403 (blocked IP)
         assert r_thumb.status_code == 403, (
@@ -532,6 +532,6 @@ class TestThumbnailIPEnforcement:
 
         r_page = await client.get(
             f"/api/viewer/page/{token}/1",
-            params={"session_id": "d" * 32},
+            headers={"X-Session-ID": "d" * 32},
         )
         assert r_page.status_code == 403

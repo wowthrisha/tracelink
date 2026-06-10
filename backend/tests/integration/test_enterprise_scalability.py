@@ -35,7 +35,7 @@ class TestStreamingDownload:
         assert val_r.status_code == 200
         sid = val_r.json()["session_id"]
 
-        r = await client.get(f"/api/viewer/download/{link.token}?session_id={sid}")
+        r = await client.get(f"/api/viewer/download/{link.token}", headers={"X-Session-ID": sid})
         assert r.status_code == 200
         assert r.headers["content-type"] == "application/pdf"
 
@@ -52,7 +52,7 @@ class TestStreamingDownload:
         val_r = await client.post("/api/viewer/validate", json={"token": link.token})
         sid = val_r.json()["session_id"]
 
-        r = await client.get(f"/api/viewer/download/{link.token}?session_id={sid}")
+        r = await client.get(f"/api/viewer/download/{link.token}", headers={"X-Session-ID": sid})
         cd = r.headers.get("content-disposition", "")
         assert "attachment" in cd
         assert ".pdf" in cd
@@ -68,7 +68,7 @@ class TestStreamingDownload:
         val_r = await client.post("/api/viewer/validate", json={"token": link.token})
         sid = val_r.json()["session_id"]
 
-        r = await client.get(f"/api/viewer/download/{link.token}?session_id={sid}")
+        r = await client.get(f"/api/viewer/download/{link.token}", headers={"X-Session-ID": sid})
         assert "no-store" in r.headers.get("cache-control", "")
 
     @pytest.mark.asyncio
@@ -85,7 +85,7 @@ class TestStreamingDownload:
         val_r = await client.post("/api/viewer/validate", json={"token": link.token})
         sid = val_r.json()["session_id"]
 
-        r = await client.get(f"/api/viewer/download/{link.token}?session_id={sid}")
+        r = await client.get(f"/api/viewer/download/{link.token}", headers={"X-Session-ID": sid})
         assert r.status_code == 200
 
         reader = PdfReader(io.BytesIO(r.content))
@@ -104,7 +104,7 @@ class TestStreamingDownload:
         val_r = await client.post("/api/viewer/validate", json={"token": link.token})
         sid = val_r.json()["session_id"]
 
-        r = await client.get(f"/api/viewer/download/{link.token}?session_id={sid}")
+        r = await client.get(f"/api/viewer/download/{link.token}", headers={"X-Session-ID": sid})
         assert r.status_code == 403
 
     @pytest.mark.asyncio
@@ -155,7 +155,7 @@ class TestStreamingDownload:
         with patch("app.routers.viewer.settings") as mock_s:
             mock_s.max_download_pages_pdf = 50
             mock_s.watermark_angle_jitter_deg = 5.0
-            r = await client.get(f"/api/viewer/download/{link.token}?session_id={sid}")
+            r = await client.get(f"/api/viewer/download/{link.token}", headers={"X-Session-ID": sid})
         assert r.status_code == 413
 
     def test_download_page_limit_default_is_500(self):
@@ -204,7 +204,7 @@ class TestStreamingDownload:
             return original_wm(self, img, text, **kw)
 
         with patch.object(WatermarkService, "apply_visible_watermark", _count_wm):
-            r = await client.get(f"/api/viewer/download/{link.token}?session_id={sid}")
+            r = await client.get(f"/api/viewer/download/{link.token}", headers={"X-Session-ID": sid})
 
         assert r.status_code == 200
         assert len(call_count) == 3, f"Expected 3 watermark calls (one per page), got {len(call_count)}"
@@ -233,7 +233,7 @@ class TestCDNThumbnailOffload:
         sid = val_r.json()["session_id"]
 
         r = await client.get(
-            f"/api/viewer/thumb/{active_link.token}/1?session_id={sid}"
+            f"/api/viewer/thumb/{active_link.token}/1", headers={"X-Session-ID": sid}
         )
         assert r.status_code == 200
         assert r.headers["content-type"] == "image/webp"
@@ -252,7 +252,7 @@ class TestCDNThumbnailOffload:
             mock_s.max_download_pages_pdf = 500
             mock_s.watermark_angle_jitter_deg = 5.0
             r = await client.get(
-                f"/api/viewer/page/{active_link.token}/1?session_id={sid}",
+                f"/api/viewer/page/{active_link.token}/1", headers={"X-Session-ID": sid},
                 follow_redirects=False,
             )
         assert r.status_code not in (301, 302, 307, 308), (
@@ -278,7 +278,7 @@ class TestCDNThumbnailOffload:
             mock_storage_factory.return_value = mock_storage
 
             r = await client.get(
-                f"/api/viewer/thumb/{active_link.token}/1?session_id={sid}",
+                f"/api/viewer/thumb/{active_link.token}/1", headers={"X-Session-ID": sid},
                 follow_redirects=False,
             )
 

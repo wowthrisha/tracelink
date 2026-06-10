@@ -79,7 +79,7 @@ class TestWatermarkOffload:
         sid = body["session_id"]
 
         r = await client.get(
-            f"/api/viewer/page/{active_link.token}/1?session_id={sid}"
+            f"/api/viewer/page/{active_link.token}/1", headers={"X-Session-ID": sid}
         )
         assert r.status_code == 200
         assert r.headers["content-type"] == "image/webp"
@@ -97,7 +97,7 @@ class TestWatermarkOffload:
             WatermarkService, "apply_visible_watermark", return_value=_make_webp_bytes()
         ) as mock_wm:
             r = await client.get(
-                f"/api/viewer/page/{active_link.token}/1?session_id={sid}"
+                f"/api/viewer/page/{active_link.token}/1", headers={"X-Session-ID": sid}
             )
 
         assert r.status_code == 200
@@ -123,7 +123,7 @@ class TestWatermarkOffload:
             return_value=raw_webp,
         ):
             r = await client.get(
-                f"/api/viewer/page/{link.token}/1?session_id={sid}"
+                f"/api/viewer/page/{link.token}/1", headers={"X-Session-ID": sid}
             )
 
         assert r.status_code == 200
@@ -136,7 +136,7 @@ class TestWatermarkOffload:
         body = await _validate(client, active_link.token)
         sid = body["session_id"]
         r = await client.get(
-            f"/api/viewer/page/{active_link.token}/1?session_id={sid}"
+            f"/api/viewer/page/{active_link.token}/1", headers={"X-Session-ID": sid}
         )
         assert "no-store" in r.headers.get("cache-control", "")
         assert r.headers.get("x-content-type-options") == "nosniff"
@@ -159,7 +159,7 @@ class TestWatermarkOffload:
         ):
             with pytest.raises(RuntimeError, match="PIL exploded"):
                 await client.get(
-                    f"/api/viewer/page/{active_link.token}/1?session_id={sid}"
+                    f"/api/viewer/page/{active_link.token}/1", headers={"X-Session-ID": sid}
                 )
 
 
@@ -407,7 +407,7 @@ class TestThumbnailBackendContract:
         sid = body["session_id"]
 
         r = await client.get(
-            f"/api/viewer/thumb/{active_link.token}/1?session_id={sid}"
+            f"/api/viewer/thumb/{active_link.token}/1", headers={"X-Session-ID": sid}
         )
         assert r.status_code == 200
         assert r.headers["content-type"] == "image/webp"
@@ -439,7 +439,7 @@ class TestThumbnailBackendContract:
             new=selective_download,
         ):
             r = await client.get(
-                f"/api/viewer/thumb/{link.token}/1?session_id={sid}"
+                f"/api/viewer/thumb/{link.token}/1", headers={"X-Session-ID": sid}
             )
 
         assert r.status_code == 200
@@ -458,6 +458,6 @@ class TestThumbnailBackendContract:
         body = await _validate(client, active_link.token)
         sid = body["session_id"]
         r = await client.get(
-            f"/api/viewer/thumb/{active_link.token}/1?session_id={sid}"
+            f"/api/viewer/thumb/{active_link.token}/1", headers={"X-Session-ID": sid}
         )
         assert "no-store" in r.headers.get("cache-control", "")

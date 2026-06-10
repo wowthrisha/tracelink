@@ -264,7 +264,7 @@ class TestDownloadPageLimit:
 
             r = await client.get(
                 f"/api/viewer/download/{link.token}",
-                params={"session_id": session_id},
+                headers={"X-Session-ID": session_id},
             )
 
         assert r.status_code == 413, (
@@ -317,7 +317,7 @@ class TestDownloadPageLimit:
 
             r = await client.get(
                 f"/api/viewer/download/{link.token}",
-                params={"session_id": session_id},
+                headers={"X-Session-ID": session_id},
             )
 
         # Should NOT be 413 — may be 404 (no pages rows in DB) or other, but not page-limit error

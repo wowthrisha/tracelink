@@ -261,7 +261,7 @@ class TestDownloadIPAllowlist:
 
         r_download = await client.get(
             f"/api/viewer/download/{token}",
-            params={"session_id": "e" * 32},
+            headers={"X-Session-ID": "e" * 32},
         )
         # Should be 403 (IP blocked) — not 401 (session) or 410 (revoked)
         assert r_download.status_code == 403, (
@@ -291,11 +291,11 @@ class TestDownloadIPAllowlist:
 
         r_page = await client.get(
             f"/api/viewer/page/{token}/1",
-            params={"session_id": fake_session},
+            headers={"X-Session-ID": fake_session},
         )
         r_download = await client.get(
             f"/api/viewer/download/{token}",
-            params={"session_id": fake_session},
+            headers={"X-Session-ID": fake_session},
         )
         # Both endpoints must return 403 for IP-blocked requests
         assert r_page.status_code == 403

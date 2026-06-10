@@ -163,7 +163,7 @@ class TestCacheWarmOnFirstRequest:
 
         assert link_cache.get(active_link.token) is None  # not yet cached
 
-        await client.get(f"/api/viewer/page/{active_link.token}/1?session_id={sid}")
+        await client.get(f"/api/viewer/page/{active_link.token}/1", headers={"X-Session-ID": sid})
 
         snap = link_cache.get(active_link.token)
         assert snap is not None
@@ -176,7 +176,7 @@ class TestCacheWarmOnFirstRequest:
         body = await _validate(client, active_link.token)
         sid = body["session_id"]
 
-        await client.get(f"/api/viewer/page/{active_link.token}/1?session_id={sid}")
+        await client.get(f"/api/viewer/page/{active_link.token}/1", headers={"X-Session-ID": sid})
 
         doc_snap = doc_cache.get(str(ready_document.id))
         assert doc_snap is not None
@@ -188,7 +188,7 @@ class TestCacheWarmOnFirstRequest:
         body = await _validate(client, active_link.token)
         sid = body["session_id"]
 
-        await client.get(f"/api/viewer/page/{active_link.token}/1?session_id={sid}")
+        await client.get(f"/api/viewer/page/{active_link.token}/1", headers={"X-Session-ID": sid})
 
         page_key = f"{ready_document.id}:1"
         page_snap = page_cache.get(page_key)
@@ -220,7 +220,7 @@ class TestCacheHitSkipsDB:
         sid = body["session_id"]
 
         # First request warms the cache
-        r1 = await client.get(f"/api/viewer/page/{active_link.token}/1?session_id={sid}")
+        r1 = await client.get(f"/api/viewer/page/{active_link.token}/1", headers={"X-Session-ID": sid})
         assert r1.status_code == 200
 
         # Warm the cache manually with a bad doc_id to prove DB is NOT re-queried
@@ -238,7 +238,7 @@ class TestCacheHitSkipsDB:
 
         # Second request must use the cache (not re-query DB for the link)
         # and still succeed because the snapshot is valid
-        r2 = await client.get(f"/api/viewer/page/{active_link.token}/1?session_id={sid}")
+        r2 = await client.get(f"/api/viewer/page/{active_link.token}/1", headers={"X-Session-ID": sid})
         assert r2.status_code == 200
 
     @pytest.mark.asyncio
@@ -247,14 +247,14 @@ class TestCacheHitSkipsDB:
         sid = body["session_id"]
 
         # First request
-        await client.get(f"/api/viewer/page/{active_link.token}/1?session_id={sid}")
+        await client.get(f"/api/viewer/page/{active_link.token}/1", headers={"X-Session-ID": sid})
 
         page_key = f"{ready_document.id}:1"
         snap_after_first = page_cache.get(page_key)
         assert snap_after_first is not None
 
         # Second request — same snapshot must still be there (not re-fetched)
-        await client.get(f"/api/viewer/page/{active_link.token}/1?session_id={sid}")
+        await client.get(f"/api/viewer/page/{active_link.token}/1", headers={"X-Session-ID": sid})
 
         snap_after_second = page_cache.get(page_key)
         assert snap_after_second is snap_after_first  # same object identity
@@ -301,7 +301,7 @@ class TestRevocationInvalidatesCache:
         sid = body["session_id"]
 
         # Warm the cache with a page request
-        await client.get(f"/api/viewer/page/{active_link.token}/1?session_id={sid}")
+        await client.get(f"/api/viewer/page/{active_link.token}/1", headers={"X-Session-ID": sid})
         assert link_cache.get(active_link.token) is not None
 
         # Revoke the link via the service (goes through revoke_link which calls invalidate_link)
@@ -317,14 +317,14 @@ class TestRevocationInvalidatesCache:
         sid = body["session_id"]
 
         # Warm the cache
-        await client.get(f"/api/viewer/page/{active_link.token}/1?session_id={sid}")
+        await client.get(f"/api/viewer/page/{active_link.token}/1", headers={"X-Session-ID": sid})
 
         # Revoke — also clears cache
         svc = LinkService()
         await svc.revoke_link(db_session, str(active_link.id))
 
         # Next page request must return 410, not 200
-        r = await client.get(f"/api/viewer/page/{active_link.token}/1?session_id={sid}")
+        r = await client.get(f"/api/viewer/page/{active_link.token}/1", headers={"X-Session-ID": sid})
         assert r.status_code == 410
 
     @pytest.mark.asyncio
@@ -333,13 +333,13 @@ class TestRevocationInvalidatesCache:
         sid = body["session_id"]
 
         # Warm the cache
-        await client.get(f"/api/viewer/thumb/{active_link.token}/1?session_id={sid}")
+        await client.get(f"/api/viewer/thumb/{active_link.token}/1", headers={"X-Session-ID": sid})
 
         # Revoke — also clears cache
         svc = LinkService()
         await svc.revoke_link(db_session, str(active_link.id))
 
-        r = await client.get(f"/api/viewer/thumb/{active_link.token}/1?session_id={sid}")
+        r = await client.get(f"/api/viewer/thumb/{active_link.token}/1", headers={"X-Session-ID": sid})
         assert r.status_code == 410
 
 
@@ -382,7 +382,7 @@ class TestExpirySafetyOnCacheHit:
         # Re-use the cache-inserted expired snap — it should cause page rejection.
         sid = "a" * 32  # fake session id of correct length
 
-        r = await client.get(f"/api/viewer/page/{link.token}/1?session_id={sid}")
+        r = await client.get(f"/api/viewer/page/{link.token}/1", headers={"X-Session-ID": sid})
         assert r.status_code == 410, (
             f"Expected 410 for expired cached snapshot but got {r.status_code}"
         )
@@ -404,7 +404,7 @@ class TestExpirySafetyOnCacheHit:
         link_cache.put(link.token, revoked_snap)
 
         sid = "b" * 32
-        r = await client.get(f"/api/viewer/page/{link.token}/1?session_id={sid}")
+        r = await client.get(f"/api/viewer/page/{link.token}/1", headers={"X-Session-ID": sid})
         assert r.status_code == 410
 
 
@@ -432,7 +432,7 @@ class TestThumbEndpointUsesMetadataCache:
 
         assert link_cache.get(active_link.token) is None
 
-        await client.get(f"/api/viewer/thumb/{active_link.token}/1?session_id={sid}")
+        await client.get(f"/api/viewer/thumb/{active_link.token}/1", headers={"X-Session-ID": sid})
 
         snap = link_cache.get(active_link.token)
         assert snap is not None
@@ -445,12 +445,12 @@ class TestThumbEndpointUsesMetadataCache:
         sid = body["session_id"]
 
         # Page request warms the cache
-        await client.get(f"/api/viewer/page/{active_link.token}/1?session_id={sid}")
+        await client.get(f"/api/viewer/page/{active_link.token}/1", headers={"X-Session-ID": sid})
         snap_after_page = link_cache.get(active_link.token)
         assert snap_after_page is not None
 
         # Thumb request must reuse the same snapshot (same object identity)
-        await client.get(f"/api/viewer/thumb/{active_link.token}/1?session_id={sid}")
+        await client.get(f"/api/viewer/thumb/{active_link.token}/1", headers={"X-Session-ID": sid})
         snap_after_thumb = link_cache.get(active_link.token)
         assert snap_after_thumb is snap_after_page
 
@@ -462,6 +462,6 @@ class TestThumbEndpointUsesMetadataCache:
         page_key = f"{ready_document.id}:1"
         assert page_cache.get(page_key) is None
 
-        await client.get(f"/api/viewer/thumb/{active_link.token}/1?session_id={sid}")
+        await client.get(f"/api/viewer/thumb/{active_link.token}/1", headers={"X-Session-ID": sid})
 
         assert page_cache.get(page_key) is not None

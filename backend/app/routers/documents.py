@@ -111,6 +111,7 @@ async def upload_document(
     file: UploadFile = File(...),
     filename: Optional[str] = Form(None),
     group_id: Optional[str] = Form(None),
+    org_id: Optional[str] = Form(None),
     parent_document_id: Optional[str] = Form(None),
     db: AsyncSession = Depends(get_db),
     user: dict = Depends(require_scope("documents:write")),
@@ -171,6 +172,24 @@ async def upload_document(
         except ValueError:
             raise HTTPException(status_code=400, detail="Invalid group_id format")
 
+    # Validate org_id if provided (user must be a member of the org)
+    resolved_org_id = None
+    if org_id:
+        try:
+            oid = uuid.UUID(org_id)
+            from app.models.org import OrgMembership as _OrgMembership
+            mem_result = await db.execute(
+                select(_OrgMembership).where(
+                    _OrgMembership.org_id == oid,
+                    _OrgMembership.user_id == user_uuid,
+                )
+            )
+            if not mem_result.scalar_one_or_none():
+                raise HTTPException(status_code=403, detail="Not a member of this organization")
+            resolved_org_id = oid
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid org_id format")
+
     storage = get_storage_service()
     try:
         await storage.upload_file(
@@ -208,6 +227,7 @@ async def upload_document(
         file_type=file_type,
         file_size_bytes=len(file_bytes),
         group_id=resolved_group_id,
+        org_id=resolved_org_id,
         user_id=user_uuid,
         version=doc_version,
         parent_document_id=resolved_parent_id,
@@ -608,7 +628,11 @@ async def get_document_versions(
         ORDER BY version
     """)
 
-    result = await db.execute(cte_query, {"doc_id": str(document_id)})
+    # Pass both hyphenated and hex forms so the query works on both PostgreSQL
+    # (stores UUID with hyphens) and SQLite (stores UUID as hex without hyphens).
+    # SQLAlchemy's TypeDecorator handles casting on PostgreSQL; on SQLite we need
+    # the raw hex string to match the stored value.
+    result = await db.execute(cte_query, {"doc_id": document_id.hex})
     rows = result.fetchall()
 
     return {
@@ -620,7 +644,10 @@ async def get_document_versions(
                 "status": row.status,
                 "page_count": row.page_count,
                 "file_type": row.file_type or "pdf",
-                "created_at": row.created_at.isoformat() if row.created_at else None,
+                "created_at": (
+                    row.created_at if isinstance(row.created_at, str)
+                    else row.created_at.isoformat()
+                ) if row.created_at else None,
             }
             for row in rows
         ]

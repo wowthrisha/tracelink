@@ -370,7 +370,7 @@ class TestViewerDocumentStatusGuard:
         session_id = await self._validate(client, link.token)
 
         r = await client.get(
-            f"/api/viewer/page/{link.token}/1?session_id={session_id}"
+            f"/api/viewer/page/{link.token}/1", headers={"X-Session-ID": session_id}
         )
         assert r.status_code == 503
         assert "queued" in r.json()["detail"].lower()
@@ -393,7 +393,7 @@ class TestViewerDocumentStatusGuard:
         session_id = await self._validate(client, link.token)
 
         r = await client.get(
-            f"/api/viewer/page/{link.token}/1?session_id={session_id}"
+            f"/api/viewer/page/{link.token}/1", headers={"X-Session-ID": session_id}
         )
         assert r.status_code == 503
         assert "processing" in r.json()["detail"].lower()
@@ -416,7 +416,7 @@ class TestViewerDocumentStatusGuard:
         session_id = await self._validate(client, link.token)
 
         r = await client.get(
-            f"/api/viewer/page/{link.token}/1?session_id={session_id}"
+            f"/api/viewer/page/{link.token}/1", headers={"X-Session-ID": session_id}
         )
         assert r.status_code == 503
         assert "failed" in r.json()["detail"].lower()
@@ -452,7 +452,7 @@ class TestViewerDocumentStatusGuard:
         session_id = r_validate.json()["session_id"]
 
         r = await client.get(
-            f"/api/viewer/page/{link.token}/1?session_id={session_id}"
+            f"/api/viewer/page/{link.token}/1", headers={"X-Session-ID": session_id}
         )
         assert r.status_code == 200
         assert r.headers["content-type"] == "image/webp"

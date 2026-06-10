@@ -553,7 +553,7 @@ class TestDocxViewerBehavesLikePdf:
 
         r = await client.get(
             f"/api/viewer/text/{link.token}/1",
-            params={"session_id": session_id},
+            headers={"X-Session-ID": session_id},
         )
         assert r.status_code == 400
         detail = r.json()["detail"]

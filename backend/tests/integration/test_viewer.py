@@ -172,7 +172,7 @@ class TestConcurrentSessions:
         await asyncio.sleep(0.05)
 
         r2 = await client.get(
-            f"/api/viewer/page/{active_link.token}/1?session_id={session_id}"
+            f"/api/viewer/page/{active_link.token}/1", headers={"X-Session-ID": session_id}
         )
         assert r2.status_code == 200
 
@@ -334,7 +334,7 @@ class TestViewerEndpoint:
         )
         session_id = validate_r.json()["session_id"]
         r = await client.get(
-            f"/api/viewer/page/{active_link.token}/1?session_id={session_id}"
+            f"/api/viewer/page/{active_link.token}/1", headers={"X-Session-ID": session_id}
         )
         assert r.status_code == 200
         assert r.headers["content-type"] == "image/webp"
@@ -346,7 +346,7 @@ class TestViewerEndpoint:
         )
         session_id = validate_r.json()["session_id"]
         r = await client.get(
-            f"/api/viewer/page/{active_link.token}/1?session_id={session_id}"
+            f"/api/viewer/page/{active_link.token}/1", headers={"X-Session-ID": session_id}
         )
         assert "no-store" in r.headers.get("cache-control", "")
 
@@ -359,7 +359,7 @@ class TestViewerEndpoint:
         )
         session_id = validate_r.json()["session_id"]
         r = await client.get(
-            f"/api/viewer/page/{active_link.token}/1?session_id={session_id}",
+            f"/api/viewer/page/{active_link.token}/1", headers={"X-Session-ID": session_id},
             follow_redirects=False,
         )
         assert r.status_code not in (301, 302, 307, 308)
@@ -378,6 +378,6 @@ class TestViewerEndpoint:
         )
         session_id = validate_r.json()["session_id"]
         r = await client.get(
-            f"/api/viewer/page/{active_link.token}/9999?session_id={session_id}"
+            f"/api/viewer/page/{active_link.token}/9999", headers={"X-Session-ID": session_id}
         )
         assert r.status_code == 404

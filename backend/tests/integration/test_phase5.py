@@ -338,7 +338,7 @@ class TestXSSSafety:
         session_id = val_r.json()["session_id"]
 
         # Fetch text chunk
-        r = await c.get(f"/api/viewer/text/{link.token}/1?session_id={session_id}")
+        r = await c.get(f"/api/viewer/text/{link.token}/1", headers={"X-Session-ID": session_id})
         assert r.status_code == 200
         body = r.json()
 
@@ -375,7 +375,7 @@ class TestXSSSafety:
         val_r = await c.post("/api/viewer/validate", json={"token": link.token})
         session_id = val_r.json()["session_id"]
 
-        r = await c.get(f"/api/viewer/text/{link.token}/1?session_id={session_id}")
+        r = await c.get(f"/api/viewer/text/{link.token}/1", headers={"X-Session-ID": session_id})
         assert r.status_code == 200
         body = r.json()
         # The content field holds the raw markdown string — React renders it safely
@@ -407,7 +407,7 @@ class TestXSSSafety:
         val_r = await c.post("/api/viewer/validate", json={"token": link.token})
         session_id = val_r.json()["session_id"]
 
-        r = await c.get(f"/api/viewer/text/{link.token}/1?session_id={session_id}")
+        r = await c.get(f"/api/viewer/text/{link.token}/1", headers={"X-Session-ID": session_id})
         assert r.status_code == 200
         # JSON response — React frontend auto-escapes all text nodes
         assert r.headers["content-type"].startswith("application/json")
@@ -545,7 +545,7 @@ class TestTextViewerEndpoint:
         assert val_r.status_code == 200
         session_id = val_r.json()["session_id"]
 
-        r = await c.get(f"/api/viewer/text/{link.token}/1?session_id={session_id}")
+        r = await c.get(f"/api/viewer/text/{link.token}/1", headers={"X-Session-ID": session_id})
         assert r.status_code == 200
         body = r.json()
         assert "content" in body
@@ -582,7 +582,7 @@ class TestTextViewerEndpoint:
         val_r = await c.post("/api/viewer/validate", json={"token": link.token})
         session_id = val_r.json()["session_id"]
 
-        r = await c.get(f"/api/viewer/text/{link.token}/2?session_id={session_id}")
+        r = await c.get(f"/api/viewer/text/{link.token}/2", headers={"X-Session-ID": session_id})
         assert r.status_code == 200
         body = r.json()
         assert body["chunk_number"] == 2
@@ -613,7 +613,7 @@ class TestTextViewerEndpoint:
         val_r = await c.post("/api/viewer/validate", json={"token": link.token})
         session_id = val_r.json()["session_id"]
 
-        r = await c.get(f"/api/viewer/text/{link.token}/999?session_id={session_id}")
+        r = await c.get(f"/api/viewer/text/{link.token}/999", headers={"X-Session-ID": session_id})
         assert r.status_code == 404
 
     @pytest.mark.asyncio
@@ -660,7 +660,7 @@ class TestTextViewerEndpoint:
         val_r = await c.post("/api/viewer/validate", json={"token": link.token})
         session_id = val_r.json()["session_id"]
 
-        r = await c.get(f"/api/viewer/text/{link.token}/1?session_id={session_id}")
+        r = await c.get(f"/api/viewer/text/{link.token}/1", headers={"X-Session-ID": session_id})
         assert "no-store" in r.headers.get("cache-control", "")
 
     @pytest.mark.asyncio
@@ -685,7 +685,7 @@ class TestTextViewerEndpoint:
         val_r = await c.post("/api/viewer/validate", json={"token": link.token})
         session_id = val_r.json()["session_id"]
 
-        r = await c.get(f"/api/viewer/text/{link.token}/1?session_id={session_id}")
+        r = await c.get(f"/api/viewer/text/{link.token}/1", headers={"X-Session-ID": session_id})
         assert r.status_code == 400
 
     @pytest.mark.asyncio
@@ -711,7 +711,7 @@ class TestTextViewerEndpoint:
         val_r = await c.post("/api/viewer/validate", json={"token": link.token})
         session_id = val_r.json()["session_id"]
 
-        r = await c.get(f"/api/viewer/text/{link.token}/1?session_id={session_id}")
+        r = await c.get(f"/api/viewer/text/{link.token}/1", headers={"X-Session-ID": session_id})
         body = r.json()
         assert "watermark_text" in body
         assert body["watermark_text"]  # non-empty
@@ -754,7 +754,7 @@ class TestTextAccessControl:
         from app.services.viewer_cache import clear_all_caches
         clear_all_caches()
 
-        r = await c.get(f"/api/viewer/text/{link.token}/1?session_id={session_id}")
+        r = await c.get(f"/api/viewer/text/{link.token}/1", headers={"X-Session-ID": session_id})
         assert r.status_code == 410
 
     @pytest.mark.asyncio
@@ -786,13 +786,13 @@ class TestTextAccessControl:
         from app.services.viewer_cache import clear_all_caches
         clear_all_caches()
 
-        r = await c.get(f"/api/viewer/text/{link.token}/1?session_id={'b' * 32}")
+        r = await c.get(f"/api/viewer/text/{link.token}/1", headers={"X-Session-ID": 'b' * 32})
         assert r.status_code == 410
 
     @pytest.mark.asyncio
     async def test_invalid_link_token_returns_404(self, client, db_session):
         c, _ = client
-        r = await c.get(f"/api/viewer/text/nonexistent-token-xyz/1?session_id={'a' * 32}")
+        r = await c.get(f"/api/viewer/text/nonexistent-token-xyz/1", headers={"X-Session-ID": 'a' * 32})
         assert r.status_code == 404
 
     @pytest.mark.asyncio
@@ -816,7 +816,7 @@ class TestTextAccessControl:
         from app.services.viewer_cache import clear_all_caches
         clear_all_caches()
 
-        r = await c.get(f"/api/viewer/text/{link.token}/1?session_id={'a' * 32}")
+        r = await c.get(f"/api/viewer/text/{link.token}/1", headers={"X-Session-ID": 'a' * 32})
         assert r.status_code == 503
 
 
@@ -876,7 +876,7 @@ class TestTextAnalytics:
         val_r = await c.post("/api/viewer/validate", json={"token": link.token})
         session_id = val_r.json()["session_id"]
 
-        await c.get(f"/api/viewer/text/{link.token}/1?session_id={session_id}")
+        await c.get(f"/api/viewer/text/{link.token}/1", headers={"X-Session-ID": session_id})
 
         from sqlalchemy import select
         from app.models.event import AccessEvent
@@ -947,7 +947,7 @@ class TestPDFRegression:
         from app.services.viewer_cache import clear_all_caches
         clear_all_caches()
 
-        r = await c.get(f"/api/viewer/page/{link.token}/1?session_id={session_id}")
+        r = await c.get(f"/api/viewer/page/{link.token}/1", headers={"X-Session-ID": session_id})
         assert r.status_code == 200
         assert r.headers["content-type"] == "image/webp"
 
@@ -1127,12 +1127,12 @@ class TestLargeFileAndEdgeCases:
         session_id = val_r.json()["session_id"]
 
         # First chunk
-        r1 = await c.get(f"/api/viewer/text/{link.token}/1?session_id={session_id}")
+        r1 = await c.get(f"/api/viewer/text/{link.token}/1", headers={"X-Session-ID": session_id})
         assert r1.status_code == 200
         assert r1.json()["total_chunks"] == 100
 
         # Last chunk
-        r100 = await c.get(f"/api/viewer/text/{link.token}/100?session_id={session_id}")
+        r100 = await c.get(f"/api/viewer/text/{link.token}/100", headers={"X-Session-ID": session_id})
         assert r100.status_code == 200
         assert "line 10000" in r100.json()["content"]
 
@@ -1159,7 +1159,7 @@ class TestLargeFileAndEdgeCases:
         val_r = await c.post("/api/viewer/validate", json={"token": link.token})
         session_id = val_r.json()["session_id"]
 
-        r = await c.get(f"/api/viewer/text/{link.token}/1?session_id={session_id}")
+        r = await c.get(f"/api/viewer/text/{link.token}/1", headers={"X-Session-ID": session_id})
         assert r.status_code == 200
         body = r.json()
         assert body["total_chunks"] == 1
@@ -1203,8 +1203,8 @@ class TestLargeFileAndEdgeCases:
         val_r = await c.post("/api/viewer/validate", json={"token": link.token})
         session_id = val_r.json()["session_id"]
 
-        r1 = await c.get(f"/api/viewer/text/{link.token}/1?session_id={session_id}")
-        r2 = await c.get(f"/api/viewer/text/{link.token}/1?session_id={session_id}")
+        r1 = await c.get(f"/api/viewer/text/{link.token}/1", headers={"X-Session-ID": session_id})
+        r2 = await c.get(f"/api/viewer/text/{link.token}/1", headers={"X-Session-ID": session_id})
         assert r1.status_code == 200
         assert r2.status_code == 200
         assert r1.json()["content"] == r2.json()["content"]

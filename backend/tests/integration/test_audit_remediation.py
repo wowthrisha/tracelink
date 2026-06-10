@@ -140,7 +140,7 @@ class TestWatermarkEmail:
 
         with patch.object(wm_mod.WatermarkService, "apply_visible_watermark", _capture_wm):
             r = await client.get(
-                f"/api/viewer/page/{link.token}/1?session_id={session_id}"
+                f"/api/viewer/page/{link.token}/1", headers={"X-Session-ID": session_id}
             )
 
         # The watermark text must contain the masked email (v***@test.com), not "anonymous"
@@ -244,10 +244,10 @@ class TestChunkArrayCache:
              patch("app.services.storage.StorageService.download_bytes",
                    new_callable=AsyncMock, return_value=text_content.encode()):
             r1 = await client.get(
-                f"/api/viewer/text/{link.token}/1?session_id={session_id}"
+                f"/api/viewer/text/{link.token}/1", headers={"X-Session-ID": session_id}
             )
             r2 = await client.get(
-                f"/api/viewer/text/{link.token}/1?session_id={session_id}"
+                f"/api/viewer/text/{link.token}/1", headers={"X-Session-ID": session_id}
             )
 
         assert r1.status_code == 200
@@ -365,7 +365,7 @@ class TestDownloadTimezone:
         await db_session.commit()
 
         r = await client.get(
-            f"/api/viewer/download/{link.token}?session_id={fake_sid}"
+            f"/api/viewer/download/{link.token}", headers={"X-Session-ID": fake_sid}
         )
         # Must be 410 (link expired) — not 500 (TypeError from tz-naive comparison)
         assert r.status_code == 410, (
@@ -553,7 +553,7 @@ class TestTextChunkNoDoubleDBFetch:
         with patch("app.services.storage.StorageService.download_bytes",
                    new_callable=AsyncMock, return_value=b"hello world\n"):
             r = await client.get(
-                f"/api/viewer/text/{link.token}/1?session_id={session_id}"
+                f"/api/viewer/text/{link.token}/1", headers={"X-Session-ID": session_id}
             )
 
         assert r.status_code == 200

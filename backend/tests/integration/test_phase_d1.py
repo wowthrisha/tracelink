@@ -283,7 +283,7 @@ class TestViewerAdapterDispatch:
         # Text endpoint should reject PDF
         r = await client.get(
             f"/api/viewer/text/{link.token}/1",
-            params={"session_id": session_id},
+            headers={"X-Session-ID": session_id},
         )
         assert r.status_code == 400
         assert "PDFs" in r.json()["detail"] or "page" in r.json()["detail"].lower()
@@ -327,7 +327,7 @@ class TestViewerAdapterDispatch:
 
             r = await client.get(
                 f"/api/viewer/text/{link.token}/1",
-                params={"session_id": session_id},
+                headers={"X-Session-ID": session_id},
             )
         assert r.status_code == 200
         body = r.json()

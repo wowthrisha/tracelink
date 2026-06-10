@@ -443,9 +443,9 @@ class TestTokenSecurity:
         await db_session.commit()
         r = await client.get(
             f"/api/viewer/page/{link.token}/1",
-            params={"session_id": "bogus_session_id_not_32chars_xyz"},
+            headers={"X-Session-ID": "bogus_session_id_not_32chars_xyz"},
         )
-        assert r.status_code in (401, 404, 503)
+        assert r.status_code in (400, 401, 404, 503)
 
 
 # ── I. Session isolation ───────────────────────────────────────────────────────
@@ -482,7 +482,7 @@ class TestSessionIsolation:
         # Try to use link_a's session to fetch a page from link_b
         r_page = await client.get(
             f"/api/viewer/page/{link_b.token}/1",
-            params={"session_id": session_a},
+            headers={"X-Session-ID": session_a},
         )
         # Must be rejected (401) or doc has no pages (404/503)
         assert r_page.status_code in (401, 404, 503)
@@ -734,13 +734,16 @@ class TestTocEndpoint:
 
     @pytest.mark.asyncio
     async def test_toc_invalid_token_404(self, client):
-        r = await client.get("/api/viewer/toc/nonexistent_token?session_id=abc123")
+        r = await client.get(
+            "/api/viewer/toc/nonexistent_token",
+            headers={"X-Session-ID": "abc123"},
+        )
         assert r.status_code == 404
 
     @pytest.mark.asyncio
     async def test_toc_pdf_returns_unsupported(self, client, toc_pdf_session):
         token, session_id = toc_pdf_session
-        r = await client.get(f"/api/viewer/toc/{token}?session_id={session_id}")
+        r = await client.get(f"/api/viewer/toc/{token}", headers={"X-Session-ID": session_id})
         assert r.status_code == 200
         body = r.json()
         assert body["toc"] == []
@@ -750,7 +753,7 @@ class TestTocEndpoint:
     @pytest.mark.asyncio
     async def test_toc_response_shape(self, client, toc_session):
         token, session_id = toc_session
-        r = await client.get(f"/api/viewer/toc/{token}?session_id={session_id}")
+        r = await client.get(f"/api/viewer/toc/{token}", headers={"X-Session-ID": session_id})
         assert r.status_code in (200, 503)  # 503 if storage mock has no file
         if r.status_code == 200:
             body = r.json()
@@ -761,7 +764,7 @@ class TestTocEndpoint:
     @pytest.mark.asyncio
     async def test_toc_no_store_cache_header(self, client, toc_pdf_session):
         token, session_id = toc_pdf_session
-        r = await client.get(f"/api/viewer/toc/{token}?session_id={session_id}")
+        r = await client.get(f"/api/viewer/toc/{token}", headers={"X-Session-ID": session_id})
         assert r.status_code == 200
         assert "no-store" in r.headers.get("cache-control", "")
 
@@ -787,13 +790,13 @@ class TestTocEndpoint:
         )
         db_session.add(link)
         await db_session.commit()
-        r = await client.get(f"/api/viewer/toc/{link.token}?session_id=deadbeef")
+        r = await client.get(f"/api/viewer/toc/{link.token}", headers={"X-Session-ID": "deadbeef"})
         assert r.status_code == 410
 
     @pytest.mark.asyncio
     async def test_toc_doc_type_matches_document(self, client, toc_pdf_session):
         """PDF documents must report doc_type=pdf in TOC response."""
         token, session_id = toc_pdf_session
-        r = await client.get(f"/api/viewer/toc/{token}?session_id={session_id}")
+        r = await client.get(f"/api/viewer/toc/{token}", headers={"X-Session-ID": session_id})
         assert r.status_code == 200
         assert r.json()["doc_type"] == "pdf"

@@ -576,7 +576,7 @@ class TestSequentialViewerRequests:
         sid = body["session_id"]
 
         for _ in range(5):
-            r = await client.get(f"/api/viewer/page/{active_link.token}/1?session_id={sid}")
+            r = await client.get(f"/api/viewer/page/{active_link.token}/1", headers={"X-Session-ID": sid})
             assert r.status_code == 200, f"Unexpected status {r.status_code}: {r.text}"
 
     async def test_repeated_thumb_requests_all_succeed(self, client, active_link):
@@ -584,7 +584,7 @@ class TestSequentialViewerRequests:
         sid = body["session_id"]
 
         for _ in range(5):
-            r = await client.get(f"/api/viewer/thumb/{active_link.token}/1?session_id={sid}")
+            r = await client.get(f"/api/viewer/thumb/{active_link.token}/1", headers={"X-Session-ID": sid})
             assert r.status_code == 200, f"Unexpected status {r.status_code}: {r.text}"
 
     async def test_multiple_page_numbers_in_sequence(self, client, active_link, ready_document):
@@ -592,7 +592,7 @@ class TestSequentialViewerRequests:
         sid = body["session_id"]
 
         for page in range(1, ready_document.page_count + 1):
-            r = await client.get(f"/api/viewer/page/{active_link.token}/{page}?session_id={sid}")
+            r = await client.get(f"/api/viewer/page/{active_link.token}/{page}", headers={"X-Session-ID": sid})
             assert r.status_code == 200, f"Page {page} returned {r.status_code}"
 
     async def test_alternating_page_and_thumb_requests(self, client, active_link, ready_document):
@@ -601,8 +601,8 @@ class TestSequentialViewerRequests:
         sid = body["session_id"]
 
         for page in range(1, ready_document.page_count + 1):
-            rp = await client.get(f"/api/viewer/page/{active_link.token}/{page}?session_id={sid}")
-            rt = await client.get(f"/api/viewer/thumb/{active_link.token}/{page}?session_id={sid}")
+            rp = await client.get(f"/api/viewer/page/{active_link.token}/{page}", headers={"X-Session-ID": sid})
+            rt = await client.get(f"/api/viewer/thumb/{active_link.token}/{page}", headers={"X-Session-ID": sid})
             assert rp.status_code == 200, f"Page {page}: {rp.status_code}"
             assert rt.status_code == 200, f"Thumb {page}: {rt.status_code}"
 
@@ -616,7 +616,7 @@ class TestSequentialViewerRequests:
 
         statuses = []
         for _ in range(10):
-            r = await client.get(f"/api/viewer/page/{link.token}/1?session_id={sid}")
+            r = await client.get(f"/api/viewer/page/{link.token}/1", headers={"X-Session-ID": sid})
             statuses.append(r.status_code)
 
         assert all(s == 200 for s in statuses), f"Non-200 statuses detected: {statuses}"
@@ -800,7 +800,7 @@ class TestEndpointRegressions:
         body = await _validate(client, active_link.token)
         sid = body["session_id"]
 
-        r = await client.get(f"/api/viewer/page/{active_link.token}/999?session_id={sid}")
+        r = await client.get(f"/api/viewer/page/{active_link.token}/999", headers={"X-Session-ID": sid})
         assert r.status_code == 404
 
     async def test_page_requires_session_id_param(self, client, active_link):
@@ -1097,7 +1097,7 @@ class TestNotReadyDocumentHandling:
         body = await _validate(client, link.token)
         sid = body["session_id"]
 
-        r = await client.get(f"/api/viewer/page/{link.token}/1?session_id={sid}")
+        r = await client.get(f"/api/viewer/page/{link.token}/1", headers={"X-Session-ID": sid})
         assert r.status_code == 503
         assert "queued" in r.json()["detail"].lower()
 
@@ -1106,7 +1106,7 @@ class TestNotReadyDocumentHandling:
         body = await _validate(client, link.token)
         sid = body["session_id"]
 
-        r = await client.get(f"/api/viewer/page/{link.token}/1?session_id={sid}")
+        r = await client.get(f"/api/viewer/page/{link.token}/1", headers={"X-Session-ID": sid})
         assert r.status_code == 503
         assert "processing" in r.json()["detail"].lower()
 
@@ -1115,7 +1115,7 @@ class TestNotReadyDocumentHandling:
         body = await _validate(client, link.token)
         sid = body["session_id"]
 
-        r = await client.get(f"/api/viewer/page/{link.token}/1?session_id={sid}")
+        r = await client.get(f"/api/viewer/page/{link.token}/1", headers={"X-Session-ID": sid})
         assert r.status_code == 503
         assert "failed" in r.json()["detail"].lower()
 
@@ -1124,7 +1124,7 @@ class TestNotReadyDocumentHandling:
         body = await _validate(client, link.token)
         sid = body["session_id"]
 
-        r = await client.get(f"/api/viewer/thumb/{link.token}/1?session_id={sid}")
+        r = await client.get(f"/api/viewer/thumb/{link.token}/1", headers={"X-Session-ID": sid})
         assert r.status_code == 503
 
     async def test_page_serves_after_doc_transitions_to_ready(
@@ -1137,7 +1137,7 @@ class TestNotReadyDocumentHandling:
         sid = body["session_id"]
 
         # First request — doc is still "uploaded" → 503
-        r1 = await client.get(f"/api/viewer/page/{link.token}/1?session_id={sid}")
+        r1 = await client.get(f"/api/viewer/page/{link.token}/1", headers={"X-Session-ID": sid})
         assert r1.status_code == 503
 
         # Simulate worker completing: transition doc to "ready" and add a page record
@@ -1153,7 +1153,7 @@ class TestNotReadyDocumentHandling:
         await db_session.commit()
 
         # Second request — doc is now "ready".  Must return 200, not 503 from stale cache.
-        r2 = await client.get(f"/api/viewer/page/{link.token}/1?session_id={sid}")
+        r2 = await client.get(f"/api/viewer/page/{link.token}/1", headers={"X-Session-ID": sid})
         assert r2.status_code == 200, (
             "page request returned 503 after doc became ready — stale non-ready snapshot was cached"
         )
@@ -1183,7 +1183,7 @@ class TestDocCacheOnlyStoresReadySnapshots:
         sid = body["session_id"]
         doc_key = str(doc.id)
 
-        await client.get(f"/api/viewer/page/{link.token}/1?session_id={sid}")
+        await client.get(f"/api/viewer/page/{link.token}/1", headers={"X-Session-ID": sid})
 
         assert doc_cache.get(doc_key) is None, (
             "uploaded doc snapshot must not be cached — would lock clients out after doc becomes ready"
@@ -1196,7 +1196,7 @@ class TestDocCacheOnlyStoresReadySnapshots:
         sid = body["session_id"]
         doc_key = str(doc.id)
 
-        await client.get(f"/api/viewer/page/{link.token}/1?session_id={sid}")
+        await client.get(f"/api/viewer/page/{link.token}/1", headers={"X-Session-ID": sid})
 
         assert doc_cache.get(doc_key) is None
 
@@ -1207,7 +1207,7 @@ class TestDocCacheOnlyStoresReadySnapshots:
         sid = body["session_id"]
         doc_key = str(doc.id)
 
-        await client.get(f"/api/viewer/page/{link.token}/1?session_id={sid}")
+        await client.get(f"/api/viewer/page/{link.token}/1", headers={"X-Session-ID": sid})
 
         assert doc_cache.get(doc_key) is None
 
@@ -1217,7 +1217,7 @@ class TestDocCacheOnlyStoresReadySnapshots:
         sid = body["session_id"]
         doc_key = str(ready_document.id)
 
-        r = await client.get(f"/api/viewer/page/{active_link.token}/1?session_id={sid}")
+        r = await client.get(f"/api/viewer/page/{active_link.token}/1", headers={"X-Session-ID": sid})
         assert r.status_code == 200
 
         snap = doc_cache.get(doc_key)
@@ -1316,10 +1316,11 @@ class TestConcurrentPageRequests:
         c, active_link, _ = concurrent_client
         body = await _validate(c, active_link.token)
         sid = body["session_id"]
-        url = f"/api/viewer/page/{active_link.token}/1?session_id={sid}"
+        url = f"/api/viewer/page/{active_link.token}/1"
+        _sid = sid
 
         results = await asyncio.gather(
-            *[c.get(url) for _ in range(8)],
+            *[c.get(url, headers={"X-Session-ID": _sid}) for _ in range(8)],
             return_exceptions=True,
         )
 
@@ -1336,13 +1337,14 @@ class TestConcurrentPageRequests:
         body = await _validate(c, active_link.token)
         sid = body["session_id"]
 
-        urls = [
-            f"/api/viewer/page/{active_link.token}/{p}?session_id={sid}"
-            for p in range(1, ready_document.page_count + 1)
-        ]
-
         results = await asyncio.gather(
-            *[c.get(url) for url in urls],
+            *[
+                c.get(
+                    f"/api/viewer/page/{active_link.token}/{p}",
+                    headers={"X-Session-ID": sid},
+                )
+                for p in range(1, ready_document.page_count + 1)
+            ],
             return_exceptions=True,
         )
 
@@ -1358,10 +1360,11 @@ class TestConcurrentPageRequests:
         c, active_link, _ = concurrent_client
         body = await _validate(c, active_link.token)
         sid = body["session_id"]
-        url = f"/api/viewer/thumb/{active_link.token}/1?session_id={sid}"
+        url = f"/api/viewer/thumb/{active_link.token}/1"
+        _sid = sid
 
         results = await asyncio.gather(
-            *[c.get(url) for _ in range(8)],
+            *[c.get(url, headers={"X-Session-ID": _sid}) for _ in range(8)],
             return_exceptions=True,
         )
 
@@ -1378,17 +1381,20 @@ class TestConcurrentPageRequests:
         body = await _validate(c, active_link.token)
         sid = body["session_id"]
 
-        page_urls = [
-            f"/api/viewer/page/{active_link.token}/{p}?session_id={sid}"
-            for p in range(1, ready_document.page_count + 1)
-        ]
-        thumb_urls = [
-            f"/api/viewer/thumb/{active_link.token}/{p}?session_id={sid}"
-            for p in range(1, ready_document.page_count + 1)
-        ]
-
         results = await asyncio.gather(
-            *[c.get(u) for u in page_urls + thumb_urls],
+            *[
+                c.get(
+                    f"/api/viewer/page/{active_link.token}/{p}",
+                    headers={"X-Session-ID": sid},
+                )
+                for p in range(1, ready_document.page_count + 1)
+            ] + [
+                c.get(
+                    f"/api/viewer/thumb/{active_link.token}/{p}",
+                    headers={"X-Session-ID": sid},
+                )
+                for p in range(1, ready_document.page_count + 1)
+            ],
             return_exceptions=True,
         )
 

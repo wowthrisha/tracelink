@@ -546,7 +546,7 @@ class TestTocEndpoint:
     async def test_toc_revoked_link_rejected(self, client, db_session, revoked_link):
         # For a revoked link, validate itself would fail — TOC on revoked link should fail
         r = await client.get(
-            f"/api/viewer/toc/{revoked_link.token}?session_id={'a' * 32}"
+            f"/api/viewer/toc/{revoked_link.token}", headers={"X-Session-ID": 'a' * 32}
         )
         assert r.status_code in (410, 400, 404)
 
@@ -569,7 +569,7 @@ class TestTocEndpoint:
                 side_effect=Exception("not found")
             )
             r = await client.get(
-                f"/api/viewer/toc/{link.token}?session_id={session_id}"
+                f"/api/viewer/toc/{link.token}", headers={"X-Session-ID": session_id}
             )
 
         assert r.status_code == 200
@@ -598,7 +598,7 @@ class TestTocEndpoint:
         with patch("app.routers.viewer.get_storage_service") as mock_storage:
             mock_storage.return_value.download_bytes = AsyncMock(return_value=sidecar)
             r = await client.get(
-                f"/api/viewer/toc/{link.token}?session_id={session_id}"
+                f"/api/viewer/toc/{link.token}", headers={"X-Session-ID": session_id}
             )
 
         assert r.status_code == 200
@@ -634,7 +634,7 @@ class TestTocEndpoint:
         with patch("app.services.storage.StorageService.download_bytes",
                    new_callable=AsyncMock, return_value=md_content):
             r = await client.get(
-                f"/api/viewer/toc/{link.token}?session_id={session_id}"
+                f"/api/viewer/toc/{link.token}", headers={"X-Session-ID": session_id}
             )
 
         assert r.status_code == 200
@@ -677,8 +677,8 @@ class TestTocEndpoint:
 
         with patch("app.services.storage.StorageService.download_bytes",
                    side_effect=counting_download):
-            await client.get(f"/api/viewer/toc/{link.token}?session_id={session_id}")
-            await client.get(f"/api/viewer/toc/{link.token}?session_id={session_id}")
+            await client.get(f"/api/viewer/toc/{link.token}", headers={"X-Session-ID": session_id})
+            await client.get(f"/api/viewer/toc/{link.token}", headers={"X-Session-ID": session_id})
 
         # Second request should come from L1 cache (no storage call)
         assert fetch_count[0] == 1, f"Expected 1 storage fetch, got {fetch_count[0]}"
@@ -692,7 +692,7 @@ class TestTocEndpoint:
     @pytest.mark.asyncio
     async def test_toc_respects_expired_link(self, client, db_session, expired_link):
         r = await client.get(
-            f"/api/viewer/toc/{expired_link.token}?session_id=fakesession"
+            f"/api/viewer/toc/{expired_link.token}", headers={"X-Session-ID": "fakesession"}
         )
         assert r.status_code in (400, 410)
 

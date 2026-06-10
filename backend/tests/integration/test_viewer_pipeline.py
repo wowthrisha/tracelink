@@ -77,7 +77,7 @@ class TestPageEndpointSecurity:
         await db_session.commit()
 
         r = await client.get(
-            f"/api/viewer/page/{link.token}/1?session_id={session_id}"
+            f"/api/viewer/page/{link.token}/1", headers={"X-Session-ID": session_id}
         )
         assert r.status_code == 410
         assert "revoked" in r.json()["detail"].lower()
@@ -87,7 +87,7 @@ class TestPageEndpointSecurity:
         """expired_link fixture creates a link already past its expiry."""
         # We cannot validate (validate also returns 410), so use an arbitrary session_id
         r = await client.get(
-            f"/api/viewer/page/{expired_link.token}/1?session_id=aabbccdd11223344"
+            f"/api/viewer/page/{expired_link.token}/1", headers={"X-Session-ID": "aabbccdd11223344"}
         )
         assert r.status_code == 410
         assert "expired" in r.json()["detail"].lower()
@@ -95,7 +95,8 @@ class TestPageEndpointSecurity:
     @pytest.mark.asyncio
     async def test_nonexistent_token_returns_404_on_page_fetch(self, client):
         r = await client.get(
-            "/api/viewer/page/deadbeefdeadbeef/1?session_id=aabbccdd11223344"
+            "/api/viewer/page/deadbeefdeadbeef/1",
+            headers={"X-Session-ID": "aabbccdd11223344"},
         )
         assert r.status_code == 404
 
@@ -103,7 +104,7 @@ class TestPageEndpointSecurity:
     async def test_page_response_is_proxied_not_redirected(self, client, active_link):
         session_id = await _get_session(client, active_link.token)
         r = await client.get(
-            f"/api/viewer/page/{active_link.token}/1?session_id={session_id}",
+            f"/api/viewer/page/{active_link.token}/1", headers={"X-Session-ID": session_id},
             follow_redirects=False,
         )
         # Must be a direct 200, never a redirect
@@ -120,7 +121,7 @@ class TestPageEndpointSecurity:
 
         # Correct structure → 200
         r = await client.get(
-            f"/api/viewer/page/{active_link.token}/1?session_id={session_id}"
+            f"/api/viewer/page/{active_link.token}/1", headers={"X-Session-ID": session_id}
         )
         assert r.status_code == 200
 
@@ -129,7 +130,7 @@ class TestPageEndpointSecurity:
         assert r_no_sid.status_code == 400
 
         # Page number as sole path segment (the old buggy URL pattern) → 404
-        r_bad = await client.get(f"/api/viewer/page/1?session_id={session_id}")
+        r_bad = await client.get(f"/api/viewer/page/1", headers={"X-Session-ID": session_id})
         assert r_bad.status_code == 404
 
 
@@ -178,14 +179,14 @@ class TestPageByteCache:
 
             # First request: should hit storage
             r1 = await client.get(
-                f"/api/viewer/page/{link.token}/1?session_id={session_id}"
+                f"/api/viewer/page/{link.token}/1", headers={"X-Session-ID": session_id}
             )
             assert r1.status_code == 200
             assert mock_dl.call_count == 1
 
             # Second request for the same page: cache hit, storage NOT called again
             r2 = await client.get(
-                f"/api/viewer/page/{link.token}/1?session_id={session_id}"
+                f"/api/viewer/page/{link.token}/1", headers={"X-Session-ID": session_id}
             )
             assert r2.status_code == 200
             assert mock_dl.call_count == 1  # still 1 — served from cache
@@ -208,7 +209,7 @@ class TestPageByteCache:
 
             for page_num in (1, 2, 3):
                 await client.get(
-                    f"/api/viewer/page/{link.token}/{page_num}?session_id={session_id}"
+                    f"/api/viewer/page/{link.token}/{page_num}", headers={"X-Session-ID": session_id}
                 )
             # 3 unique pages → exactly 3 downloads
             assert mock_dl.call_count == 3
@@ -216,7 +217,7 @@ class TestPageByteCache:
             # Re-fetch all pages — cache should absorb them all
             for page_num in (1, 2, 3):
                 await client.get(
-                    f"/api/viewer/page/{link.token}/{page_num}?session_id={session_id}"
+                    f"/api/viewer/page/{link.token}/{page_num}", headers={"X-Session-ID": session_id}
                 )
             assert mock_dl.call_count == 3  # unchanged
 
@@ -235,7 +236,7 @@ class TestPageByteCache:
             mock_dl.return_value = _make_webp_bytes()
 
             await client.get(
-                f"/api/viewer/page/{link.token}/1?session_id={session_id}"
+                f"/api/viewer/page/{link.token}/1", headers={"X-Session-ID": session_id}
             )
             assert mock_dl.call_count == 1
 
@@ -243,7 +244,7 @@ class TestPageByteCache:
             clear_page_cache()
 
             await client.get(
-                f"/api/viewer/page/{link.token}/1?session_id={session_id}"
+                f"/api/viewer/page/{link.token}/1", headers={"X-Session-ID": session_id}
             )
             assert mock_dl.call_count == 2  # re-fetched after cache clear
 
@@ -283,7 +284,7 @@ class TestLargeDocument:
         # Spot-check first, last, and a middle page
         for page_num in (1, 30, 60):
             r = await client.get(
-                f"/api/viewer/page/{link.token}/{page_num}?session_id={session_id}"
+                f"/api/viewer/page/{link.token}/{page_num}", headers={"X-Session-ID": session_id}
             )
             assert r.status_code == 200, f"page {page_num} returned {r.status_code}"
             assert r.headers["content-type"] == "image/webp"
@@ -296,7 +297,7 @@ class TestLargeDocument:
         session_id = await _get_session(client, link.token)
 
         r = await client.get(
-            f"/api/viewer/page/{link.token}/6?session_id={session_id}"
+            f"/api/viewer/page/{link.token}/6", headers={"X-Session-ID": session_id}
         )
         assert r.status_code == 404
 
@@ -395,7 +396,7 @@ class TestThumbnailEndpoint:
     async def test_thumb_returns_webp(self, client, active_link):
         session_id = await _get_session(client, active_link.token)
         r = await client.get(
-            f"/api/viewer/thumb/{active_link.token}/1?session_id={session_id}"
+            f"/api/viewer/thumb/{active_link.token}/1", headers={"X-Session-ID": session_id}
         )
         assert r.status_code == 200
         assert r.headers["content-type"] == "image/webp"
@@ -416,7 +417,7 @@ class TestThumbnailEndpoint:
         await db_session.commit()
 
         r = await client.get(
-            f"/api/viewer/thumb/{link.token}/1?session_id={session_id}"
+            f"/api/viewer/thumb/{link.token}/1", headers={"X-Session-ID": session_id}
         )
         assert r.status_code == 410
         assert "revoked" in r.json()["detail"].lower()
@@ -424,7 +425,8 @@ class TestThumbnailEndpoint:
     @pytest.mark.asyncio
     async def test_thumb_nonexistent_token_returns_404(self, client):
         r = await client.get(
-            "/api/viewer/thumb/deadbeefdeadbeef/1?session_id=aabbccdd11223344"
+            "/api/viewer/thumb/deadbeefdeadbeef/1",
+            headers={"X-Session-ID": "aabbccdd11223344"},
         )
         assert r.status_code == 404
 
@@ -436,7 +438,7 @@ class TestThumbnailEndpoint:
         session_id = await _get_session(client, link.token)
 
         r = await client.get(
-            f"/api/viewer/thumb/{link.token}/99?session_id={session_id}"
+            f"/api/viewer/thumb/{link.token}/99", headers={"X-Session-ID": session_id}
         )
         assert r.status_code == 404
 
@@ -444,7 +446,7 @@ class TestThumbnailEndpoint:
     async def test_thumb_no_cache_headers(self, client, active_link):
         session_id = await _get_session(client, active_link.token)
         r = await client.get(
-            f"/api/viewer/thumb/{active_link.token}/1?session_id={session_id}"
+            f"/api/viewer/thumb/{active_link.token}/1", headers={"X-Session-ID": session_id}
         )
         assert "no-store" in r.headers.get("cache-control", "")
 
@@ -463,13 +465,13 @@ class TestThumbnailEndpoint:
             mock_dl.return_value = _make_webp_bytes()
 
             r1 = await client.get(
-                f"/api/viewer/thumb/{link.token}/1?session_id={session_id}"
+                f"/api/viewer/thumb/{link.token}/1", headers={"X-Session-ID": session_id}
             )
             assert r1.status_code == 200
             first_count = mock_dl.call_count  # 1 (thumb key)
 
             r2 = await client.get(
-                f"/api/viewer/thumb/{link.token}/1?session_id={session_id}"
+                f"/api/viewer/thumb/{link.token}/1", headers={"X-Session-ID": session_id}
             )
             assert r2.status_code == 200
             assert mock_dl.call_count == first_count  # cache hit — no new download
@@ -492,7 +494,7 @@ class TestThumbnailEndpoint:
         link = await svc.create_link(db_session, document_id=str(doc.id))
 
         r = await client.get(
-            f"/api/viewer/thumb/{link.token}/1?session_id=aabbccdd11223344"
+            f"/api/viewer/thumb/{link.token}/1", headers={"X-Session-ID": "aabbccdd11223344"}
         )
         assert r.status_code == 503
 
@@ -522,7 +524,7 @@ class TestStorageErrorHandling:
             side_effect=Exception("S3 connection refused"),
         ):
             r = await client.get(
-                f"/api/viewer/page/{active_link.token}/1?session_id={session_id}"
+                f"/api/viewer/page/{active_link.token}/1", headers={"X-Session-ID": session_id}
             )
 
         assert r.status_code == 503
@@ -539,7 +541,7 @@ class TestStorageErrorHandling:
             side_effect=Exception("bucket not found"),
         ):
             r = await client.get(
-                f"/api/viewer/thumb/{active_link.token}/1?session_id={session_id}"
+                f"/api/viewer/thumb/{active_link.token}/1", headers={"X-Session-ID": session_id}
             )
 
         assert r.status_code == 503

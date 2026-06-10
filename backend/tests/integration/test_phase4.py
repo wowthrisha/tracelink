@@ -335,7 +335,7 @@ class TestPageRequestIntegration:
         body = await _validate(client, link.token)
         sid = body["session_id"]
 
-        r = await client.get(f"/api/viewer/page/{link.token}/1?session_id={sid}")
+        r = await client.get(f"/api/viewer/page/{link.token}/1", headers={"X-Session-ID": sid})
         assert r.status_code == 200
 
         # Redis should now hold the page bytes
@@ -352,7 +352,7 @@ class TestPageRequestIntegration:
         sid = body["session_id"]
 
         # First request — populate caches
-        r1 = await client.get(f"/api/viewer/page/{link.token}/1?session_id={sid}")
+        r1 = await client.get(f"/api/viewer/page/{link.token}/1", headers={"X-Session-ID": sid})
         assert r1.status_code == 200
 
         storage_key = f"pages/{doc.id}/0001.webp"
@@ -368,7 +368,7 @@ class TestPageRequestIntegration:
             return result
 
         with patch("app.routers.viewer.fetch_page_bytes", side_effect=tracking_fetch):
-            r2 = await client.get(f"/api/viewer/page/{link.token}/1?session_id={sid}")
+            r2 = await client.get(f"/api/viewer/page/{link.token}/1", headers={"X-Session-ID": sid})
             assert r2.status_code == 200
 
         assert l1_hit_count == 1, "Second request should hit L1 cache"
@@ -407,7 +407,7 @@ class TestPageRequestIntegration:
             "app.services.storage.StorageService.download_bytes",
             new=tracking_download,
         ):
-            r = await client.get(f"/api/viewer/page/{link.token}/1?session_id={sid}")
+            r = await client.get(f"/api/viewer/page/{link.token}/1", headers={"X-Session-ID": sid})
             # The endpoint may still call download for watermarked content
             # What matters is the page bytes came from Redis
 
@@ -613,14 +613,14 @@ class TestNoCacheLeakageSecurity:
         sid = body["session_id"]
 
         # Warm byte caches
-        r1 = await client.get(f"/api/viewer/page/{link.token}/1?session_id={sid}")
+        r1 = await client.get(f"/api/viewer/page/{link.token}/1", headers={"X-Session-ID": sid})
         assert r1.status_code == 200
 
         # Revoke link — clears metadata cache
         await link_svc.revoke_link(db_session, str(link.id))
 
         # Next request must be rejected (410), not served from cache
-        r2 = await client.get(f"/api/viewer/page/{link.token}/1?session_id={sid}")
+        r2 = await client.get(f"/api/viewer/page/{link.token}/1", headers={"X-Session-ID": sid})
         assert r2.status_code == 410
 
     @pytest.mark.asyncio
@@ -663,7 +663,7 @@ class TestNoCacheLeakageSecurity:
         sid = body["session_id"]
 
         # Warm byte cache
-        r1 = await client.get(f"/api/viewer/page/{link.token}/1?session_id={sid}")
+        r1 = await client.get(f"/api/viewer/page/{link.token}/1", headers={"X-Session-ID": sid})
         assert r1.status_code == 200
 
         # Inject expired metadata snapshot
@@ -678,7 +678,7 @@ class TestNoCacheLeakageSecurity:
         link_cache.put(link.token, expired_snap)
 
         # Must be rejected despite warm byte cache
-        r2 = await client.get(f"/api/viewer/page/{link.token}/1?session_id={sid}")
+        r2 = await client.get(f"/api/viewer/page/{link.token}/1", headers={"X-Session-ID": sid})
         assert r2.status_code == 410
 
 
@@ -771,9 +771,9 @@ class TestConcurrency:
         body = await _validate(client, link.token)
         sid = body["session_id"]
 
-        url = f"/api/viewer/page/{link.token}/1?session_id={sid}"
+        url = f"/api/viewer/page/{link.token}/1"
         for _ in range(5):
-            r = await client.get(url)
+            r = await client.get(url, headers={"X-Session-ID": sid})
             assert r.status_code == 200
 
     @pytest.mark.asyncio
@@ -784,9 +784,9 @@ class TestConcurrency:
         body = await _validate(client, link.token)
         sid = body["session_id"]
 
-        url = f"/api/viewer/thumb/{link.token}/1?session_id={sid}"
+        url = f"/api/viewer/thumb/{link.token}/1"
         for _ in range(5):
-            r = await client.get(url)
+            r = await client.get(url, headers={"X-Session-ID": sid})
             assert r.status_code == 200
 
 
@@ -826,7 +826,7 @@ class TestNoRegressions:
         body = await _validate(client, link.token)
         sid = body["session_id"]
 
-        await client.get(f"/api/viewer/page/{link.token}/1?session_id={sid}")
+        await client.get(f"/api/viewer/page/{link.token}/1", headers={"X-Session-ID": sid})
 
         result = await db_session.execute(
             select(AccessEvent).where(
@@ -855,7 +855,7 @@ class TestNoRegressions:
         body = await _validate(client, link.token)
         sid = body["session_id"]
 
-        r = await client.get(f"/api/viewer/thumb/{link.token}/1?session_id={sid}")
+        r = await client.get(f"/api/viewer/thumb/{link.token}/1", headers={"X-Session-ID": sid})
         assert r.status_code == 200
         assert r.headers["content-type"] == "image/webp"
 

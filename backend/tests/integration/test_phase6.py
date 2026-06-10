@@ -298,7 +298,7 @@ class TestViewerCacheHeaders:
         r = await client.post("/api/viewer/validate", json={"token": active_link.token})
         session_id = r.json()["session_id"]
         r2 = await client.get(
-            f"/api/viewer/page/{active_link.token}/1?session_id={session_id}"
+            f"/api/viewer/page/{active_link.token}/1", headers={"X-Session-ID": session_id}
         )
         cc = r2.headers.get("Cache-Control", "")
         assert "no-store" in cc or "no-cache" in cc
@@ -314,7 +314,7 @@ class TestViewerCacheHeaders:
             return_value=b"line 1\nline 2\n",
         ):
             r2 = await client.get(
-                f"/api/viewer/text/{link.token}/1?session_id={session_id}"
+                f"/api/viewer/text/{link.token}/1", headers={"X-Session-ID": session_id}
             )
         if r2.status_code == 200:
             cc = r2.headers.get("Cache-Control", "")
@@ -479,7 +479,7 @@ class TestNoRegression:
         r = await client.post("/api/viewer/validate", json={"token": active_link.token})
         session_id = r.json()["session_id"]
         r2 = await client.get(
-            f"/api/viewer/page/{active_link.token}/1?session_id={session_id}",
+            f"/api/viewer/page/{active_link.token}/1", headers={"X-Session-ID": session_id},
             follow_redirects=False,
         )
         assert r2.status_code not in (301, 302, 307, 308)

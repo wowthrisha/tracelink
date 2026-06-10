@@ -35,7 +35,7 @@ class TestSecurityInvariants:
         )
         session_id = validate_r.json()["session_id"]
         r = await client.get(
-            f"/api/viewer/page/{active_link.token}/1?session_id={session_id}",
+            f"/api/viewer/page/{active_link.token}/1", headers={"X-Session-ID": session_id},
             follow_redirects=False,
         )
         assert r.status_code not in (301, 302, 307, 308), \

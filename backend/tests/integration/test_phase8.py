@@ -380,7 +380,7 @@ class TestXCacheStatusHeader:
             mock_policy.is_active_session = AsyncMock(return_value=True)
 
             rp = await client.get(
-                f"/api/viewer/page/{ready_link}/1?session_id={session_id}"
+                f"/api/viewer/page/{ready_link}/1", headers={"X-Session-ID": session_id}
             )
         assert "x-cache-status" in rp.headers
         assert rp.headers["x-cache-status"] in ("HIT", "MISS")
@@ -418,7 +418,7 @@ class TestXCacheStatusHeader:
             mock_policy.is_active_session = AsyncMock(return_value=True)
 
             rp = await client.get(
-                f"/api/viewer/page/{ready_link}/1?session_id={session_id}"
+                f"/api/viewer/page/{ready_link}/1", headers={"X-Session-ID": session_id}
             )
         assert rp.headers.get("x-cache-status") == "HIT"
 
@@ -460,7 +460,7 @@ class TestXCacheStatusHeader:
             mock_policy.is_active_session = AsyncMock(return_value=True)
 
             rp = await client.get(
-                f"/api/viewer/page/{ready_link}/1?session_id={session_id}"
+                f"/api/viewer/page/{ready_link}/1", headers={"X-Session-ID": session_id}
             )
         assert rp.headers.get("x-cache-status") == "MISS"
 
@@ -494,7 +494,7 @@ class TestXCacheStatusHeader:
             mock_policy.is_active_session = AsyncMock(return_value=True)
 
             rt = await client.get(
-                f"/api/viewer/thumb/{ready_link}/1?session_id={session_id}"
+                f"/api/viewer/thumb/{ready_link}/1", headers={"X-Session-ID": session_id}
             )
         assert "x-cache-status" in rt.headers
         assert rt.headers["x-cache-status"] == "HIT"
@@ -924,7 +924,7 @@ class TestPhase8Regression:
         session_id = r.json()["session_id"]
 
         r2 = await client.get(
-            f"/api/viewer/toc/{link.token}?session_id={session_id}"
+            f"/api/viewer/toc/{link.token}", headers={"X-Session-ID": session_id}
         )
         assert r2.status_code in (200, 503)  # 503 if storage has no file in tests
 
@@ -973,7 +973,7 @@ class TestPhase8Regression:
             mp.is_active_session = AsyncMock(return_value=True)
 
             rp = await client.get(
-                f"/api/viewer/page/{link.token}/1?session_id={session_id}"
+                f"/api/viewer/page/{link.token}/1", headers={"X-Session-ID": session_id}
             )
         cc = rp.headers.get("cache-control", "")
         assert "no-store" in cc

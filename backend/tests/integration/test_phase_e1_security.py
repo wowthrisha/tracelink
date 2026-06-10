@@ -75,15 +75,15 @@ class TestSessionIDHeader:
         assert r.headers["content-type"] == "image/webp"
 
     @pytest.mark.asyncio
-    async def test_page_via_query_param_still_works(self, client, active_link):
-        """Query param fallback must continue working (backward compat)."""
+    async def test_page_via_query_param_rejected(self, client, active_link):
+        """Query param session_id is no longer accepted — must return 400."""
         body = await _validate(client, active_link.token)
         sid = body["session_id"]
 
         r = await client.get(
             f"/api/viewer/page/{active_link.token}/1?session_id={sid}"
         )
-        assert r.status_code == 200
+        assert r.status_code == 400
 
     @pytest.mark.asyncio
     async def test_thumb_via_header_returns_200(self, client, active_link):

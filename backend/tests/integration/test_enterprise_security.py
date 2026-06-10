@@ -258,7 +258,7 @@ class TestViewerForensicStamp:
             with patch.object(WatermarkService, "apply_visible_watermark", _track_visible), \
                  patch.object(WatermarkService, "apply_viewer_forensic_stamp", _track_forensic):
                 rp = await client.get(
-                    f"/api/viewer/page/{active_link.token}/1?session_id={sid}"
+                    f"/api/viewer/page/{active_link.token}/1", headers={"X-Session-ID": sid}
                 )
             assert rp.status_code == 200
             return sid
@@ -327,7 +327,7 @@ class TestSessionValidationCache:
 
         # Page request must still succeed (DB fallback)
         rp = await client.get(
-            f"/api/viewer/page/{link.token}/1?session_id={sid}"
+            f"/api/viewer/page/{link.token}/1", headers={"X-Session-ID": sid}
         )
         assert rp.status_code == 200
 
@@ -368,7 +368,7 @@ class TestSessionValidationCache:
 
         # Page request must now fail (session cache invalidated + link revoked)
         rp = await client.get(
-            f"/api/viewer/page/{link.token}/1?session_id={sid}"
+            f"/api/viewer/page/{link.token}/1", headers={"X-Session-ID": sid}
         )
         assert rp.status_code in (410, 403, 401)
 

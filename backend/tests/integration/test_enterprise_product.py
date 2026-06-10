@@ -271,11 +271,11 @@ class TestWebhooks:
         wh_id = cr.json()["id"]
         r = await client.patch(
             f"/api/webhooks/{wh_id}",
-            json={"url": "https://new.example.com/hook", "is_active": False},
+            json={"url": "https://example.com/new-hook", "is_active": False},
         )
         assert r.status_code == 200
         body = r.json()
-        assert body["url"] == "https://new.example.com/hook"
+        assert body["url"] == "https://example.com/new-hook"
         assert body["is_active"] is False
         assert "secret" not in body
 
@@ -592,7 +592,7 @@ class TestPublicAPI:
         async def _mock_verify(key):
             if key == raw_key:
                 return {"user_id": user_id, "email": "", "role": "authenticated",
-                        "scopes": [], "auth_method": "api_key"}
+                        "scopes": ["documents:read", "documents:write"], "auth_method": "api_key"}
             raise _HTTPException(status_code=401, detail="Authentication failed")
 
         original_override = app.dependency_overrides.pop(get_current_user, None)
