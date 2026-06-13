@@ -1014,3 +1014,100 @@ async def get_text_chunk(
             "X-Content-Type-Options": "nosniff",
         },
     )
+
+
+@router.get("/search/{link_token}")
+@limiter.limit("30/minute")
+async def search_document(
+    request: Request,
+    link_token: str,
+    q: str = Query("", max_length=200),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Full-document text search — PDF, DOCX, and TXT formats.
+
+    PDF/DOCX: loads text sidecar from storage (text/{doc_id}.json).
+    TXT/MD/LOG: searches the text_content_cache.
+    Response: { "results": [{page, snippet, offset}], "total": N, "query": str }
+    """
+    from fastapi.responses import JSONResponse as _JSONResponse
+
+    session_id = _get_session_id(request)
+    if not session_id:
+        raise HTTPException(status_code=400, detail="session_id is required")
+
+    link_snap, doc_snap, ip, now = await _get_cached_link_and_doc(link_token, db, request)
+
+    if not await policy_enforcer.is_active_session(db, link_snap.id, session_id):
+        raise HTTPException(status_code=401, detail="Session not recognized. Please re-validate.")
+
+    query = q.strip()
+    if not query:
+        return _JSONResponse(
+            content={"results": [], "total": 0, "query": ""},
+            headers={"Cache-Control": "no-store"},
+        )
+
+    file_type = doc_snap.file_type
+    doc_id_str = str(link_snap.document_id)
+    results = []
+    ql = query.lower()
+
+    if file_type in ("pdf", "docx", "doc"):
+        sidecar_key = f"text/{doc_id_str}.json"
+        try:
+            _storage = get_storage_service()
+            raw = await _storage.download_bytes(sidecar_key)
+            pages_data = json.loads(raw.decode("utf-8"))
+        except Exception:
+            pages_data = []
+
+        for entry in pages_data:
+            text = entry.get("text", "")
+            page_num = entry.get("page", 0)
+            tl = text.lower()
+            offset = 0
+            while len(results) < 200:
+                idx = tl.find(ql, offset)
+                if idx == -1:
+                    break
+                start = max(0, idx - 60)
+                end = min(len(text), idx + len(query) + 60)
+                snippet = text[start:end].replace("\n", " ").strip()
+                results.append({"page": page_num, "snippet": snippet, "offset": idx})
+                offset = idx + len(query)
+    else:
+        storage_key = doc_snap.storage_key
+        cached_text: Optional[str] = text_content_cache.get(storage_key)
+        if cached_text is None:
+            _storage = get_storage_service()
+            try:
+                raw_bytes = await _storage.download_bytes(storage_key)
+            except Exception:
+                raise HTTPException(status_code=503, detail="Document content temporarily unavailable")
+            from app.services.text_processor import decode_text_safe
+            cached_text = decode_text_safe(raw_bytes)
+            if len(cached_text) <= TEXT_CONTENT_MAX_BYTES:
+                text_content_cache.put(storage_key, cached_text)
+
+        lines = cached_text.split("\n")
+        chunk_size = settings.text_lines_per_chunk
+        for chunk_num, chunk_start in enumerate(range(0, len(lines), chunk_size), start=1):
+            chunk_text = "\n".join(lines[chunk_start:chunk_start + chunk_size])
+            tl = chunk_text.lower()
+            offset = 0
+            while len(results) < 200:
+                idx = tl.find(ql, offset)
+                if idx == -1:
+                    break
+                start = max(0, idx - 60)
+                end = min(len(chunk_text), idx + len(query) + 60)
+                snippet = chunk_text[start:end].replace("\n", " ").strip()
+                results.append({"page": chunk_num, "snippet": snippet, "offset": idx})
+                offset = idx + len(query)
+
+    return _JSONResponse(
+        content={"results": results[:200], "total": len(results), "query": query},
+        headers={"Cache-Control": "no-store, no-cache, must-revalidate"},
+    )

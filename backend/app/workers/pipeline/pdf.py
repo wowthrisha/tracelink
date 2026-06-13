@@ -140,6 +140,8 @@ async def process_pdf_document(
 
     # Extract PDF TOC from bookmarks (best-effort: never blocks processing)
     await extract_and_store_pdf_toc(document_id, pdf_bytes, storage)
+    # Extract page text for full-document search (best-effort: never blocks processing)
+    await extract_and_store_text_sidecar(document_id, pdf_bytes, storage)
 
     return {
         "document_id": document_id,
@@ -179,3 +181,39 @@ async def extract_and_store_pdf_toc(
         )
     except Exception as exc:
         logger.warning("Document %s: PDF TOC extraction failed (non-fatal): %s", document_id, exc)
+
+
+async def extract_and_store_text_sidecar(
+    document_id: str,
+    pdf_bytes: bytes,
+    storage,
+) -> None:
+    """
+    Extract plain text from each PDF page and store as a search sidecar.
+    Stored at text/{doc_id}.json as [{"page": N, "text": "..."}].
+    Used by the /api/viewer/search endpoint for full-document search.
+    """
+    import json as _json
+    try:
+        from io import BytesIO as _BytesIO
+        import pypdf as _pypdf
+        reader = _pypdf.PdfReader(_BytesIO(pdf_bytes))
+        pages = []
+        for i, pdf_page in enumerate(reader.pages, start=1):
+            text = (pdf_page.extract_text() or "").strip()
+            pages.append({"page": i, "text": text})
+        if not pages:
+            return
+        sidecar_key = f"text/{document_id}.json"
+        payload = _json.dumps(pages, ensure_ascii=False)
+        await storage.upload_file(
+            payload.encode("utf-8"),
+            sidecar_key,
+            content_type="application/json",
+        )
+        logger.info(
+            "Document %s: stored text sidecar (%d pages) at %s",
+            document_id, len(pages), sidecar_key,
+        )
+    except Exception as exc:
+        logger.warning("Document %s: text sidecar extraction failed (non-fatal): %s", document_id, exc)

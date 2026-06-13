@@ -74,6 +74,44 @@ window.SecureDocAPI = {
     return data.access_token;
   },
 
+  async forgotPassword(email) {
+    const supabaseUrl = document.querySelector('meta[name="supabase-url"]')?.content;
+    const supabaseAnon = document.querySelector('meta[name="supabase-anon-key"]')?.content;
+    if (!supabaseUrl || !supabaseAnon) {
+      throw new Error('Supabase not configured.');
+    }
+    const r = await fetch(`${supabaseUrl}/auth/v1/recover`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'apikey': supabaseAnon },
+      body: JSON.stringify({ email }),
+    });
+    if (!r.ok) {
+      const data = await r.json().catch(() => ({}));
+      throw new Error(data.error_description || data.msg || 'Failed to send reset email');
+    }
+  },
+
+  async resetPassword(accessToken, newPassword) {
+    const supabaseUrl = document.querySelector('meta[name="supabase-url"]')?.content;
+    const supabaseAnon = document.querySelector('meta[name="supabase-anon-key"]')?.content;
+    if (!supabaseUrl || !supabaseAnon) {
+      throw new Error('Supabase not configured.');
+    }
+    const r = await fetch(`${supabaseUrl}/auth/v1/user`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'apikey': supabaseAnon,
+        'Authorization': `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify({ password: newPassword }),
+    });
+    if (!r.ok) {
+      const data = await r.json().catch(() => ({}));
+      throw new Error(data.error_description || data.msg || 'Password reset failed');
+    }
+  },
+
   // ── Documents ──────────────────────────────────────────────────────────────
 
   async uploadDocument(file, onProgress, groupId = null) {
@@ -249,6 +287,17 @@ window.SecureDocAPI = {
       { headers: this.sessionHeaders(sessionId) }
     );
     if (!r.ok) throw await r.json();
+    return r.json();
+  },
+
+  async searchDocument(linkToken, q, sessionId) {
+    const base = API_BASE.replace(/\/$/, '');
+    const params = new URLSearchParams({ q: q || '' });
+    const r = await fetch(
+      `${base}/api/viewer/search/${encodeURIComponent(linkToken)}?${params}`,
+      { headers: this.sessionHeaders(sessionId) }
+    );
+    if (!r.ok) throw await r.json().catch(() => ({ detail: 'Search failed' }));
     return r.json();
   },
 

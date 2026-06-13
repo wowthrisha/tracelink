@@ -1235,6 +1235,12 @@
       const [showSearch, setShowSearch] = useState(false);
       // Phase 7: TOC sidebar for text/md documents
       const [showToc, setShowToc] = useState(false);
+      // Premium: zoom lens, fullscreen, page jump
+      const [showLens, setShowLens] = useState(false);
+      const [lensPos, setLensPos] = useState({ x: 0, y: 0, bgX: 0, bgY: 0, bgW: 0, bgH: 0, visible: false });
+      const [isFullscreen, setIsFullscreen] = useState(false);
+      const [pageInputStr, setPageInputStr] = useState('');
+      const pageImgRef = useRef(null);
       // Phase 7: mobile/touch support — extended for pinch-to-zoom
       const touchRef = useRef({ x: null, y: null, pinchDist: null });
 
@@ -1554,6 +1560,39 @@
         _saveLayoutPref(LAYOUT.CUSTOM, pct);
       }, []);
 
+      const toggleFullscreen = useCallback(() => {
+        if (!document.fullscreenElement) {
+          document.documentElement.requestFullscreen?.().catch(() => {});
+        } else {
+          document.exitFullscreen?.();
+        }
+      }, []);
+
+      const handlePageMouseMove = useCallback((e) => {
+        if (!showLens || !pageImgRef.current) return;
+        const rect = pageImgRef.current.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const y = e.clientY - rect.top;
+        if (x < 0 || y < 0 || x > rect.width || y > rect.height) {
+          setLensPos(l => ({ ...l, visible: false }));
+          return;
+        }
+        const lensSize = 160;
+        const lensZoom = 2.5;
+        setLensPos({
+          x: e.clientX, y: e.clientY,
+          bgX: x * lensZoom - lensSize / 2,
+          bgY: y * lensZoom - lensSize / 2,
+          bgW: rect.width * lensZoom,
+          bgH: rect.height * lensZoom,
+          visible: true,
+        });
+      }, [showLens]);
+
+      const handlePageMouseLeave = useCallback(() => {
+        setLensPos(l => ({ ...l, visible: false }));
+      }, []);
+
       useEffect(() => {
         const h = e => {
           if (e.key === 'ArrowRight' || e.key === 'ArrowDown') goNext();
@@ -1623,6 +1662,20 @@
         document.addEventListener('visibilitychange', onVis);
         return () => document.removeEventListener('visibilitychange', onVis);
       }, [session]);
+
+      useEffect(() => {
+        const h = () => setIsFullscreen(!!document.fullscreenElement);
+        document.addEventListener('fullscreenchange', h);
+        return () => document.removeEventListener('fullscreenchange', h);
+      }, []);
+
+      useEffect(() => {
+        if (document.getElementById('sdoc-vx-styles')) return;
+        const s = document.createElement('style');
+        s.id = 'sdoc-vx-styles';
+        s.textContent = '@keyframes sdoc-shimmer{0%{background-position:-200% 0}100%{background-position:200% 0}}';
+        document.head.appendChild(s);
+      }, []);
 
       // All hooks have run — safe to conditionally return now
       if (gateInfo && !session) {
@@ -1717,7 +1770,7 @@
             {/* Main canvas */}
             <div style={{
               flex: 1, overflow: 'auto', background: '#060809',
-              display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '20px 16px', gap: 12,
+              display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '20px 16px 68px', gap: 12,
               position: 'relative'
             }}
               onTouchStart={e => { touchRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY }; }}
@@ -1731,12 +1784,25 @@
                 touchRef.current = { x: null, y: null };
               }}
             >
+              {/* Reading progress bar */}
+              {session && PAGE_COUNT > 0 && (
+                <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, zIndex: 10, pointerEvents: 'none' }}>
+                  <div style={{
+                    height: '100%',
+                    width: `${PAGE_COUNT > 1 ? Math.round(((page - 1) / (PAGE_COUNT - 1)) * 100) : 100}%`,
+                    background: 'linear-gradient(90deg, #5ac8d0, #3db8c0)',
+                    transition: 'width 0.4s ease',
+                    boxShadow: '0 0 4px #5ac8d0',
+                  }} />
+                </div>
+              )}
+
               {/* Phase 7: In-viewer search panel */}
               {showSearch && session && (
                 <SearchPanel
-                  content={isTextDoc ? textContent : ''}
+                  session={session}
                   onClose={() => setShowSearch(false)}
-                  onJumpToChunk={p => setPage(p)}
+                  onNavigate={p => setPage(p)}
                 />
               )}
 
@@ -1792,9 +1858,12 @@
                   position: 'relative', ...(_pgStyle),
                   aspectRatio: layoutMode === LAYOUT.FIT_HEIGHT ? undefined : '8.5/11',
                   flexShrink: 0, transition: 'width .25s ease, height .25s ease',
-                  borderRadius: 2, overflow: 'hidden', boxShadow: '0 8px 48px rgba(0,0,0,0.7)'
+                  borderRadius: 2, overflow: 'hidden',
+                  boxShadow: '0 2px 8px rgba(0,0,0,0.5), 0 8px 48px rgba(0,0,0,0.8), 0 20px 60px rgba(0,0,0,0.35)',
                 }}
                   onContextMenu={e => e.preventDefault()}
+                  onMouseMove={handlePageMouseMove}
+                  onMouseLeave={handlePageMouseLeave}
                   onWheel={e => {
                     if (!e.ctrlKey && !e.metaKey) return;
                     e.preventDefault();
@@ -1848,7 +1917,7 @@
 
                   {/* Current page — fades in when browser has decoded the new image */}
                   {imgSrc && (
-                    <img src={imgSrc} draggable={false}
+                    <img ref={pageImgRef} src={imgSrc} draggable={false}
                       onLoad={() => setImgReady(true)}
                       onError={() => setImgReady(true)}
                       style={{
@@ -1889,6 +1958,13 @@
                   <div style={{
                     position: 'absolute', inset: 0, pointerEvents: 'none',
                     background: 'repeating-linear-gradient(0deg, transparent, transparent 3px, rgba(0,0,0,0.025) 3px, rgba(0,0,0,0.025) 4px)'
+                  }} />
+                  {/* Premium: light-sweep shimmer — purely cosmetic, server-side watermark unaffected */}
+                  <div style={{
+                    position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 2,
+                    background: 'linear-gradient(105deg, transparent 40%, rgba(255,255,255,0.022) 50%, transparent 60%)',
+                    backgroundSize: '250% 100%',
+                    animation: 'sdoc-shimmer 5s ease-in-out infinite',
                   }} />
                 </div>
                 );
@@ -1957,83 +2033,6 @@
                 </div>
               )}
 
-              {/* Navigation bar */}
-              <div style={{
-                display: 'flex', alignItems: 'center', gap: 2,
-                background: C.surface, border: `1px solid ${C.border}`,
-                borderRadius: 9, padding: '4px 6px', userSelect: 'none'
-              }}>
-                <Btn variant="ghost" size="sm" onClick={goPrev}
-                  style={{ opacity: page === 1 ? 0.3 : 1, padding: '5px 10px', fontSize: 13 }}>‹</Btn>
-                <div style={{
-                  ...mono, fontSize: 12, color: C.textSecondary,
-                  minWidth: 66, textAlign: 'center', padding: '0 4px'
-                }}>
-                  <span style={{ color: C.textPrimary, fontWeight: 700 }}>{page}</span>
-                  <span style={{ color: C.textDim }}> / {PAGE_COUNT}</span>
-                </div>
-                <Btn variant="ghost" size="sm" onClick={goNext}
-                  style={{ opacity: page === PAGE_COUNT ? 0.3 : 1, padding: '5px 10px', fontSize: 13 }}>›</Btn>
-                {!isTextDoc && (
-                  <>
-                    <div style={{ width: 1, height: 18, background: C.border, margin: '0 4px' }} />
-                    {/* Layout mode buttons */}
-                    {[
-                      { key: LAYOUT.FIT_WIDTH,  label: '↔', title: 'Fit Width (Ctrl+0)' },
-                      { key: LAYOUT.FIT_HEIGHT, label: '↕', title: 'Fit Height' },
-                      { key: LAYOUT.CUSTOM,     label: '⊡', title: 'Custom Zoom' },
-                    ].map(({ key, label, title }) => (
-                      <Btn key={key} variant="ghost" size="sm"
-                        title={title}
-                        style={{
-                          padding: '4px 7px', fontSize: 12,
-                          background: layoutMode === key ? C.accentBg : undefined,
-                          color: layoutMode === key ? C.teal1 : C.textMuted,
-                        }}
-                        onClick={() => _setLayout(key, key === LAYOUT.CUSTOM ? customZoom : undefined)}>
-                        {label}
-                      </Btn>
-                    ))}
-                    {/* Zoom controls (only active in CUSTOM mode) */}
-                    <div style={{ width: 1, height: 18, background: C.border, margin: '0 3px' }} />
-                    <Btn variant="ghost" size="sm"
-                      title="Zoom out (Ctrl+-)"
-                      onClick={() => _zoomBy(-ZOOM_STEP)}
-                      style={{ padding: '5px 9px', fontSize: 14, opacity: layoutMode !== LAYOUT.CUSTOM ? 0.45 : 1 }}>−</Btn>
-                    {/* Zoom % — click to open preset picker */}
-                    <select
-                      value={layoutMode === LAYOUT.CUSTOM ? customZoom : ''}
-                      onChange={e => { const v = parseInt(e.target.value, 10); if (v) _zoomTo(v); }}
-                      title="Zoom preset"
-                      style={{
-                        ...mono, fontSize: 11, color: C.textMuted,
-                        background: C.surfaceAlt, border: `1px solid ${C.border}`,
-                        borderRadius: 4, padding: '2px 2px', cursor: 'pointer',
-                        minWidth: 56, textAlign: 'center', appearance: 'none',
-                        WebkitAppearance: 'none', outline: 'none',
-                      }}>
-                      {layoutMode !== LAYOUT.CUSTOM && <option value="">–</option>}
-                      {ZOOM_PRESETS.map(p => (
-                        <option key={p} value={p}>{p}%</option>
-                      ))}
-                      {layoutMode === LAYOUT.CUSTOM && !ZOOM_PRESETS.includes(customZoom) && (
-                        <option value={customZoom}>{customZoom}%</option>
-                      )}
-                    </select>
-                    <Btn variant="ghost" size="sm"
-                      title="Zoom in (Ctrl+=)"
-                      onClick={() => _zoomBy(ZOOM_STEP)}
-                      style={{ padding: '5px 9px', fontSize: 14, opacity: layoutMode !== LAYOUT.CUSTOM ? 0.45 : 1 }}>+</Btn>
-                  </>
-                )}
-              </div>
-
-              {/* Keyboard hint */}
-              <div style={{ ...mono, fontSize: 9, color: C.textDim, letterSpacing: '0.5px' }}>
-                {isTextDoc
-                  ? '← → navigate chunks'
-                  : '← → navigate pages · Ctrl+= / Ctrl+- zoom · Ctrl+0 fit width · Ctrl+wheel zoom'}
-              </div>
             </div>
 
             {/* Info panel */}
@@ -2046,49 +2045,187 @@
               </div>
             )}
           </div>
+
+          {/* Fixed bottom toolbar — viewport-pinned, never scrolls away */}
+          {session && (
+            <ViewerToolbar
+              page={page} PAGE_COUNT={PAGE_COUNT}
+              pageInputStr={pageInputStr} setPageInputStr={setPageInputStr} setPage={setPage}
+              goPrev={goPrev} goNext={goNext}
+              isTextDoc={isTextDoc}
+              layoutMode={layoutMode} customZoom={customZoom}
+              _zoomBy={_zoomBy} _zoomTo={_zoomTo} _setLayout={_setLayout}
+              LAYOUT={LAYOUT} ZOOM_STEP={ZOOM_STEP} ZOOM_PRESETS={ZOOM_PRESETS}
+              showLens={showLens} setShowLens={setShowLens}
+              isFullscreen={isFullscreen} toggleFullscreen={toggleFullscreen}
+              C={C} mono={mono}
+            />
+          )}
+
+          {/* Zoom lens overlay — follows cursor over page image */}
+          {showLens && lensPos.visible && imgSrc && (
+            <div style={{
+              position: 'fixed',
+              left: Math.min(lensPos.x + 20, window.innerWidth - 170),
+              top: Math.max(8, Math.min(lensPos.y - 80, window.innerHeight - 168)),
+              width: 160, height: 160,
+              borderRadius: '50%',
+              border: '1px solid rgba(90,200,208,0.35)',
+              boxShadow: '0 4px 24px rgba(0,0,0,0.7)',
+              pointerEvents: 'none',
+              zIndex: 2000,
+              backgroundImage: `url(${imgSrc})`,
+              backgroundSize: `${lensPos.bgW}px ${lensPos.bgH}px`,
+              backgroundPosition: `-${lensPos.bgX}px -${lensPos.bgY}px`,
+              backgroundRepeat: 'no-repeat',
+              overflow: 'hidden',
+            }} />
+          )}
         </div>
       );
     }
 
-    // ── Phase 7: In-viewer search panel ───────────────────────────────────────
-    function SearchPanel({ content, onClose, onJumpToChunk }) {
+    // ── Fixed bottom toolbar — Chrome-style viewport-pinned controls ──────────
+    function ViewerToolbar({
+      page, PAGE_COUNT, pageInputStr, setPageInputStr, setPage,
+      goPrev, goNext, isTextDoc,
+      layoutMode, customZoom, _zoomBy, _zoomTo, _setLayout,
+      LAYOUT, ZOOM_STEP, ZOOM_PRESETS,
+      showLens, setShowLens, isFullscreen, toggleFullscreen,
+      C, mono,
+    }) {
+      const tbBtn = {
+        background: 'none', border: 'none', cursor: 'pointer',
+        color: 'rgba(160,168,180,0.9)', borderRadius: 5, padding: '4px 9px',
+        fontSize: 15, lineHeight: 1, transition: 'color .15s, background .15s',
+      };
+      const sep = <div style={{ width: 1, height: 16, background: 'rgba(255,255,255,0.1)', margin: '0 4px' }} />;
+      const commitPage = () => {
+        const p = parseInt(pageInputStr, 10);
+        if (!isNaN(p) && p >= 1 && p <= PAGE_COUNT) setPage(p);
+        setPageInputStr('');
+      };
+      return (
+        <div style={{
+          position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 500,
+          background: 'rgba(8,10,12,0.97)', borderTop: '1px solid rgba(255,255,255,0.07)',
+          backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          gap: 2, padding: '4px 12px', userSelect: 'none', height: 44,
+        }}>
+          <button onClick={goPrev} disabled={page === 1}
+            style={{ ...tbBtn, opacity: page === 1 ? 0.3 : 1 }} title="Previous page (←)">‹</button>
+          <input
+            type="text"
+            value={pageInputStr !== '' ? pageInputStr : String(page)}
+            onChange={e => setPageInputStr(e.target.value)}
+            onFocus={e => { setPageInputStr(String(page)); e.target.select(); }}
+            onBlur={commitPage}
+            onKeyDown={e => {
+              if (e.key === 'Enter') { commitPage(); e.target.blur(); }
+              if (e.key === 'Escape') { setPageInputStr(''); e.target.blur(); }
+            }}
+            style={{
+              ...mono, fontSize: 12, fontWeight: 700, color: 'rgba(220,225,232,1)',
+              background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.12)',
+              borderRadius: 4, padding: '2px 0', textAlign: 'center',
+              width: 42, outline: 'none',
+            }}
+          />
+          <span style={{ ...mono, fontSize: 11, color: 'rgba(120,130,145,0.9)', paddingLeft: 2 }}>/ {PAGE_COUNT}</span>
+          <button onClick={goNext} disabled={page === PAGE_COUNT}
+            style={{ ...tbBtn, opacity: page === PAGE_COUNT ? 0.3 : 1 }} title="Next page (→)">›</button>
+
+          {!isTextDoc && (<>
+            {sep}
+            <button onClick={() => _zoomBy(-ZOOM_STEP)} style={tbBtn} title="Zoom out (Ctrl+-)">−</button>
+            <select
+              value={layoutMode === LAYOUT.CUSTOM ? customZoom : ''}
+              onChange={e => { const v = parseInt(e.target.value, 10); if (v) _zoomTo(v); }}
+              title="Zoom level"
+              style={{
+                ...mono, fontSize: 11, color: 'rgba(160,168,180,0.9)',
+                background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.12)',
+                borderRadius: 4, padding: '2px 0', cursor: 'pointer',
+                minWidth: 52, textAlign: 'center', appearance: 'none', WebkitAppearance: 'none', outline: 'none',
+              }}>
+              {layoutMode !== LAYOUT.CUSTOM && <option value="">–</option>}
+              {ZOOM_PRESETS.map(p => <option key={p} value={p}>{p}%</option>)}
+              {layoutMode === LAYOUT.CUSTOM && !ZOOM_PRESETS.includes(customZoom) && (
+                <option value={customZoom}>{customZoom}%</option>
+              )}
+            </select>
+            <button onClick={() => _zoomBy(ZOOM_STEP)} style={tbBtn} title="Zoom in (Ctrl+=)">+</button>
+            {sep}
+            {[
+              { key: LAYOUT.FIT_WIDTH, label: '↔', title: 'Fit Width (Ctrl+0)' },
+              { key: LAYOUT.FIT_HEIGHT, label: '↕', title: 'Fit Height' },
+              { key: LAYOUT.CUSTOM, label: '⊡', title: 'Custom Zoom' },
+            ].map(({ key, label, title }) => (
+              <button key={key} title={title}
+                style={{ ...tbBtn, background: layoutMode === key ? 'rgba(90,200,208,0.14)' : undefined, color: layoutMode === key ? C.teal1 : undefined }}
+                onClick={() => _setLayout(key, key === LAYOUT.CUSTOM ? customZoom : undefined)}>
+                {label}
+              </button>
+            ))}
+            {sep}
+            <button onClick={() => setShowLens(v => !v)} title="Zoom Lens"
+              style={{ ...tbBtn, background: showLens ? 'rgba(90,200,208,0.14)' : undefined, color: showLens ? C.teal1 : undefined }}>◎</button>
+          </>)}
+
+          {sep}
+          <button onClick={toggleFullscreen} title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+            style={tbBtn}>{isFullscreen ? '⊠' : '⛶'}</button>
+        </div>
+      );
+    }
+
+    // ── Search panel — backend-powered, searches entire document ──────────────
+    function SearchPanel({ session, onClose, onNavigate }) {
       const [query, setQuery] = useState('');
-      const [matchCount, setMatchCount] = useState(0);
-      const [matchIdx, setMatchIdx] = useState(0);
-      const [matches, setMatches] = useState([]);
+      const [results, setResults] = useState([]);
+      const [loading, setLoading] = useState(false);
+      const [currentIdx, setCurrentIdx] = useState(0);
       const inputRef = useRef(null);
 
-      useEffect(() => { if (inputRef.current) inputRef.current.focus(); }, []);
+      useEffect(() => { inputRef.current?.focus(); }, []);
 
-      // Debounced search across loaded text content
       useEffect(() => {
-        if (!query.trim() || !content) { setMatches([]); setMatchCount(0); return; }
-        const timer = setTimeout(() => {
-          const q = query.toLowerCase();
-          const lines = content.split('\n');
-          const found = [];
-          lines.forEach((line, li) => {
-            let idx = 0;
-            while ((idx = line.toLowerCase().indexOf(q, idx)) !== -1) {
-              found.push({ line: li, col: idx, text: line.slice(Math.max(0, idx - 30), idx + query.length + 30) });
-              idx += q.length;
-            }
-          });
-          setMatches(found);
-          setMatchCount(found.length);
-          setMatchIdx(0);
-        }, 250);
+        if (!query.trim() || !session) { setResults([]); return; }
+        const timer = setTimeout(async () => {
+          setLoading(true);
+          try {
+            const data = await window.SecureDocAPI.searchDocument(
+              session.link_token, query, session.session_id
+            );
+            const found = data.results || [];
+            setResults(found);
+            setCurrentIdx(0);
+            if (found.length > 0) onNavigate(found[0].page);
+          } catch {
+            setResults([]);
+          } finally {
+            setLoading(false);
+          }
+        }, 450);
         return () => clearTimeout(timer);
-      }, [query, content]);
+      }, [query, session?.link_token, session?.session_id]);
 
-      const goNext = () => setMatchIdx(i => (i + 1) % Math.max(1, matchCount));
-      const goPrev = () => setMatchIdx(i => (i - 1 + Math.max(1, matchCount)) % Math.max(1, matchCount));
+      const goTo = idx => { const r = results[idx]; if (r) onNavigate(r.page); };
+      const goNext = () => {
+        const next = (currentIdx + 1) % Math.max(1, results.length);
+        setCurrentIdx(next); goTo(next);
+      };
+      const goPrev = () => {
+        const prev = (currentIdx - 1 + Math.max(1, results.length)) % Math.max(1, results.length);
+        setCurrentIdx(prev); goTo(prev);
+      };
 
       return (
         <div style={{
           position: 'absolute', top: 10, right: 10, zIndex: 200,
           background: C.surface2, border: `1px solid ${C.borderMed}`,
-          borderRadius: 9, padding: '10px 14px', width: 320,
+          borderRadius: 9, padding: '10px 14px', width: 340,
           boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
           display: 'flex', flexDirection: 'column', gap: 8
         }}>
@@ -2098,27 +2235,42 @@
               ref={inputRef}
               value={query}
               onChange={e => setQuery(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter') { e.shiftKey ? goPrev() : goNext(); } if (e.key === 'Escape') onClose(); }}
-              placeholder="Search in document…"
+              onKeyDown={e => {
+                if (e.key === 'Enter') { e.shiftKey ? goPrev() : goNext(); }
+                if (e.key === 'Escape') onClose();
+              }}
+              placeholder="Search entire document…"
               style={{
                 flex: 1, background: 'transparent', border: 'none', outline: 'none',
                 fontSize: 12, color: C.textPrimary, fontFamily: "'DM Sans',sans-serif"
               }}
             />
             <span style={{ ...mono, fontSize: 10, color: C.textMuted, flexShrink: 0 }}>
-              {matchCount > 0 ? `${matchIdx + 1}/${matchCount}` : query ? '0/0' : ''}
+              {loading ? '…' : results.length > 0 ? `${currentIdx + 1}/${results.length}` : query.trim() ? '0' : ''}
             </span>
-            <button onClick={goPrev} disabled={matchCount === 0} title="Previous (Shift+Enter)"
+            <button onClick={goPrev} disabled={results.length === 0} title="Previous (Shift+Enter)"
               style={{ background: 'none', border: 'none', color: C.textMuted, cursor: 'pointer', fontSize: 12, padding: '2px 4px' }}>↑</button>
-            <button onClick={goNext} disabled={matchCount === 0} title="Next (Enter)"
+            <button onClick={goNext} disabled={results.length === 0} title="Next (Enter)"
               style={{ background: 'none', border: 'none', color: C.textMuted, cursor: 'pointer', fontSize: 12, padding: '2px 4px' }}>↓</button>
             <button onClick={onClose}
               style={{ background: 'none', border: 'none', color: C.textMuted, cursor: 'pointer', fontSize: 14, lineHeight: 1, padding: '2px 4px' }}>✕</button>
           </div>
-          {matches.length > 0 && matches[matchIdx] && (
-            <div style={{ ...mono, fontSize: 10, color: C.textSecondary, background: C.surfaceAlt, borderRadius: 5, padding: '5px 8px', lineHeight: 1.5 }}>
-              <span style={{ color: C.textDim }}>Line {matches[matchIdx].line + 1}: </span>
-              {matches[matchIdx].text.replace(new RegExp(query, 'gi'), m => `[${m}]`).replace(/\[/g, '').replace(/\]/g, '')}
+          {results.length > 0 && (
+            <div style={{ maxHeight: 220, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 3 }}>
+              {results.slice(0, 50).map((r, i) => (
+                <div key={i}
+                  onClick={() => { setCurrentIdx(i); onNavigate(r.page); }}
+                  style={{
+                    ...mono, fontSize: 10, color: C.textSecondary,
+                    background: i === currentIdx ? C.accentBg : C.surfaceAlt,
+                    borderRadius: 5, padding: '4px 8px', lineHeight: 1.5,
+                    cursor: 'pointer',
+                    border: i === currentIdx ? `1px solid ${C.borderMed}` : '1px solid transparent',
+                  }}>
+                  <span style={{ color: C.teal2, fontWeight: 700 }}>p.{r.page} </span>
+                  {r.snippet}
+                </div>
+              ))}
             </div>
           )}
         </div>
@@ -3370,20 +3522,51 @@
        LOGIN SCREEN
     ══════════════════════════════════════════════════════════════ */
     function LoginScreen({ onLogin }) {
-      const [mode, setMode] = useState('login');
+      // mode: 'login' | 'signup' | 'forgot' | 'reset'
+      const [mode, setMode] = useState(() => {
+        // Detect Supabase password-reset callback: hash contains access_token + type=recovery
+        if (typeof window !== 'undefined') {
+          const hash = window.location.hash;
+          if (hash.includes('type=recovery') && hash.includes('access_token=')) {
+            return 'reset';
+          }
+        }
+        return 'login';
+      });
+      const [resetToken] = useState(() => {
+        if (typeof window === 'undefined') return '';
+        const params = new URLSearchParams(window.location.hash.replace('#', ''));
+        return params.get('access_token') || '';
+      });
       const [email, setEmail] = useState('');
       const [password, setPassword] = useState('');
+      const [newPassword, setNewPassword] = useState('');
       const [loading, setLoading] = useState(false);
       const [error, setError] = useState('');
       const [info, setInfo] = useState('');
 
       const handleSubmit = async (e) => {
         e && e.preventDefault();
-        if (!email.trim() || !password) { setError('Email and password are required.'); return; }
         setLoading(true);
         setError('');
         setInfo('');
         try {
+          if (mode === 'forgot') {
+            if (!email.trim()) { setError('Email is required.'); setLoading(false); return; }
+            await window.SecureDocAPI.forgotPassword(email.trim());
+            setInfo('Password reset email sent — check your inbox. The link expires in 1 hour.');
+            setLoading(false);
+            return;
+          }
+          if (mode === 'reset') {
+            if (!newPassword || newPassword.length < 6) { setError('Password must be at least 6 characters.'); setLoading(false); return; }
+            await window.SecureDocAPI.resetPassword(resetToken, newPassword);
+            setInfo('Password updated successfully. You can now sign in.');
+            setMode('login');
+            setLoading(false);
+            return;
+          }
+          if (!email.trim() || !password) { setError('Email and password are required.'); setLoading(false); return; }
           const token = await window.SecureDocAPI.auth(mode, email.trim(), password);
           localStorage.setItem('securedoc_token', token);
           onLogin(token);
@@ -3436,51 +3619,88 @@
               </div>
             </div>
 
-            {/* Mode toggle */}
-            <div style={{
-              display: 'flex', background: C.surfaceAlt, borderRadius: 8,
-              padding: 3, marginBottom: 24, gap: 2
-            }}>
-              {[['login', 'Sign In'], ['signup', 'Sign Up']].map(([m, lbl]) => (
-                <button key={m} type="button" onClick={() => { setMode(m); setError(''); setInfo(''); }}
-                  style={{
-                    flex: 1, padding: '7px 0', border: `1px solid ${mode === m ? C.borderMed : 'transparent'}`,
-                    borderRadius: 6, cursor: 'pointer', fontFamily: "'DM Sans', sans-serif",
-                    fontSize: 12, fontWeight: mode === m ? 600 : 400,
-                    background: mode === m ? C.accentBg : 'transparent',
-                    color: mode === m ? C.teal1 : C.textMuted,
-                    transition: 'all .15s'
-                  }}>
-                  {lbl}
-                </button>
-              ))}
-            </div>
+            {/* Mode toggle — hidden for forgot/reset flows */}
+            {(mode === 'login' || mode === 'signup') && (
+              <div style={{
+                display: 'flex', background: C.surfaceAlt, borderRadius: 8,
+                padding: 3, marginBottom: 24, gap: 2
+              }}>
+                {[['login', 'Sign In'], ['signup', 'Sign Up']].map(([m, lbl]) => (
+                  <button key={m} type="button" onClick={() => { setMode(m); setError(''); setInfo(''); }}
+                    style={{
+                      flex: 1, padding: '7px 0', border: `1px solid ${mode === m ? C.borderMed : 'transparent'}`,
+                      borderRadius: 6, cursor: 'pointer', fontFamily: "'DM Sans', sans-serif",
+                      fontSize: 12, fontWeight: mode === m ? 600 : 400,
+                      background: mode === m ? C.accentBg : 'transparent',
+                      color: mode === m ? C.teal1 : C.textMuted,
+                      transition: 'all .15s'
+                    }}>
+                    {lbl}
+                  </button>
+                ))}
+              </div>
+            )}
+            {(mode === 'forgot' || mode === 'reset') && (
+              <div style={{ marginBottom: 20, fontSize: 13, color: C.textMuted }}>
+                {mode === 'forgot' ? 'Reset your password' : 'Set a new password'}
+              </div>
+            )}
 
             {/* Form */}
             <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-                <label style={{ fontSize: 10, letterSpacing: '0.8px', textTransform: 'uppercase', color: C.textMuted, fontWeight: 600 }}>
-                  Email
-                </label>
-                <input
-                  type="email" value={email} autoFocus autoComplete="email"
-                  onChange={e => setEmail(e.target.value)}
-                  onFocus={e => e.target.style.borderColor = C.borderActive}
-                  onBlur={e => e.target.style.borderColor = C.borderMed}
-                  placeholder="you@example.com" style={inputStyle} />
-              </div>
+              {/* Email field — shown for login, signup, forgot */}
+              {mode !== 'reset' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+                  <label style={{ fontSize: 10, letterSpacing: '0.8px', textTransform: 'uppercase', color: C.textMuted, fontWeight: 600 }}>
+                    Email
+                  </label>
+                  <input
+                    type="email" value={email} autoFocus={mode !== 'reset'} autoComplete="email"
+                    onChange={e => setEmail(e.target.value)}
+                    onFocus={e => e.target.style.borderColor = C.borderActive}
+                    onBlur={e => e.target.style.borderColor = C.borderMed}
+                    placeholder="you@example.com" style={inputStyle} />
+                </div>
+              )}
 
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-                <label style={{ fontSize: 10, letterSpacing: '0.8px', textTransform: 'uppercase', color: C.textMuted, fontWeight: 600 }}>
-                  Password
-                </label>
-                <input
-                  type="password" value={password} autoComplete={mode === 'signup' ? 'new-password' : 'current-password'}
-                  onChange={e => setPassword(e.target.value)}
-                  onFocus={e => e.target.style.borderColor = C.borderActive}
-                  onBlur={e => e.target.style.borderColor = C.borderMed}
-                  placeholder="••••••••" style={inputStyle} />
-              </div>
+              {/* Password field — shown for login and signup only */}
+              {(mode === 'login' || mode === 'signup') && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <label style={{ fontSize: 10, letterSpacing: '0.8px', textTransform: 'uppercase', color: C.textMuted, fontWeight: 600 }}>
+                      Password
+                    </label>
+                    {mode === 'login' && (
+                      <button type="button"
+                        onClick={() => { setMode('forgot'); setError(''); setInfo(''); }}
+                        style={{ fontSize: 10, color: C.teal3, background: 'none', border: 'none', cursor: 'pointer', padding: 0, fontFamily: "'DM Sans', sans-serif" }}>
+                        Forgot password?
+                      </button>
+                    )}
+                  </div>
+                  <input
+                    type="password" value={password} autoComplete={mode === 'signup' ? 'new-password' : 'current-password'}
+                    onChange={e => setPassword(e.target.value)}
+                    onFocus={e => e.target.style.borderColor = C.borderActive}
+                    onBlur={e => e.target.style.borderColor = C.borderMed}
+                    placeholder="••••••••" style={inputStyle} />
+                </div>
+              )}
+
+              {/* New password field — shown for reset flow only */}
+              {mode === 'reset' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+                  <label style={{ fontSize: 10, letterSpacing: '0.8px', textTransform: 'uppercase', color: C.textMuted, fontWeight: 600 }}>
+                    New Password
+                  </label>
+                  <input
+                    type="password" value={newPassword} autoFocus autoComplete="new-password"
+                    onChange={e => setNewPassword(e.target.value)}
+                    onFocus={e => e.target.style.borderColor = C.borderActive}
+                    onBlur={e => e.target.style.borderColor = C.borderMed}
+                    placeholder="At least 6 characters" style={inputStyle} />
+                </div>
+              )}
 
               {error && (
                 <div style={{
@@ -3507,8 +3727,19 @@
                 }}
                 onMouseEnter={e => !loading && (e.target.style.background = C.teal1)}
                 onMouseLeave={e => !loading && (e.target.style.background = C.teal2)}>
-                {loading ? 'Please wait…' : mode === 'login' ? 'Sign In' : 'Create Account'}
+                {loading ? 'Please wait…'
+                  : mode === 'login' ? 'Sign In'
+                  : mode === 'signup' ? 'Create Account'
+                  : mode === 'forgot' ? 'Send Reset Email'
+                  : 'Set New Password'}
               </button>
+
+              {(mode === 'forgot') && (
+                <button type="button" onClick={() => { setMode('login'); setError(''); setInfo(''); }}
+                  style={{ fontSize: 11, color: C.textMuted, background: 'none', border: 'none', cursor: 'pointer', padding: 0, fontFamily: "'DM Sans', sans-serif", textAlign: 'center' }}>
+                  ← Back to Sign In
+                </button>
+              )}
             </form>
           </div>
         </div>
