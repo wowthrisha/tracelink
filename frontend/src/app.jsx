@@ -1703,40 +1703,39 @@
 
       return (
         <div data-testid="viewer-screen" style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }} className="fade-in">
-          <Header screen="viewer" breadcrumb={docName.length > 30 ? docName.slice(0, 30) + '…' : docName}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <Btn disabled={!session?.permissions?.can_download} onClick={async () => {
-                if (!session?.permissions?.can_download) return;
-                toast('Preparing download…', 'info');
-                try {
-                  await window.SecureDocAPI.downloadDocument(session.link_token, session.session_id, session.document_filename);
-                  toast('Download complete', 'success');
-                } catch (e) {
-                  toast(e?.detail || 'Download failed', 'error');
-                }
-              }} size="sm">⬇ Download</Btn>
-              <Btn disabled={!session?.permissions?.can_print} onClick={() => { if (session?.permissions?.can_print) { window.print(); window.SecureDocAPI?.logEvent(session.link_token, session.session_id, 'printed'); } }} size="sm">⎙ Print</Btn>
-              <Btn disabled={!session?.permissions?.can_copy} onClick={() => { if (session?.permissions?.can_copy) { navigator.clipboard.writeText('Text copied from SecureDoc'); toast('Text copied', 'success'); } }} size="sm">⧉ Copy</Btn>
-              <div style={{ width: 1, height: 20, background: C.border }} />
-              <Btn variant="secondary" size="sm" onClick={() => setShowToc(v => !v)}
-                style={{ background: showToc ? C.accentBg : undefined, color: showToc ? C.teal1 : undefined }}
-                title="Table of Contents">
-                ≡ TOC
-              </Btn>
-              <Btn variant="secondary" size="sm" onClick={() => setShowSearch(v => !v)}
-                style={{ background: showSearch ? C.accentBg : undefined, color: showSearch ? C.teal1 : undefined }}
-                title="Search (Ctrl+F)">
-                ⌕ Search
-              </Btn>
-              <Btn variant="secondary" size="sm" onClick={() => setShowInfo(v => !v)}
-                style={{
-                  background: showInfo ? C.accentBg : undefined,
-                  color: showInfo ? C.teal1 : undefined
-                }}>
-                ℹ Info
-              </Btn>
-            </div>
-          </Header>
+          {/* Chrome-style top toolbar — all viewer controls in one compact row */}
+          <ViewerToolbar
+            docName={docName}
+            isTextDoc={isTextDoc}
+            page={page} PAGE_COUNT={PAGE_COUNT}
+            pageInputStr={pageInputStr} setPageInputStr={setPageInputStr} setPage={setPage}
+            goPrev={goPrev} goNext={goNext}
+            layoutMode={layoutMode} customZoom={customZoom}
+            _zoomBy={_zoomBy} _zoomTo={_zoomTo} _setLayout={_setLayout}
+            LAYOUT={LAYOUT} ZOOM_STEP={ZOOM_STEP} ZOOM_PRESETS={ZOOM_PRESETS}
+            showLens={showLens} setShowLens={setShowLens}
+            isFullscreen={isFullscreen} toggleFullscreen={toggleFullscreen}
+            showToc={showToc} setShowToc={setShowToc}
+            showSearch={showSearch} setShowSearch={setShowSearch}
+            showInfo={showInfo} setShowInfo={setShowInfo}
+            canDownload={!!session?.permissions?.can_download}
+            canPrint={!!session?.permissions?.can_print}
+            onDownload={async () => {
+              if (!session?.permissions?.can_download) return;
+              toast('Preparing download…', 'info');
+              try {
+                await window.SecureDocAPI.downloadDocument(session.link_token, session.session_id, session.document_filename);
+                toast('Download complete', 'success');
+              } catch (e) { toast(e?.detail || 'Download failed', 'error'); }
+            }}
+            onPrint={() => {
+              if (session?.permissions?.can_print) {
+                window.print();
+                window.SecureDocAPI?.logEvent(session.link_token, session.session_id, 'printed');
+              }
+            }}
+            C={C} mono={mono}
+          />
 
           <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
             {/* Universal TOC sidebar — PDF (page nav) and text/docx/doc (chunk nav) */}
@@ -1770,7 +1769,7 @@
             {/* Main canvas */}
             <div style={{
               flex: 1, overflow: 'auto', background: '#060809',
-              display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '20px 16px 68px', gap: 12,
+              display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '20px 16px', gap: 12,
               position: 'relative'
             }}
               onTouchStart={e => { touchRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY }; }}
@@ -2046,22 +2045,6 @@
             )}
           </div>
 
-          {/* Fixed bottom toolbar — viewport-pinned, never scrolls away */}
-          {session && (
-            <ViewerToolbar
-              page={page} PAGE_COUNT={PAGE_COUNT}
-              pageInputStr={pageInputStr} setPageInputStr={setPageInputStr} setPage={setPage}
-              goPrev={goPrev} goNext={goNext}
-              isTextDoc={isTextDoc}
-              layoutMode={layoutMode} customZoom={customZoom}
-              _zoomBy={_zoomBy} _zoomTo={_zoomTo} _setLayout={_setLayout}
-              LAYOUT={LAYOUT} ZOOM_STEP={ZOOM_STEP} ZOOM_PRESETS={ZOOM_PRESETS}
-              showLens={showLens} setShowLens={setShowLens}
-              isFullscreen={isFullscreen} toggleFullscreen={toggleFullscreen}
-              C={C} mono={mono}
-            />
-          )}
-
           {/* Zoom lens overlay — follows cursor over page image */}
           {showLens && lensPos.visible && imgSrc && (
             <div style={{
@@ -2085,21 +2068,27 @@
       );
     }
 
-    // ── Fixed bottom toolbar — Chrome-style viewport-pinned controls ──────────
+    // ── Chrome-style top toolbar — replaces Header + bottom bar for viewer ──────
     function ViewerToolbar({
+      docName, isTextDoc,
       page, PAGE_COUNT, pageInputStr, setPageInputStr, setPage,
-      goPrev, goNext, isTextDoc,
+      goPrev, goNext,
       layoutMode, customZoom, _zoomBy, _zoomTo, _setLayout,
       LAYOUT, ZOOM_STEP, ZOOM_PRESETS,
       showLens, setShowLens, isFullscreen, toggleFullscreen,
+      showToc, setShowToc, showSearch, setShowSearch, showInfo, setShowInfo,
+      canDownload, canPrint, onDownload, onPrint,
       C, mono,
     }) {
       const tbBtn = {
         background: 'none', border: 'none', cursor: 'pointer',
-        color: 'rgba(160,168,180,0.9)', borderRadius: 5, padding: '4px 9px',
-        fontSize: 15, lineHeight: 1, transition: 'color .15s, background .15s',
+        color: 'rgba(155,165,178,0.9)', borderRadius: 5, padding: '4px 7px',
+        fontSize: 14, lineHeight: 1, transition: 'color .12s, background .12s',
+        display: 'flex', alignItems: 'center', gap: 3, whiteSpace: 'nowrap',
+        fontFamily: "'DM Sans', sans-serif",
       };
-      const sep = <div style={{ width: 1, height: 16, background: 'rgba(255,255,255,0.1)', margin: '0 4px' }} />;
+      const on = { background: 'rgba(90,200,208,0.13)', color: C.teal1 };
+      const sep = <div style={{ width: 1, height: 18, background: 'rgba(255,255,255,0.07)', margin: '0 3px', flexShrink: 0 }} />;
       const commitPage = () => {
         const p = parseInt(pageInputStr, 10);
         if (!isNaN(p) && p >= 1 && p <= PAGE_COUNT) setPage(p);
@@ -2107,14 +2096,31 @@
       };
       return (
         <div style={{
-          position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 500,
-          background: 'rgba(8,10,12,0.97)', borderTop: '1px solid rgba(255,255,255,0.07)',
-          backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          gap: 2, padding: '4px 12px', userSelect: 'none', height: 44,
+          height: 44, background: '#141820',
+          borderBottom: '1px solid rgba(255,255,255,0.06)',
+          display: 'flex', alignItems: 'center', padding: '0 6px',
+          flexShrink: 0, userSelect: 'none', gap: 1, zIndex: 50,
         }}>
-          <button onClick={goPrev} disabled={page === 1}
-            style={{ ...tbBtn, opacity: page === 1 ? 0.3 : 1 }} title="Previous page (←)">‹</button>
+          {/* LEFT — sidebar toggles + doc name */}
+          <button onClick={() => setShowToc(v => !v)} title="Table of Contents"
+            style={{ ...tbBtn, ...(showToc ? on : {}), fontSize: 11 }}>
+            <span style={{ fontSize: 15, fontWeight: 400 }}>≡</span> TOC
+          </button>
+          <button onClick={() => setShowSearch(v => !v)} title="Search document (Ctrl+F)"
+            style={{ ...tbBtn, ...(showSearch ? on : {}), fontSize: 11 }}>
+            <span style={{ fontSize: 13 }}>⌕</span> Search
+          </button>
+          {sep}
+          <span style={{
+            ...mono, fontSize: 11, color: 'rgba(130,142,158,0.8)',
+            maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+          }} title={docName}>{docName || '—'}</span>
+
+          {/* CENTER — flexible spacer → nav → zoom → spacer */}
+          <div style={{ flex: 1, minWidth: 8 }} />
+
+          <button onClick={goPrev} disabled={page <= 1}
+            style={{ ...tbBtn, opacity: page <= 1 ? 0.28 : 1, fontSize: 16, padding: '2px 5px' }} title="Previous (←)">‹</button>
           <input
             type="text"
             value={pageInputStr !== '' ? pageInputStr : String(page)}
@@ -2126,28 +2132,27 @@
               if (e.key === 'Escape') { setPageInputStr(''); e.target.blur(); }
             }}
             style={{
-              ...mono, fontSize: 12, fontWeight: 700, color: 'rgba(220,225,232,1)',
-              background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.12)',
-              borderRadius: 4, padding: '2px 0', textAlign: 'center',
-              width: 42, outline: 'none',
+              ...mono, fontSize: 12, fontWeight: 700, color: 'rgba(225,230,238,1)',
+              background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.11)',
+              borderRadius: 4, padding: '3px 0', textAlign: 'center', width: 40, outline: 'none',
             }}
           />
-          <span style={{ ...mono, fontSize: 11, color: 'rgba(120,130,145,0.9)', paddingLeft: 2 }}>/ {PAGE_COUNT}</span>
-          <button onClick={goNext} disabled={page === PAGE_COUNT}
-            style={{ ...tbBtn, opacity: page === PAGE_COUNT ? 0.3 : 1 }} title="Next page (→)">›</button>
+          <span style={{ ...mono, fontSize: 11, color: 'rgba(105,118,135,0.9)', padding: '0 3px 0 3px' }}>/ {PAGE_COUNT}</span>
+          <button onClick={goNext} disabled={page >= PAGE_COUNT}
+            style={{ ...tbBtn, opacity: page >= PAGE_COUNT ? 0.28 : 1, fontSize: 16, padding: '2px 5px' }} title="Next (→)">›</button>
 
           {!isTextDoc && (<>
             {sep}
-            <button onClick={() => _zoomBy(-ZOOM_STEP)} style={tbBtn} title="Zoom out (Ctrl+-)">−</button>
+            <button onClick={() => _zoomBy(-ZOOM_STEP)} style={{ ...tbBtn, fontSize: 16, padding: '2px 6px' }} title="Zoom out (Ctrl+-)">−</button>
             <select
               value={layoutMode === LAYOUT.CUSTOM ? customZoom : ''}
               onChange={e => { const v = parseInt(e.target.value, 10); if (v) _zoomTo(v); }}
               title="Zoom level"
               style={{
-                ...mono, fontSize: 11, color: 'rgba(160,168,180,0.9)',
-                background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.12)',
-                borderRadius: 4, padding: '2px 0', cursor: 'pointer',
-                minWidth: 52, textAlign: 'center', appearance: 'none', WebkitAppearance: 'none', outline: 'none',
+                ...mono, fontSize: 11, color: 'rgba(165,175,188,0.9)',
+                background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.11)',
+                borderRadius: 4, padding: '3px 2px', cursor: 'pointer',
+                minWidth: 54, textAlign: 'center', appearance: 'none', WebkitAppearance: 'none', outline: 'none',
               }}>
               {layoutMode !== LAYOUT.CUSTOM && <option value="">–</option>}
               {ZOOM_PRESETS.map(p => <option key={p} value={p}>{p}%</option>)}
@@ -2155,27 +2160,44 @@
                 <option value={customZoom}>{customZoom}%</option>
               )}
             </select>
-            <button onClick={() => _zoomBy(ZOOM_STEP)} style={tbBtn} title="Zoom in (Ctrl+=)">+</button>
+            <button onClick={() => _zoomBy(ZOOM_STEP)} style={{ ...tbBtn, fontSize: 16, padding: '2px 6px' }} title="Zoom in (Ctrl+=)">+</button>
             {sep}
             {[
-              { key: LAYOUT.FIT_WIDTH, label: '↔', title: 'Fit Width (Ctrl+0)' },
+              { key: LAYOUT.FIT_WIDTH,  label: '↔', title: 'Fit Width (Ctrl+0)' },
               { key: LAYOUT.FIT_HEIGHT, label: '↕', title: 'Fit Height' },
-              { key: LAYOUT.CUSTOM, label: '⊡', title: 'Custom Zoom' },
+              { key: LAYOUT.CUSTOM,     label: '⊡', title: 'Custom Zoom' },
             ].map(({ key, label, title }) => (
               <button key={key} title={title}
-                style={{ ...tbBtn, background: layoutMode === key ? 'rgba(90,200,208,0.14)' : undefined, color: layoutMode === key ? C.teal1 : undefined }}
+                style={{ ...tbBtn, ...(layoutMode === key ? on : {}) }}
                 onClick={() => _setLayout(key, key === LAYOUT.CUSTOM ? customZoom : undefined)}>
                 {label}
               </button>
             ))}
             {sep}
             <button onClick={() => setShowLens(v => !v)} title="Zoom Lens"
-              style={{ ...tbBtn, background: showLens ? 'rgba(90,200,208,0.14)' : undefined, color: showLens ? C.teal1 : undefined }}>◎</button>
+              style={{ ...tbBtn, ...(showLens ? on : {}) }}>◎</button>
           </>)}
 
+          <div style={{ flex: 1, minWidth: 8 }} />
+
+          {/* RIGHT — fullscreen | download | print | info */}
           {sep}
-          <button onClick={toggleFullscreen} title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
-            style={tbBtn}>{isFullscreen ? '⊠' : '⛶'}</button>
+          <button onClick={toggleFullscreen} title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'} style={tbBtn}>
+            {isFullscreen ? '⊠' : '⛶'}
+          </button>
+          {sep}
+          <button onClick={onDownload} disabled={!canDownload} title="Download document"
+            style={{ ...tbBtn, opacity: canDownload ? 1 : 0.3, fontSize: 11 }}>
+            <span style={{ fontSize: 13 }}>⬇</span> Download
+          </button>
+          <button onClick={onPrint} disabled={!canPrint} title="Print document"
+            style={{ ...tbBtn, opacity: canPrint ? 1 : 0.3, fontSize: 11 }}>
+            <span style={{ fontSize: 13 }}>⎙</span> Print
+          </button>
+          <button onClick={() => setShowInfo(v => !v)} title="Document info"
+            style={{ ...tbBtn, ...(showInfo ? on : {}), fontSize: 11 }}>
+            <span style={{ fontSize: 13 }}>ℹ</span> Info
+          </button>
         </div>
       );
     }
@@ -3713,7 +3735,14 @@
                 <div style={{
                   fontSize: 12, color: C.teal1, background: C.infoBg,
                   border: `1px solid ${C.infoBdr}`, borderRadius: 7, padding: '9px 12px', lineHeight: 1.5
-                }}>{info}</div>
+                }}>
+                  {info}
+                  {mode === 'signup' && (
+                    <div style={{ marginTop: 6, color: C.teal3, fontSize: 11 }}>
+                      Check your <strong>spam / junk folder</strong> if the email doesn't arrive within 2 minutes.
+                    </div>
+                  )}
+                </div>
               )}
 
               <button type="submit" disabled={loading}
