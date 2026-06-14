@@ -10,7 +10,7 @@ Audit: 9-phase pre-pilot audit (18 agents, 689 tool uses)
 | # | Area | Issue | File(s) |
 |---|------|-------|---------|
 | P0-1 | **DB / Migration** | Migration 020 re-creates `ix_organizations_slug` which already exists from migration 016 — crashes every fresh deployment with `DuplicateTableError`. **FIXED in this commit.** | `alembic/versions/020_add_performance_indexes.py` |
-| P0-2 | **Git / Secrets** | `TRACEVIEW_AUDIT_B.md` tracked at HEAD in a **public** repo contains the live Supabase anon key (`sb_publishable_uTcTOZC9FjEP0VrGQefMkQ_j2XFe1Rc`) and project URL. Must be removed from tracking and history scrubbed. | `TRACEVIEW_AUDIT_B.md` |
+| P0-2 | **Git / Secrets** | `TRACEVIEW_AUDIT_B.md` tracked at HEAD in a **public** repo contains the live Supabase anon key and project URL. Must be removed from tracking and history scrubbed. | `TRACEVIEW_AUDIT_B.md` |
 | P0-3 | **Git / Secrets** | Same Supabase credentials appear in 3 historical commits (`ffac077`, `704ca80`, `cc50838`) in the public repo — treat key as compromised and rotate via Supabase dashboard. | git history |
 | P0-4 | **Auth / Config** | Empty `SUPABASE_URL` causes complete auth blackout with no user-facing error — JWKS fetch silently fails, every API call returns 401, dev-mode startup check is skipped. | `app/main.py`, `frontend/api.js` |
 | P0-5 | **Storage / Config** | Unconfigured storage credentials cause silent upload failure — documents stuck in `error` state forever, user sees generic toast with no hint it's a config issue. | `app/config.py`, `app/workers/celery_app.py` |

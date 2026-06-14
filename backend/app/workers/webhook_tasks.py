@@ -77,6 +77,34 @@ async def _deliver_async(task, webhook_id: str, delivery_id: str):
         event_type = delivery.event_type
         payload_json = delivery.payload_json
 
+    # Re-validate URL immediately before delivery to defeat DNS rebinding.
+    # An attacker can register a webhook pointing at a public hostname they
+    # control, pass SSRF validation at registration time, then flip the DNS
+    # record to a private IP (e.g. 169.254.169.254) before Celery fires.
+    # Re-checking here closes that TOCTOU window.
+    try:
+        from app.utils.ssrf_guard import validate_ssrf_url as _ssrf_check
+        _ssrf_check(url)
+    except Exception as _ssrf_exc:
+        logger.warning(
+            "deliver_webhook: SSRF re-validation blocked delivery url=%s "
+            "delivery_id=%s: %s — marking permanent failure",
+            url, delivery_id, _ssrf_exc,
+        )
+        session_factory2 = _get_db_session_factory()
+        async with session_factory2() as _db:
+            from sqlalchemy import select as _sel2
+            _dlv = (
+                await _db.execute(
+                    _sel2(WebhookDelivery).where(WebhookDelivery.id == uuid.UUID(delivery_id))
+                )
+            ).scalar_one_or_none()
+            if _dlv:
+                _dlv.status = "failed"
+                _dlv.response_body = f"SSRF re-validation blocked: {_ssrf_exc}"[:500]
+                await _db.commit()
+        return {"skipped": True, "reason": "ssrf_blocked"}
+
     # Perform HTTP delivery (outside DB session to avoid holding connection)
     body_bytes = payload_json.encode("utf-8")
     signature = sign_payload(secret, body_bytes)

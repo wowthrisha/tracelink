@@ -4,6 +4,8 @@
 !.env.example
 *.pem
 *.key
+# Audit/research documents that contain live credentials must never be tracked
+TRACEVIEW_AUDIT_B.md
 
 # ── Python ─────────────────────────────────────────────────────────
 __pycache__/
