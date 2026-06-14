@@ -1143,12 +1143,20 @@ async def get_document_links(
     try:
         _storage = get_storage_service()
         raw = await _storage.download_bytes(sidecar_key)
-        pages_data = json.loads(raw.decode("utf-8"))
+        raw_data = json.loads(raw.decode("utf-8"))
+        # Support both old format (bare array) and new format ({"pages":[], "extracted":true})
+        if isinstance(raw_data, list):
+            pages_data = raw_data
+            extracted = False
+        else:
+            pages_data = raw_data.get("pages", [])
+            extracted = raw_data.get("extracted", False)
     except Exception:
         pages_data = []
+        extracted = False
 
     return _JSONResponse(
-        content={"pages": pages_data},
+        content={"pages": pages_data, "extracted": extracted},
         headers={"Cache-Control": "no-store"},
     )
 

@@ -1594,16 +1594,18 @@
             const map = {};
             for (const p of (data.pages || [])) map[p.page] = p.links || [];
             pageLinksRef.current = map;
+            // If backend signals extraction was already done, skip auto-extract
+            if (data.extracted) autoExtractAttempted.current = true;
             setLinksLoaded(true);
           })
-          .catch(() => {});
+          .catch(() => { setLinksLoaded(true); });
       }, [session?.link_token, session?.session_id, isTextDoc]);
 
-      // Auto-extract sidecars when authenticated owner's doc has empty links sidecar.
-      // Only fires once per mount; re-fetches caches after 15 s to pick up new data.
+      // Auto-extract sidecars when authenticated owner's doc has no extraction yet.
+      // `autoExtractAttempted` is set when sidecar has `extracted:true` flag, so this
+      // only fires for documents uploaded before the feature was added.
       useEffect(() => {
         if (!linksLoaded || !doc?.id || autoExtractAttempted.current) return;
-        if (Object.keys(pageLinksRef.current).length > 0) return; // sidecar already populated
         autoExtractAttempted.current = true;
         window.SecureDocAPI.extractSidecars(doc.id).catch(() => {});
         const t = setTimeout(() => {
@@ -2077,20 +2079,67 @@
                     </>
                   )}
 
-                  {/* Feature 1: Hyperlink clickable overlays — transparent, pointer-events active */}
-                  {linksLoaded && (pageLinksRef.current[page] || []).map((link, i) => (
-                    <a key={i} href={link.url} target="_blank" rel="noopener noreferrer"
-                      style={{
-                        position: 'absolute',
-                        left: `${link.x * 100}%`, top: `${link.y * 100}%`,
-                        width: `${link.w * 100}%`, height: `${link.h * 100}%`,
-                        cursor: 'pointer', pointerEvents: 'auto', zIndex: 7,
-                        display: 'block',
-                      }}
-                      title={link.url}
-                    />
-                  ))}
+                  {/* Feature 1: Annotation-based hyperlink overlays (links with PDF coordinates) */}
+                  {linksLoaded && (pageLinksRef.current[page] || [])
+                    .filter(link => link.x != null && link.y != null)
+                    .map((link, i) => (
+                      <a key={i} href={link.url} target="_blank" rel="noopener noreferrer"
+                        style={{
+                          position: 'absolute',
+                          left: `${link.x * 100}%`, top: `${link.y * 100}%`,
+                          width: `${link.w * 100}%`, height: `${link.h * 100}%`,
+                          cursor: 'pointer', pointerEvents: 'auto', zIndex: 7,
+                          display: 'block',
+                        }}
+                        title={link.url}
+                      />
+                    ))}
                 </div>
+                );
+              })()}
+
+              {/* Links on this page — all URLs extracted from page (annotation + text) */}
+              {!isTextDoc && !initializing && session && linksLoaded && (() => {
+                const pageLinks = pageLinksRef.current[page] || [];
+                if (pageLinks.length === 0) return null;
+                return (
+                  <div style={{
+                    marginTop: 10, marginBottom: 4,
+                    maxWidth: 'min(590px, 100%)', width: '100%',
+                    display: 'flex', flexDirection: 'column', gap: 5,
+                  }}>
+                    <div style={{
+                      ...mono, fontSize: 9, fontWeight: 700, letterSpacing: '0.08em',
+                      textTransform: 'uppercase', color: 'rgba(90,200,208,0.5)',
+                      paddingLeft: 2,
+                    }}>
+                      🔗 Links on this page ({pageLinks.length})
+                    </div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
+                      {pageLinks.slice(0, 25).map((link, i) => {
+                        const raw = link.url.replace(/^https?:\/\//, '');
+                        const display = link.label
+                          ? `${link.label.slice(-25)} ↗`
+                          : raw.slice(0, 38) + (raw.length > 38 ? '…' : '');
+                        return (
+                          <a key={i} href={link.url} target="_blank" rel="noopener noreferrer"
+                            style={{
+                              ...mono, fontSize: 10, color: C.teal2,
+                              background: 'rgba(90,200,208,0.07)',
+                              border: '1px solid rgba(90,200,208,0.22)',
+                              borderRadius: 5, padding: '3px 9px',
+                              textDecoration: 'none', cursor: 'pointer',
+                              maxWidth: 280, overflow: 'hidden',
+                              textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                            }}
+                            title={link.url}
+                          >
+                            ↗ {display}
+                          </a>
+                        );
+                      })}
+                    </div>
+                  </div>
                 );
               })()}
 
@@ -3070,10 +3119,49 @@
 
       return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+
+          {/* Re-extract action — shown at top so it's always visible without scrolling */}
+          {canExtract && (
+            <div style={{
+              background: extractDone ? 'rgba(80,190,120,0.07)' : 'rgba(90,200,208,0.07)',
+              border: `1px solid ${extractDone ? 'rgba(80,190,120,0.25)' : 'rgba(90,200,208,0.22)'}`,
+              borderRadius: 7, padding: '10px 12px',
+            }}>
+              <div style={{ fontSize: 11, color: extractDone ? C.success : C.teal2, fontWeight: 600, marginBottom: 6 }}>
+                {extractDone ? '✓ Extraction complete' : '↺ Enable hyperlinks & highlights'}
+              </div>
+              {!extractDone && (
+                <>
+                  <div style={{ fontSize: 10, color: C.textMuted, lineHeight: 1.55, marginBottom: 8 }}>
+                    Extract clickable links and word-level search highlights from this document.
+                  </div>
+                  <button
+                    onClick={handleExtract}
+                    disabled={extracting}
+                    style={{
+                      width: '100%', padding: '6px 0', type: 'button',
+                      background: extracting ? 'rgba(90,200,208,0.06)' : 'rgba(90,200,208,0.14)',
+                      border: '1px solid rgba(90,200,208,0.3)', borderRadius: 5,
+                      color: extracting ? C.textMuted : C.teal2,
+                      fontSize: 11, fontWeight: 600, cursor: extracting ? 'default' : 'pointer',
+                      fontFamily: "'DM Sans',sans-serif",
+                    }}>
+                    {extracting ? 'Extracting…' : 'Run extraction'}
+                  </button>
+                </>
+              )}
+              {extractDone && (
+                <div style={{ fontSize: 10, color: C.textMuted }}>
+                  Hyperlinks and word highlights are now active. If you don't see them, scroll to refresh.
+                </div>
+              )}
+            </div>
+          )}
+
           <div>
             <SectionLabel>Document Info</SectionLabel>
             <div style={{ marginTop: 8, fontSize: 12, fontWeight: 600, color: C.textPrimary, lineHeight: 1.5 }}>
-              {doc?.name || session?.document_filename || 'Q4 Financial Report.pdf'}
+              {doc?.name || session?.document_filename || 'Document'}
             </div>
             <div style={{ ...mono, fontSize: 9, color: C.textMuted, marginTop: 3 }}>{docId || session?.document_id?.slice(0, 8)}</div>
             {doc && (
@@ -3121,35 +3209,6 @@
               ))}
             </div>
           </div>
-          {canExtract && (
-            <>
-              <Divider />
-              <div>
-                <SectionLabel>Features</SectionLabel>
-                <div style={{ marginTop: 8, fontSize: 11, color: C.textMuted, lineHeight: 1.6, marginBottom: 8 }}>
-                  Enable hyperlinks and word-level search highlighting for this document.
-                </div>
-                <button
-                  onClick={handleExtract}
-                  disabled={extracting}
-                  style={{
-                    width: '100%', padding: '7px 0',
-                    background: extracting ? 'rgba(90,200,208,0.08)' : 'rgba(90,200,208,0.12)',
-                    border: '1px solid rgba(90,200,208,0.3)', borderRadius: 5,
-                    color: extracting ? C.textMuted : C.teal2,
-                    fontSize: 11, fontWeight: 600, cursor: extracting ? 'default' : 'pointer',
-                    fontFamily: "'DM Sans',sans-serif",
-                  }}>
-                  {extracting ? 'Extracting…' : '↺ Re-extract hyperlinks & highlights'}
-                </button>
-              </div>
-            </>
-          )}
-          {extractDone && (
-            <div style={{ fontSize: 10, color: C.success, textAlign: 'center', marginTop: -8 }}>
-              Done — reload the page to see hyperlinks and highlights.
-            </div>
-          )}
         </div>
       );
     }

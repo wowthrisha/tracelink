@@ -229,13 +229,20 @@ async def extract_and_store_links_sidecar(
     storage,
 ) -> None:
     """
-    Extract hyperlink annotations from each PDF page and store as a sidecar.
+    Extract hyperlinks from each PDF page and store as a links sidecar.
 
-    Stored at links/{doc_id}.json as [{page, links: [{x,y,w,h,url}]}] with
-    coordinates normalized to [0,1] relative to page dimensions (top-left origin).
-    Only http/https URIs are stored. All errors are non-fatal.
+    Two extraction strategies are combined per page:
+      1. PDF annotation-based (type=annotation): precise clickable regions with coordinates
+      2. Text regex-based (type=text): any http/https URL found in page text
+
+    Stored at links/{doc_id}.json as [{page, links: [{url, type, x?, y?, w?, h?, label?}]}].
+    Annotation links include normalized [0,1] coordinates (top-left origin).
+    Text links include a short `label` extracted from surrounding context.
+    Always writes the sidecar (even when empty) so the frontend knows extraction ran.
     """
     import json as _json
+    import re as _re
+    _URL_RE = _re.compile(r"https?://[^\s\"'<>()\[\]{}]+[^\s\"'<>()\[\]{}.,;:!?]")
     try:
         from io import BytesIO as _BytesIO
         import pypdf as _pypdf
@@ -249,54 +256,71 @@ async def extract_and_store_links_sidecar(
             if width_pt <= 0 or height_pt <= 0:
                 continue
 
-            links = []
-            raw_annots = pdf_page.get("/Annots")
-            if not raw_annots:
-                continue
+            links: list = []
+            seen_urls: set = set()  # deduplicate within a page
 
-            for annot_ref in raw_annots:
-                try:
-                    annot = annot_ref.get_object()
-                    if annot.get("/Subtype") != "/Link":
+            # ── Strategy 1: PDF annotation hyperlinks ─────────────────────────
+            raw_annots = pdf_page.get("/Annots")
+            if raw_annots:
+                for annot_ref in raw_annots:
+                    try:
+                        annot = annot_ref.get_object()
+                        if annot.get("/Subtype") != "/Link":
+                            continue
+                        action = annot.get("/A")
+                        if not action:
+                            continue
+                        uri = action.get("/URI")
+                        if not uri:
+                            continue
+                        uri_str = str(uri).strip()
+                        if not uri_str.startswith(("http://", "https://")):
+                            continue
+                        rect = annot.get("/Rect")
+                        if not rect or len(rect) < 4:
+                            continue
+                        x0, y0, x1, y1 = (float(v) for v in rect[:4])
+                        if x1 <= x0 or y1 <= y0:
+                            continue
+                        nx = x0 / width_pt
+                        ny = 1.0 - y1 / height_pt
+                        nw = (x1 - x0) / width_pt
+                        nh = (y1 - y0) / height_pt
+                        if 0 <= nx <= 1 and 0 <= ny <= 1 and nw > 0 and nh > 0:
+                            links.append({
+                                "url": uri_str,
+                                "type": "annotation",
+                                "x": round(nx, 4), "y": round(ny, 4),
+                                "w": round(nw, 4), "h": round(nh, 4),
+                            })
+                            seen_urls.add(uri_str)
+                    except Exception:
                         continue
-                    action = annot.get("/A")
-                    if not action:
+
+            # ── Strategy 2: URL regex on page text ────────────────────────────
+            try:
+                page_text = pdf_page.extract_text() or ""
+                for m in _URL_RE.finditer(page_text):
+                    url = m.group(0)
+                    if url in seen_urls:
                         continue
-                    uri = action.get("/URI")
-                    if not uri:
-                        continue
-                    uri_str = str(uri)
-                    if not uri_str.startswith(("http://", "https://")):
-                        continue
-                    rect = annot.get("/Rect")
-                    if not rect or len(rect) < 4:
-                        continue
-                    x0, y0, x1, y1 = (float(v) for v in rect[:4])
-                    if x1 <= x0 or y1 <= y0:
-                        continue
-                    # PDF coordinate origin is bottom-left; convert to top-left
-                    nx = x0 / width_pt
-                    ny = 1.0 - y1 / height_pt
-                    nw = (x1 - x0) / width_pt
-                    nh = (y1 - y0) / height_pt
-                    if 0 <= nx <= 1 and 0 <= ny <= 1 and nw > 0 and nh > 0:
-                        links.append({
-                            "x": round(nx, 4), "y": round(ny, 4),
-                            "w": round(nw, 4), "h": round(nh, 4),
-                            "url": uri_str,
-                        })
-                except Exception:
-                    continue
+                    seen_urls.add(url)
+                    # Extract up to 40 chars before URL as label context
+                    ctx_start = max(0, m.start() - 40)
+                    ctx = page_text[ctx_start:m.start()].replace("\n", " ").strip()
+                    label = ctx[-30:].lstrip() if ctx else url
+                    links.append({"url": url, "type": "text", "label": label})
+            except Exception:
+                pass
 
             if links:
                 pages_data.append({"page": i, "links": links})
 
-        if not pages_data:
-            return  # No links in document — skip creating empty sidecar
         sidecar_key = f"links/{document_id}.json"
-        payload = _json.dumps(pages_data, ensure_ascii=False)
+        # `extracted: true` lets the viewer skip re-extraction for docs with no links
+        payload = _json.dumps({"pages": pages_data, "extracted": True}, ensure_ascii=False)
         await storage.upload_file(payload.encode("utf-8"), sidecar_key, content_type="application/json")
-        logger.info("Document %s: stored links sidecar (%d pages with links)", document_id, len(pages_data))
+        logger.info("Document %s: stored links sidecar (%d pages)", document_id, len(pages_data))
     except Exception as exc:
         logger.warning("Document %s: link sidecar extraction failed (non-fatal): %s", document_id, exc)
 

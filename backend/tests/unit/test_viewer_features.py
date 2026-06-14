@@ -51,7 +51,7 @@ class TestLinkSidecarExtraction:
 
     @pytest.mark.asyncio
     async def test_http_link_stored(self):
-        """A valid http URI annotation is stored in the sidecar."""
+        """A valid http URI annotation is stored in the sidecar with extracted:true."""
         from app.workers.pipeline.pdf import extract_and_store_links_sidecar
 
         annot = _make_mock_annotation("https://example.com", rect=(100, 572, 280, 590))
@@ -69,10 +69,14 @@ class TestLinkSidecarExtraction:
         storage.upload_file.assert_called_once()
         call_args = storage.upload_file.call_args
         payload = json.loads(call_args[0][0].decode("utf-8"))
-        assert len(payload) == 1
-        assert payload[0]["page"] == 1
-        assert len(payload[0]["links"]) == 1
-        link = payload[0]["links"][0]
+        # New format: {"pages": [...], "extracted": true}
+        assert payload["extracted"] is True
+        pages = payload["pages"]
+        assert len(pages) == 1
+        assert pages[0]["page"] == 1
+        annotation_links = [l for l in pages[0]["links"] if l.get("type") == "annotation"]
+        assert len(annotation_links) >= 1
+        link = annotation_links[0]
         assert link["url"] == "https://example.com"
         assert 0 < link["x"] < 1
         assert 0 < link["y"] < 1
@@ -81,7 +85,7 @@ class TestLinkSidecarExtraction:
 
     @pytest.mark.asyncio
     async def test_non_http_link_skipped(self):
-        """A mailto: or internal link is not stored."""
+        """A mailto: annotation is not stored; sidecar is still written with extracted:true."""
         from app.workers.pipeline.pdf import extract_and_store_links_sidecar
 
         annot = _make_mock_annotation("mailto:foo@example.com", rect=(100, 572, 280, 590))
@@ -94,11 +98,15 @@ class TestLinkSidecarExtraction:
         with patch("pypdf.PdfReader", return_value=reader):
             await extract_and_store_links_sidecar("doc-id-2", b"%PDF", storage)
 
-        storage.upload_file.assert_not_called()
+        # Sidecar is always written now (so frontend knows extraction ran)
+        storage.upload_file.assert_called_once()
+        payload = json.loads(storage.upload_file.call_args[0][0].decode("utf-8"))
+        assert payload["extracted"] is True
+        assert payload["pages"] == []  # no valid http links found
 
     @pytest.mark.asyncio
     async def test_no_annotations_skips_upload(self):
-        """Page with no annotations produces no sidecar upload."""
+        """Page with no annotations still writes an empty sidecar with extracted:true."""
         from app.workers.pipeline.pdf import extract_and_store_links_sidecar
 
         page = _make_mock_pdf_page(annotations=None)
@@ -109,7 +117,10 @@ class TestLinkSidecarExtraction:
         with patch("pypdf.PdfReader", return_value=reader):
             await extract_and_store_links_sidecar("doc-id-3", b"%PDF", storage)
 
-        storage.upload_file.assert_not_called()
+        storage.upload_file.assert_called_once()
+        payload = json.loads(storage.upload_file.call_args[0][0].decode("utf-8"))
+        assert payload["extracted"] is True
+        assert payload["pages"] == []
 
     @pytest.mark.asyncio
     async def test_coordinates_normalized(self):
@@ -128,7 +139,8 @@ class TestLinkSidecarExtraction:
             await extract_and_store_links_sidecar("doc-id-4", b"%PDF", storage)
 
         payload = json.loads(storage.upload_file.call_args[0][0].decode("utf-8"))
-        link = payload[0]["links"][0]
+        annotation_links = [l for l in payload["pages"][0]["links"] if l.get("type") == "annotation"]
+        link = annotation_links[0]
         assert link["x"] == 0.0
         assert link["y"] == 0.0  # top of page (PDF y1 = page height → ny = 1 - 1 = 0)
         assert link["w"] == 1.0

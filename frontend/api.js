@@ -245,17 +245,6 @@ window.SecureDocAPI = {
     return r.json();
   },
 
-  async updateLink(linkId, payload) {
-    const r = await fetch(`${API_BASE}/api/links/${linkId}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json', ...authHeaders() },
-      body: JSON.stringify(payload),
-    });
-    if (r.status === 401) { _clearAndReload(); return; }
-    if (!r.ok) throw await r.json();
-    return r.json();
-  },
-
   // ── Viewer (public — no auth) ───────────────────────────────────────────────
 
   async getGateRequirements(token) {
@@ -354,7 +343,7 @@ window.SecureDocAPI = {
     const r = await fetch(`${API_BASE}/api/analytics/page-heatmap?${params}`, {
       headers: { ...authHeaders() },
     });
-    if (r.status === 401) { _clearAndReload(); return; }
+    // Never force-reload on analytics 401 — token may be absent in link-based viewer
     if (!r.ok) return null;
     return r.json();
   },
