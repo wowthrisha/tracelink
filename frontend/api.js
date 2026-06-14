@@ -43,34 +43,63 @@ window.SecureDocAPI = {
     const supabaseUrl = document.querySelector('meta[name="supabase-url"]')?.content;
     const supabaseAnon = document.querySelector('meta[name="supabase-anon-key"]')?.content;
 
+    // ── Sign Up: use backend admin endpoint (no email confirmation required) ──
+    if (mode === 'signup') {
+      const base = API_BASE.replace(/\/$/, '');
+      const r = await fetch(`${base}/api/auth/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      });
+      const data = await r.json();
+      if (r.status === 503) {
+        // Service role key not configured — fall back to Supabase flow with email confirmation
+        return this._supabaseSignup(supabaseUrl, supabaseAnon, email, password);
+      }
+      if (!r.ok) {
+        throw new Error(data.detail || data.message || 'Registration failed');
+      }
+      if (!data.access_token) {
+        throw new Error('Registration succeeded but no token returned. Try signing in.');
+      }
+      return data.access_token;
+    }
+
+    // ── Sign In: direct Supabase password grant ──
     if (!supabaseUrl || !supabaseAnon) {
       throw new Error('Supabase not configured. Add supabase-url and supabase-anon-key meta tags.');
     }
-
-    const endpoint = mode === 'signup'
-      ? `${supabaseUrl}/auth/v1/signup`
-      : `${supabaseUrl}/auth/v1/token?grant_type=password`;
-
-    const r = await fetch(endpoint, {
+    const r = await fetch(`${supabaseUrl}/auth/v1/token?grant_type=password`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'apikey': supabaseAnon },
       body: JSON.stringify({ email, password }),
     });
-
     const data = await r.json();
-
     if (!r.ok) {
       throw new Error(data.error_description || data.msg || data.message || 'Authentication failed');
     }
-
-    if (mode === 'signup' && !data.access_token) {
-      throw new Error('Account created — check your email to confirm before signing in.');
-    }
-
     if (!data.access_token) {
       throw new Error('No access token returned. Check your credentials.');
     }
+    return data.access_token;
+  },
 
+  async _supabaseSignup(supabaseUrl, supabaseAnon, email, password) {
+    if (!supabaseUrl || !supabaseAnon) {
+      throw new Error('Supabase not configured. Add supabase-url and supabase-anon-key meta tags.');
+    }
+    const r = await fetch(`${supabaseUrl}/auth/v1/signup`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'apikey': supabaseAnon },
+      body: JSON.stringify({ email, password }),
+    });
+    const data = await r.json();
+    if (!r.ok) {
+      throw new Error(data.error_description || data.msg || data.message || 'Authentication failed');
+    }
+    if (!data.access_token) {
+      throw new Error('Account created — check your email (and spam folder) to confirm before signing in.');
+    }
     return data.access_token;
   },
 

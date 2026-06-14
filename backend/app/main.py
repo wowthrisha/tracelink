@@ -18,7 +18,7 @@ from app.middleware.trusted_proxy import TrustedProxyMiddleware
 from app.middleware.security_headers import SecurityHeadersMiddleware
 from app.middleware.request_id import RequestIDMiddleware
 from app.middleware.metrics import PrometheusMiddleware
-from app.routers import documents, links, viewer, analytics, groups, billing, webhooks, api_keys, orgs, admin, notifications
+from app.routers import documents, links, viewer, analytics, groups, billing, webhooks, api_keys, orgs, admin, notifications, auth as auth_router
 from app.auth import _fetch_jwks
 
 _IP_SALT_DEFAULT = "securedoc_ip_salt_change_in_production"
@@ -117,12 +117,38 @@ async def lifespan(app: FastAPI):
     elif settings.trusted_proxy_depth > 0:
         _log.info("PROXY: trusted_proxy_depth=%d", settings.trusted_proxy_depth)
 
+    # Warn loudly in dev mode about missing critical config so operators get
+    # immediate feedback instead of a silent 401 blackout on every request.
+    if not settings.supabase_url:
+        _log.error(
+            "AUTH: SUPABASE_URL is not set — every authenticated API call will return 401. "
+            "Set SUPABASE_URL and SUPABASE_ANON_KEY in your .env file."
+        )
+    if not settings.supabase_anon_key:
+        _log.error(
+            "AUTH: SUPABASE_ANON_KEY is not set — the frontend login form will fail. "
+            "Set SUPABASE_ANON_KEY in your .env file."
+        )
+    _storage_creds_are_test = (
+        settings.storage_access_key_id in ("test_key", "")
+        or settings.storage_secret_access_key in ("test_secret", "")
+    )
+    if _storage_creds_are_test and os.getenv("USE_DEMO_STORAGE") != "1":
+        _log.error(
+            "STORAGE: storage_access_key_id / storage_secret_access_key are still set to "
+            "test/default values — uploads will fail with storage errors. "
+            "Set real credentials in .env or set USE_DEMO_STORAGE=1 for local testing."
+        )
+
     # Preload Supabase JWKS public keys
-    try:
-        await _fetch_jwks()
-        _log.info("AUTH: JWKS loaded from %s", settings.supabase_url)
-    except Exception as e:
-        _log.warning("AUTH: JWKS preload failed (will retry on first request): %s", e)
+    if settings.supabase_url:
+        try:
+            await _fetch_jwks()
+            _log.info("AUTH: JWKS loaded from %s", settings.supabase_url)
+        except Exception as e:
+            _log.warning("AUTH: JWKS preload failed (will retry on first request): %s", e)
+    else:
+        _log.warning("AUTH: Skipping JWKS preload — SUPABASE_URL not configured")
 
     yield  # ── application running ──
 
@@ -193,6 +219,7 @@ async def global_exception_handler(request: Request, exc: Exception):
     )
 
 # Routers
+app.include_router(auth_router.router)
 app.include_router(documents.router)
 app.include_router(links.router)
 app.include_router(viewer.router)
@@ -333,7 +360,61 @@ async def health(db: AsyncSession = Depends(get_db)):
     except Exception:
         checks["worker"] = "unknown"
 
+    # Auth — check Supabase URL is configured (no network call; just config presence)
+    checks["auth_configured"] = bool(settings.supabase_url and settings.supabase_anon_key)
+    if not checks["auth_configured"]:
+        overall = "degraded"
+
+    # Storage credentials — flag test defaults
+    _test_creds = (
+        settings.storage_access_key_id in ("test_key", "")
+        or settings.storage_secret_access_key in ("test_secret", "")
+    )
+    checks["storage_credentials"] = "test_defaults" if _test_creds else "configured"
+    if _test_creds and os.getenv("USE_DEMO_STORAGE") != "1":
+        overall = "degraded"
+
     return {"status": overall, "checks": checks, "version": "8.1.0"}
+
+
+@app.get("/api/diagnostics", include_in_schema=False)
+async def diagnostics():
+    """
+    Operator diagnostics endpoint — returns configuration status without
+    exposing secret values.  Accessible without auth so operators can check
+    config before auth is working.  Never returns actual key/secret values.
+    """
+    _test_creds = (
+        settings.storage_access_key_id in ("test_key", "")
+        or settings.storage_secret_access_key in ("test_secret", "")
+    )
+    _demo_storage = os.getenv("USE_DEMO_STORAGE") == "1"
+
+    issues = []
+    if not settings.supabase_url:
+        issues.append("SUPABASE_URL not set — all authenticated API calls will return 401")
+    if not settings.supabase_anon_key:
+        issues.append("SUPABASE_ANON_KEY not set — frontend login will fail")
+    if _test_creds and not _demo_storage:
+        issues.append(
+            "Storage credentials are test defaults — uploads will fail. "
+            "Set STORAGE_ACCESS_KEY_ID and STORAGE_SECRET_ACCESS_KEY, or USE_DEMO_STORAGE=1"
+        )
+    if not settings.redis_url or settings.redis_url == "redis://localhost:6379/0":
+        issues.append("REDIS_URL appears to be default — Celery workers may not connect in production")
+
+    return {
+        "status": "ready" if not issues else "misconfigured",
+        "issues": issues,
+        "config": {
+            "supabase_url_set": bool(settings.supabase_url),
+            "supabase_anon_key_set": bool(settings.supabase_anon_key),
+            "storage_credentials": "test_defaults" if _test_creds else "configured",
+            "demo_storage_mode": _demo_storage,
+            "app_env": settings.app_env,
+            "app_public_base_url": settings.app_public_base_url,
+        },
+    }
 
 
 frontend_dir = "/frontend"  # mounted in Docker; fallback for local dev
