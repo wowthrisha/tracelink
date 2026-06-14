@@ -26,10 +26,11 @@ class RegisterRequest(BaseModel):
 
 
 async def _confirm_existing_user(
-    client: httpx.AsyncClient, base: str, admin_headers: dict, email: str
+    client: httpx.AsyncClient, base: str, admin_headers: dict, email: str, password: str
 ) -> bool:
     """
-    Find an existing unconfirmed Supabase user by email and mark them confirmed.
+    Find an existing unconfirmed Supabase user by email, confirm them, and reset
+    the password to what the user just entered so sign-in works immediately.
     Returns True if the user was found and patched, False otherwise.
     """
     list_resp = await client.get(
@@ -39,7 +40,8 @@ async def _confirm_existing_user(
     )
     if not list_resp.is_success:
         return False
-    users = list_resp.json().get("users", [])
+    data = list_resp.json()
+    users = data if isinstance(data, list) else data.get("users", [])
     uid = next(
         (u["id"] for u in users if u.get("email", "").lower() == email.lower()),
         None,
@@ -49,7 +51,7 @@ async def _confirm_existing_user(
     patch_resp = await client.put(
         f"{base}/auth/v1/admin/users/{uid}",
         headers=admin_headers,
-        json={"email_confirm": True},
+        json={"email_confirm": True, "password": password},
     )
     return patch_resp.is_success
 
@@ -101,7 +103,7 @@ async def register(request: Request, body: RegisterRequest):
             )
             if already_exists:
                 # User exists but may be unconfirmed — find and confirm them
-                confirmed = await _confirm_existing_user(client, base, admin_headers, body.email)
+                confirmed = await _confirm_existing_user(client, base, admin_headers, body.email, body.password)
                 if not confirmed:
                     raise HTTPException(
                         status_code=409,
@@ -125,9 +127,7 @@ async def register(request: Request, body: RegisterRequest):
         token_data = token_resp.json()
 
         if not token_resp.is_success or not token_data.get("access_token"):
-            raise HTTPException(
-                status_code=500,
-                detail="Account created but sign-in failed. Please sign in manually.",
-            )
+            err = token_data.get("error_description") or token_data.get("msg") or "Sign-in failed after registration."
+            raise HTTPException(status_code=400, detail=err)
 
         return JSONResponse({"access_token": token_data["access_token"]})
