@@ -299,6 +299,56 @@ async def reprocess_document(
     return {"id": str(doc_id), "status": "uploaded", "message": "Reprocessing started"}
 
 
+@router.post("/{document_id}/extract-sidecars", status_code=202)
+async def extract_sidecars(
+    document_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: dict = Depends(require_scope("documents:write")),
+):
+    """Re-extract TOC, hyperlink, and word-position sidecars for an existing document.
+
+    Safe on already-ready documents — does not touch page images or change doc status.
+    Used to backfill sidecar data for documents uploaded before extraction was added.
+    """
+    user_uuid = uuid.UUID(user["user_id"])
+    try:
+        doc_id = uuid.UUID(document_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid document ID")
+
+    result = await db.execute(
+        select(Document).where(Document.id == doc_id, Document.user_id == user_uuid)
+    )
+    doc = result.scalar_one_or_none()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+    if doc.status != "ready":
+        raise HTTPException(status_code=400, detail="Document is not yet ready")
+    if not doc.storage_key:
+        raise HTTPException(status_code=400, detail="No source file in storage")
+
+    async def _run_extraction():
+        try:
+            from app.storage import get_storage
+            from app.workers.pipeline.pdf import (
+                extract_and_store_pdf_toc,
+                extract_and_store_links_sidecar,
+                extract_and_store_word_positions,
+            )
+            storage = get_storage()
+            pdf_bytes = await storage.download_bytes(doc.storage_key)
+            doc_id_str = str(doc_id)
+            await extract_and_store_pdf_toc(doc_id_str, pdf_bytes, storage)
+            await extract_and_store_links_sidecar(doc_id_str, pdf_bytes, storage)
+            await extract_and_store_word_positions(doc_id_str, pdf_bytes, storage)
+            logger.info("Sidecar re-extraction complete for document %s", doc_id_str)
+        except Exception as exc:
+            logger.error("Sidecar re-extraction failed for %s: %s", doc_id, exc)
+
+    asyncio.create_task(_run_extraction())
+    return {"id": str(doc_id), "message": "Sidecar extraction started"}
+
+
 @router.get("", response_model=dict)
 async def list_documents(
     db: AsyncSession = Depends(get_db),

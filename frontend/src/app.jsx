@@ -1233,8 +1233,8 @@
       const [imgReady, setImgReady] = useState(false);
       // Phase 7: in-viewer search
       const [showSearch, setShowSearch] = useState(false);
-      // Phase 7: TOC sidebar for text/md documents
-      const [showToc, setShowToc] = useState(false);
+      // TOC sidebar — open by default
+      const [showToc, setShowToc] = useState(true);
       // Premium: laser pointer, magnifier, fullscreen, page jump
       const [showLaser, setShowLaser] = useState(false);
       const [showMagnifier, setShowMagnifier] = useState(false);
@@ -1244,6 +1244,8 @@
       const [isFullscreen, setIsFullscreen] = useState(false);
       const [pageInputStr, setPageInputStr] = useState('');
       const [showPageList, setShowPageList] = useState(false);
+      const [pageAspectRatio, setPageAspectRatio] = useState(null); // set from actual image dimensions
+      const [sidecarExtracted, setSidecarExtracted] = useState(false); // toast-once flag
       const pageImgRef = useRef(null);
       const pageContainerRef = useRef(null); // Feature 4: magnifier needs page container
       // Feature 1: hyperlink overlay
@@ -1742,15 +1744,16 @@
             showMagnifier={showMagnifier} setShowMagnifier={setShowMagnifier}
             showInsights={showInsights} setShowInsights={v => {
               setShowInsights(v);
-              if (v && !insightsData && !insightsLoading && doc?.id) {
+              const heatmapDocId = doc?.id || session?.document_id;
+              if (v && !insightsData && !insightsLoading && heatmapDocId) {
                 setInsightsLoading(true);
-                window.SecureDocAPI.getPageHeatmap(doc.id)
+                window.SecureDocAPI.getPageHeatmap(heatmapDocId)
                   .then(d => setInsightsData(d))
                   .catch(() => setInsightsData(null))
                   .finally(() => setInsightsLoading(false));
               }
             }}
-            hasInsights={!!doc?.id}
+            hasInsights={!!(doc?.id || session?.document_id)}
             isFullscreen={isFullscreen} toggleFullscreen={toggleFullscreen}
             showToc={showToc} setShowToc={setShowToc}
             showSearch={showSearch} setShowSearch={setShowSearch}
@@ -1805,8 +1808,9 @@
                 linkToken={session.link_token}
                 sessionId={session.session_id}
                 currentPage={page}
+                pageCount={PAGE_COUNT}
                 docType={session.doc_type || 'pdf'}
-                onNavigate={p => { setPage(p); setShowToc(false); }}
+                onNavigate={p => setPage(p)}
                 onClose={() => setShowToc(false)}
               />
             )}
@@ -1908,7 +1912,7 @@
                 return (
                 <div ref={pageContainerRef} className="viewer-page" style={{
                   position: 'relative', ...(_pgStyle),
-                  aspectRatio: layoutMode === LAYOUT.FIT_HEIGHT ? undefined : '8.5/11',
+                  aspectRatio: layoutMode === LAYOUT.FIT_HEIGHT ? undefined : (pageAspectRatio ? `${pageAspectRatio}` : '8.5/11'),
                   flexShrink: 0, transition: 'width .25s ease, height .25s ease',
                   borderRadius: 2, overflow: 'hidden',
                   boxShadow: '0 2px 8px rgba(0,0,0,0.5), 0 8px 48px rgba(0,0,0,0.8), 0 20px 60px rgba(0,0,0,0.35)',
@@ -1963,7 +1967,11 @@
                   {/* Current page — fades in when browser has decoded the new image */}
                   {imgSrc && (
                     <img ref={pageImgRef} src={imgSrc} draggable={false}
-                      onLoad={() => setImgReady(true)}
+                      onLoad={e => {
+                        setImgReady(true);
+                        const { naturalWidth: nw, naturalHeight: nh } = e.target;
+                        if (nw > 0 && nh > 0) setPageAspectRatio(`${nw}/${nh}`);
+                      }}
                       onError={() => setImgReady(true)}
                       style={{
                         width: '100%', height: '100%', objectFit: 'contain', display: 'block',
@@ -2126,7 +2134,16 @@
                 width: 230, background: C.surfaceAlt, borderLeft: `1px solid ${C.border}`,
                 padding: 16, overflow: 'auto', flexShrink: 0
               }} className="slide-in">
-                <ViewerInfoPanel doc={doc} docId={docId} page={page} session={session} pageCount={PAGE_COUNT} />
+                <ViewerInfoPanel doc={doc} docId={docId} page={page} session={session} pageCount={PAGE_COUNT}
+                  onSidecarExtract={() => {
+                    // Reset sidecar caches so next page load re-fetches
+                    pageLinksRef.current = {};
+                    setLinksLoaded(false);
+                    wordPositionsRef.current = {};
+                    wordPositionsFetched.current = false;
+                    setSidecarExtracted(true);
+                  }}
+                />
               </div>
             )}
           </div>
@@ -2701,7 +2718,7 @@
     }
 
     // ── Universal TOC sidebar — works for PDF (page nav) and text (chunk nav) ──
-    function TocSidebar({ linkToken, sessionId, currentPage, docType, onNavigate, onClose }) {
+    function TocSidebar({ linkToken, sessionId, currentPage, docType, pageCount, onNavigate, onClose }) {
       const [toc, setToc] = useState([]);
       const [loading, setLoading] = useState(true);
       const [error, setError] = useState(false);
@@ -2754,12 +2771,26 @@
           <div style={{ flex: 1, overflow: 'auto', padding: '6px 0' }}>
             {loading ? (
               <div style={{ padding: '16px 12px', color: C.textMuted, fontSize: 11 }}>Loading…</div>
-            ) : error && toc.length === 0 ? (
-              <div style={{ padding: '16px 12px', color: C.textDim, fontSize: 11 }}>
-                {isImageDoc ? 'No bookmarks found.' : 'No headings found.'}
-              </div>
             ) : toc.length === 0 ? (
-              <div style={{ padding: '16px 12px', color: C.textDim, fontSize: 11 }}>No headings found</div>
+              // No embedded bookmarks/headings — show page number list as fallback
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+                <div style={{ padding: '8px 12px 4px', fontSize: 9, fontWeight: 700, letterSpacing: '0.07em', textTransform: 'uppercase', color: 'rgba(130,142,158,0.5)' }}>
+                  Pages
+                </div>
+                {Array.from({ length: pageCount || 0 }, (_, i) => i + 1).map(p => (
+                  <div key={p} onClick={() => onNavigate(p)} style={{
+                    padding: '5px 14px',
+                    fontSize: 11, color: p === currentPage ? C.teal2 : C.textSecondary,
+                    background: p === currentPage ? 'rgba(90,200,208,0.09)' : 'transparent',
+                    cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8,
+                    borderLeft: p === currentPage ? `2px solid ${C.teal2}` : '2px solid transparent',
+                    transition: 'background .1s',
+                  }}>
+                    <span style={{ fontFamily: 'ui-monospace,monospace', fontSize: 10, color: 'rgba(130,142,158,0.6)', minWidth: 24 }}>{p}</span>
+                    <span style={{ fontSize: 10, color: p === currentPage ? C.teal2 : 'rgba(148,160,176,0.5)' }}>Page {p}</span>
+                  </div>
+                ))}
+              </div>
             ) : toc.map((entry, i) => {
               const target = navTarget(entry);
               const active = isCurrent(entry);
@@ -2987,7 +3018,22 @@
       );
     }
 
-    function ViewerInfoPanel({ doc, docId, page, session, pageCount }) {
+    function ViewerInfoPanel({ doc, docId, page, session, pageCount, onSidecarExtract }) {
+      const [extracting, setExtracting] = React.useState(false);
+      const [extractDone, setExtractDone] = React.useState(false);
+      const canExtract = !!(doc?.id) && !extractDone;
+
+      const handleExtract = async () => {
+        if (!doc?.id) return;
+        setExtracting(true);
+        try {
+          await window.SecureDocAPI.extractSidecars(doc.id);
+          setExtractDone(true);
+          onSidecarExtract?.();
+        } catch {}
+        finally { setExtracting(false); }
+      };
+
       return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           <div>
@@ -3041,6 +3087,35 @@
               ))}
             </div>
           </div>
+          {canExtract && (
+            <>
+              <Divider />
+              <div>
+                <SectionLabel>Features</SectionLabel>
+                <div style={{ marginTop: 8, fontSize: 11, color: C.textMuted, lineHeight: 1.6, marginBottom: 8 }}>
+                  Enable hyperlinks and word-level search highlighting for this document.
+                </div>
+                <button
+                  onClick={handleExtract}
+                  disabled={extracting}
+                  style={{
+                    width: '100%', padding: '7px 0',
+                    background: extracting ? 'rgba(90,200,208,0.08)' : 'rgba(90,200,208,0.12)',
+                    border: '1px solid rgba(90,200,208,0.3)', borderRadius: 5,
+                    color: extracting ? C.textMuted : C.teal2,
+                    fontSize: 11, fontWeight: 600, cursor: extracting ? 'default' : 'pointer',
+                    fontFamily: "'DM Sans',sans-serif",
+                  }}>
+                  {extracting ? 'Extracting…' : '↺ Re-extract hyperlinks & highlights'}
+                </button>
+              </div>
+            </>
+          )}
+          {extractDone && (
+            <div style={{ fontSize: 10, color: C.success, textAlign: 'center', marginTop: -8 }}>
+              Done — reload the page to see hyperlinks and highlights.
+            </div>
+          )}
         </div>
       );
     }

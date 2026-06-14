@@ -194,6 +194,16 @@ window.SecureDocAPI = {
     return r.json();
   },
 
+  async extractSidecars(docId) {
+    const r = await fetch(`${API_BASE}/api/documents/${docId}/extract-sidecars`, {
+      method: 'POST',
+      headers: { ...authHeaders() },
+    });
+    if (r.status === 401) { _clearAndReload(); return; }
+    if (!r.ok) throw await r.json();
+    return r.json();
+  },
+
   async deleteDocument(docId) {
     const r = await fetch(`${API_BASE}/api/documents/${docId}`, {
       method: 'DELETE',
