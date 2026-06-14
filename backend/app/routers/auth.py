@@ -25,6 +25,35 @@ class RegisterRequest(BaseModel):
     password: str
 
 
+async def _confirm_existing_user(
+    client: httpx.AsyncClient, base: str, admin_headers: dict, email: str
+) -> bool:
+    """
+    Find an existing unconfirmed Supabase user by email and mark them confirmed.
+    Returns True if the user was found and patched, False otherwise.
+    """
+    list_resp = await client.get(
+        f"{base}/auth/v1/admin/users",
+        headers=admin_headers,
+        params={"per_page": 1000},
+    )
+    if not list_resp.is_success:
+        return False
+    users = list_resp.json().get("users", [])
+    uid = next(
+        (u["id"] for u in users if u.get("email", "").lower() == email.lower()),
+        None,
+    )
+    if not uid:
+        return False
+    patch_resp = await client.put(
+        f"{base}/auth/v1/admin/users/{uid}",
+        headers=admin_headers,
+        json={"email_confirm": True},
+    )
+    return patch_resp.is_success
+
+
 @router.post("/register")
 @limiter.limit("5/minute")
 async def register(request: Request, body: RegisterRequest):
@@ -64,13 +93,25 @@ async def register(request: Request, body: RegisterRequest):
         create_data = create_resp.json()
 
         if not create_resp.is_success:
-            msg = create_data.get("msg") or create_data.get("message") or "Registration failed"
-            # Surface "already registered" clearly
-            if "already registered" in msg.lower() or create_resp.status_code == 422:
-                raise HTTPException(status_code=409, detail="An account with this email already exists. Please sign in.")
-            raise HTTPException(status_code=400, detail=msg)
-
-        logger.info("auth.register: created user %s", body.email)
+            msg = create_data.get("msg") or create_data.get("message") or ""
+            already_exists = (
+                "already registered" in msg.lower()
+                or "already been registered" in msg.lower()
+                or create_resp.status_code == 422
+            )
+            if already_exists:
+                # User exists but may be unconfirmed — find and confirm them
+                confirmed = await _confirm_existing_user(client, base, admin_headers, body.email)
+                if not confirmed:
+                    raise HTTPException(
+                        status_code=409,
+                        detail="An account with this email already exists. Please sign in.",
+                    )
+                logger.info("auth.register: confirmed existing unconfirmed user %s", body.email)
+            else:
+                raise HTTPException(status_code=400, detail=msg or "Registration failed")
+        else:
+            logger.info("auth.register: created user %s", body.email)
 
         # Step 2: sign in immediately to get access token
         token_resp = await client.post(
