@@ -1887,8 +1887,6 @@
                   boxShadow: '0 2px 8px rgba(0,0,0,0.5), 0 8px 48px rgba(0,0,0,0.8), 0 20px 60px rgba(0,0,0,0.35)',
                 }}
                   onContextMenu={e => e.preventDefault()}
-                  onMouseMove={handlePageMouseMove}
-                  onMouseLeave={handlePageMouseLeave}
                   onWheel={e => {
                     if (!e.ctrlKey && !e.metaKey) return;
                     e.preventDefault();
