@@ -1251,8 +1251,10 @@
       const [linksLoaded, setLinksLoaded] = useState(false);
       // Feature 2: search highlighting
       const wordPositionsRef = useRef({}); // {pageNum: [{t,x,y,w,h}]}
+      const wordPositionsFetched = useRef(false); // avoid re-fetching after empty result
       const [searchHighlightQuery, setSearchHighlightQuery] = useState('');
       const [searchHighlights, setSearchHighlights] = useState([]);
+      const [searchResultPages, setSearchResultPages] = useState(new Set()); // pages with any match (for fallback glow)
       const [activeHighlightIdx, setActiveHighlightIdx] = useState(0); // which match is orange
       // Phase 7: mobile/touch support — extended for pinch-to-zoom
       const touchRef = useRef({ x: null, y: null, pinchDist: null });
@@ -1607,10 +1609,12 @@
           setSearchHighlights([]);
           return;
         }
-        if (Object.keys(wordPositionsRef.current).length > 0) {
+        // If already fetched (even if empty), just recompute from what we have
+        if (wordPositionsFetched.current) {
           _computeHighlights(page, searchHighlightQuery);
           return;
         }
+        wordPositionsFetched.current = true;
         window.SecureDocAPI.getWordPositions(session.link_token, session.session_id)
           .then(data => {
             const map = {};
@@ -1625,29 +1629,21 @@
         const h = e => {
           if (e.key === 'ArrowRight' || e.key === 'ArrowDown') goNext();
           if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') goPrev();
-          // Phase 7: Ctrl+F / Cmd+F opens in-viewer search
+          // Ctrl+F / Cmd+F opens in-viewer search
           if ((e.ctrlKey || e.metaKey) && e.key === 'f' && session) {
             e.preventDefault();
             setShowSearch(v => !v);
           }
-          // Layout: Ctrl+= / Ctrl++ → zoom in
-          if ((e.ctrlKey || e.metaKey) && (e.key === '=' || e.key === '+')) {
-            e.preventDefault();
-            _zoomBy(ZOOM_STEP);
-          }
-          // Layout: Ctrl+- → zoom out
-          if ((e.ctrlKey || e.metaKey) && e.key === '-') {
-            e.preventDefault();
-            _zoomBy(-ZOOM_STEP);
-          }
-          // Layout: Ctrl+0 → fit width
-          if ((e.ctrlKey || e.metaKey) && e.key === '0') {
-            e.preventDefault();
-            _setLayout(LAYOUT.FIT_WIDTH);
-          }
         };
+        // Block browser native page-zoom from trackpad pinch (ctrlKey+wheel).
+        // Zoom is controlled ONLY by the toolbar +/− buttons.
+        const blockPinchZoom = e => { if (e.ctrlKey || e.metaKey) e.preventDefault(); };
         window.addEventListener('keydown', h);
-        return () => window.removeEventListener('keydown', h);
+        window.addEventListener('wheel', blockPinchZoom, { passive: false });
+        return () => {
+          window.removeEventListener('keydown', h);
+          window.removeEventListener('wheel', blockPinchZoom);
+        };
       }, [goNext, goPrev, session, _zoomBy, _setLayout]);
 
       // Phase 7: viewer state persistence — restore page/zoom from sessionStorage
@@ -1783,10 +1779,11 @@
           {showSearch && session && (
             <SearchPanel
               session={session}
-              onClose={() => { setShowSearch(false); setSearchHighlightQuery(''); setActiveHighlightIdx(0); }}
+              onClose={() => { setShowSearch(false); setSearchHighlightQuery(''); setActiveHighlightIdx(0); setSearchResultPages(new Set()); }}
               onNavigate={p => setPage(p)}
-              onQueryChange={q => setSearchHighlightQuery(q)}
+              onQueryChange={q => { setSearchHighlightQuery(q); if (!q) setSearchResultPages(new Set()); }}
               onActiveChange={idx => setActiveHighlightIdx(idx)}
+              onResultsChange={results => setSearchResultPages(new Set((results || []).map(r => r.page)))}
             />
           )}
 
@@ -1917,11 +1914,6 @@
                   boxShadow: '0 2px 8px rgba(0,0,0,0.5), 0 8px 48px rgba(0,0,0,0.8), 0 20px 60px rgba(0,0,0,0.35)',
                 }}
                   onContextMenu={e => e.preventDefault()}
-                  onWheel={e => {
-                    if (!e.ctrlKey && !e.metaKey) return;
-                    e.preventDefault();
-                    _zoomBy(e.deltaY < 0 ? ZOOM_STEP : -ZOOM_STEP);
-                  }}
                   onTouchStart={e => {
                     if (e.touches.length === 2) {
                       const dx = e.touches[0].clientX - e.touches[1].clientX;
@@ -2036,6 +2028,15 @@
                       }} />
                     );
                   })}
+
+                  {/* Feature 2 fallback: page-match glow when word positions unavailable */}
+                  {searchHighlightQuery && searchResultPages.has(page) && searchHighlights.length === 0 && (
+                    <div style={{
+                      position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 5,
+                      boxShadow: 'inset 0 0 0 3px rgba(255,200,0,0.55)',
+                      borderRadius: 2,
+                    }} />
+                  )}
 
                   {/* Feature 1: Hyperlink clickable overlays — transparent, pointer-events active */}
                   {linksLoaded && (pageLinksRef.current[page] || []).map((link, i) => (
@@ -2273,9 +2274,19 @@
 
           {!isTextDoc && (<>
             {sep}
-            {/* ── Zoom pill ── */}
+            {/* ── Fit-Width / Fit-Height buttons ── */}
+            <button onClick={() => _setLayout(LAYOUT.FIT_WIDTH)} title="Fit to width"
+              style={{ ...btn, ...(layoutMode === LAYOUT.FIT_WIDTH ? on : {}), padding: '3px 7px', fontSize: 10, fontWeight: 600 }}>
+              W
+            </button>
+            <button onClick={() => _setLayout(LAYOUT.FIT_HEIGHT)} title="Fit to height"
+              style={{ ...btn, ...(layoutMode === LAYOUT.FIT_HEIGHT ? on : {}), padding: '3px 7px', fontSize: 10, fontWeight: 600 }}>
+              H
+            </button>
+            {sep}
+            {/* ── Zoom pill: − [level] + ── */}
             <div style={{ display: 'flex', alignItems: 'center', background: 'rgba(255,255,255,0.045)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 4, overflow: 'hidden', flexShrink: 0 }}>
-              <button onClick={() => _zoomBy(-ZOOM_STEP)} title="Zoom out (Ctrl+-)"
+              <button onClick={() => _zoomBy(-ZOOM_STEP)} title="Zoom out"
                 style={{ ...btn, padding: '3px 6px', fontSize: 14, borderRadius: 0, borderRight: '1px solid rgba(255,255,255,0.07)' }}>−</button>
               <select
                 value={layoutMode === LAYOUT.CUSTOM ? customZoom : layoutMode === LAYOUT.FIT_WIDTH ? 'fw' : 'fh'}
@@ -2292,14 +2303,14 @@
                   padding: '3px 2px', cursor: 'pointer',
                   width: 44, textAlign: 'center', appearance: 'none', WebkitAppearance: 'none', outline: 'none',
                 }}>
-                <option value="fw">W-fit</option>
-                <option value="fh">H-fit</option>
                 {ZOOM_PRESETS.map(p => <option key={p} value={p}>{p}%</option>)}
                 {layoutMode === LAYOUT.CUSTOM && !ZOOM_PRESETS.includes(customZoom) && (
                   <option value={customZoom}>{customZoom}%</option>
                 )}
+                {layoutMode === LAYOUT.FIT_WIDTH && <option value="fw">W-fit</option>}
+                {layoutMode === LAYOUT.FIT_HEIGHT && <option value="fh">H-fit</option>}
               </select>
-              <button onClick={() => _zoomBy(ZOOM_STEP)} title="Zoom in (Ctrl+=)"
+              <button onClick={() => _zoomBy(ZOOM_STEP)} title="Zoom in"
                 style={{ ...btn, padding: '3px 6px', fontSize: 14, borderRadius: 0, borderLeft: '1px solid rgba(255,255,255,0.07)' }}>+</button>
             </div>
             {sep}
@@ -2554,7 +2565,7 @@
     }
 
     // ── Feature 3 (fixed): Search panel — glassmorphism fixed viewport overlay ─
-    function SearchPanel({ session, onClose, onNavigate, onQueryChange, onActiveChange }) {
+    function SearchPanel({ session, onClose, onNavigate, onQueryChange, onActiveChange, onResultsChange }) {
       const [query, setQuery] = useState('');
       const [results, setResults] = useState([]);
       const [loading, setLoading] = useState(false);
@@ -2565,7 +2576,7 @@
 
       useEffect(() => {
         onQueryChange?.(query.trim());
-        if (!query.trim() || !session) { setResults([]); onActiveChange?.(0); return; }
+        if (!query.trim() || !session) { setResults([]); onActiveChange?.(0); onResultsChange?.([]); return; }
         const timer = setTimeout(async () => {
           setLoading(true);
           try {
@@ -2576,6 +2587,7 @@
             setResults(found);
             setCurrentIdx(0);
             onActiveChange?.(0);
+            onResultsChange?.(found);
             if (found.length > 0) onNavigate(found[0].page);
           } catch {
             setResults([]);
