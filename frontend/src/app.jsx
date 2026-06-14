@@ -1235,13 +1235,19 @@
       const [showSearch, setShowSearch] = useState(false);
       // Phase 7: TOC sidebar for text/md documents
       const [showToc, setShowToc] = useState(false);
-      // Premium: zoom lens, fullscreen, page jump
-      const [showLens, setShowLens] = useState(false);
-      const [lensPos, setLensPos] = useState({ x: 0, y: 0, bgX: 0, bgY: 0, bgW: 0, bgH: 0, visible: false });
+      // Premium: laser pointer (replaces zoom lens), fullscreen, page jump
+      const [showLaser, setShowLaser] = useState(false);
       const [isFullscreen, setIsFullscreen] = useState(false);
       const [pageInputStr, setPageInputStr] = useState('');
       const [showPageList, setShowPageList] = useState(false);
       const pageImgRef = useRef(null);
+      // Feature 1: hyperlink overlay
+      const pageLinksRef = useRef({});   // {pageNum: [{x,y,w,h,url}]}
+      const [linksLoaded, setLinksLoaded] = useState(false);
+      // Feature 2: search highlighting
+      const wordPositionsRef = useRef({}); // {pageNum: [{t,x,y,w,h}]}
+      const [searchHighlightQuery, setSearchHighlightQuery] = useState('');
+      const [searchHighlights, setSearchHighlights] = useState([]);
       // Phase 7: mobile/touch support — extended for pinch-to-zoom
       const touchRef = useRef({ x: null, y: null, pinchDist: null });
 
@@ -1569,30 +1575,45 @@
         }
       }, []);
 
-      const handlePageMouseMove = useCallback((e) => {
-        if (!showLens || !pageImgRef.current) return;
-        const rect = pageImgRef.current.getBoundingClientRect();
-        const x = e.clientX - rect.left;
-        const y = e.clientY - rect.top;
-        if (x < 0 || y < 0 || x > rect.width || y > rect.height) {
-          setLensPos(l => ({ ...l, visible: false }));
+      // Feature 1: load hyperlink sidecar once when session activates
+      useEffect(() => {
+        if (!session?.link_token || !session?.session_id || isTextDoc) return;
+        window.SecureDocAPI.getDocumentLinks(session.link_token, session.session_id)
+          .then(data => {
+            const map = {};
+            for (const p of (data.pages || [])) map[p.page] = p.links || [];
+            pageLinksRef.current = map;
+            setLinksLoaded(true);
+          })
+          .catch(() => {});
+      }, [session?.link_token, session?.session_id, isTextDoc]);
+
+      // Feature 2: compute search highlights when page or query changes
+      const _computeHighlights = useCallback((pageNum, query) => {
+        if (!query) { setSearchHighlights([]); return; }
+        const words = wordPositionsRef.current[pageNum] || [];
+        const ql = query.toLowerCase();
+        setSearchHighlights(words.filter(w => w.t && w.t.toLowerCase().includes(ql)));
+      }, []);
+
+      useEffect(() => {
+        if (!searchHighlightQuery || !session?.link_token) {
+          setSearchHighlights([]);
           return;
         }
-        const lensSize = 160;
-        const lensZoom = 2.5;
-        setLensPos({
-          x: e.clientX, y: e.clientY,
-          bgX: x * lensZoom - lensSize / 2,
-          bgY: y * lensZoom - lensSize / 2,
-          bgW: rect.width * lensZoom,
-          bgH: rect.height * lensZoom,
-          visible: true,
-        });
-      }, [showLens]);
-
-      const handlePageMouseLeave = useCallback(() => {
-        setLensPos(l => ({ ...l, visible: false }));
-      }, []);
+        if (Object.keys(wordPositionsRef.current).length > 0) {
+          _computeHighlights(page, searchHighlightQuery);
+          return;
+        }
+        window.SecureDocAPI.getWordPositions(session.link_token, session.session_id)
+          .then(data => {
+            const map = {};
+            for (const p of (data.pages || [])) map[p.page] = p.words || [];
+            wordPositionsRef.current = map;
+            _computeHighlights(page, searchHighlightQuery);
+          })
+          .catch(() => {});
+      }, [searchHighlightQuery, page, session?.link_token, session?.session_id, _computeHighlights]);
 
       useEffect(() => {
         const h = e => {
@@ -1715,7 +1736,7 @@
             layoutMode={layoutMode} customZoom={customZoom}
             _zoomBy={_zoomBy} _zoomTo={_zoomTo} _setLayout={_setLayout}
             LAYOUT={LAYOUT} ZOOM_STEP={ZOOM_STEP} ZOOM_PRESETS={ZOOM_PRESETS}
-            showLens={showLens} setShowLens={setShowLens}
+            showLaser={showLaser} setShowLaser={setShowLaser}
             isFullscreen={isFullscreen} toggleFullscreen={toggleFullscreen}
             showToc={showToc} setShowToc={setShowToc}
             showSearch={showSearch} setShowSearch={setShowSearch}
@@ -1804,8 +1825,9 @@
               {showSearch && session && (
                 <SearchPanel
                   session={session}
-                  onClose={() => setShowSearch(false)}
+                  onClose={() => { setShowSearch(false); setSearchHighlightQuery(''); }}
                   onNavigate={p => setPage(p)}
+                  onQueryChange={q => setSearchHighlightQuery(q)}
                 />
               )}
 
@@ -1969,6 +1991,33 @@
                     backgroundSize: '250% 100%',
                     animation: 'sdoc-shimmer 5s ease-in-out infinite',
                   }} />
+
+                  {/* Feature 2: Search highlight overlays — yellow/orange boxes */}
+                  {searchHighlights.map((m, i) => (
+                    <div key={i} style={{
+                      position: 'absolute',
+                      left: `${m.x * 100}%`, top: `${m.y * 100}%`,
+                      width: `${m.w * 100}%`, height: `${m.h * 100}%`,
+                      background: i === 0 ? 'rgba(255,165,0,0.45)' : 'rgba(255,220,0,0.35)',
+                      border: i === 0 ? '1px solid rgba(255,140,0,0.7)' : '1px solid rgba(255,200,0,0.5)',
+                      borderRadius: 1, pointerEvents: 'none', zIndex: 6,
+                      transition: 'background .15s',
+                    }} />
+                  ))}
+
+                  {/* Feature 1: Hyperlink clickable overlays — transparent, pointer-events active */}
+                  {linksLoaded && (pageLinksRef.current[page] || []).map((link, i) => (
+                    <a key={i} href={link.url} target="_blank" rel="noopener noreferrer"
+                      style={{
+                        position: 'absolute',
+                        left: `${link.x * 100}%`, top: `${link.y * 100}%`,
+                        width: `${link.w * 100}%`, height: `${link.h * 100}%`,
+                        cursor: 'pointer', pointerEvents: 'auto', zIndex: 7,
+                        display: 'block',
+                      }}
+                      title={link.url}
+                    />
+                  ))}
                 </div>
                 );
               })()}
@@ -2049,29 +2098,8 @@
             )}
           </div>
 
-          {/* Zoom lens overlay — rectangular, follows cursor */}
-          {showLens && lensPos.visible && imgSrc && (
-            <div style={{
-              position: 'fixed',
-              left: Math.min(lensPos.x + 24, window.innerWidth - 296),
-              top: Math.max(8, Math.min(lensPos.y - 90, window.innerHeight - 196)),
-              width: 272, height: 180,
-              borderRadius: 7,
-              border: '1.5px solid rgba(90,200,208,0.4)',
-              boxShadow: '0 0 0 1px rgba(90,200,208,0.08), 0 12px 40px rgba(0,0,0,0.85)',
-              pointerEvents: 'none',
-              zIndex: 2000,
-              backgroundImage: `url(${imgSrc})`,
-              backgroundSize: `${lensPos.bgW}px ${lensPos.bgH}px`,
-              backgroundPosition: `-${lensPos.bgX}px -${lensPos.bgY}px`,
-              backgroundRepeat: 'no-repeat',
-              overflow: 'hidden',
-            }}>
-              <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 18, background: 'rgba(10,14,20,0.72)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <span style={{ fontSize: 9, color: 'rgba(90,200,208,0.7)', letterSpacing: '0.06em', fontFamily: "'DM Sans',sans-serif" }}>2.5× ZOOM</span>
-              </div>
-            </div>
-          )}
+          {/* Feature 5: Laser pointer — GPU-accelerated, ref-based (no setState on mousemove) */}
+          <LaserPointer active={showLaser} />
         </div>
       );
     }
@@ -2083,7 +2111,7 @@
       goPrev, goNext,
       layoutMode, customZoom, _zoomBy, _zoomTo, _setLayout,
       LAYOUT, ZOOM_STEP, ZOOM_PRESETS,
-      showLens, setShowLens, isFullscreen, toggleFullscreen,
+      showLaser, setShowLaser, isFullscreen, toggleFullscreen,
       showToc, setShowToc, showSearch, setShowSearch, showInfo, setShowInfo,
       showPageList, setShowPageList,
       canDownload, canPrint, onDownload, onPrint,
@@ -2239,16 +2267,14 @@
                 style={{ ...btn, padding: '3px 6px', fontSize: 14, borderRadius: 0, borderLeft: '1px solid rgba(255,255,255,0.07)' }}>+</button>
             </div>
             {sep}
-            {/* ── Lens toggle ── */}
-            <button onClick={() => setShowLens(v => !v)} title="Zoom lens"
-              style={{ ...btn, ...(showLens ? on : {}), padding: '3px 7px' }}>
-              <svg width="13" height="13" viewBox="0 0 13 13" fill="none" style={{ flexShrink: 0 }}>
-                <circle cx="5.5" cy="5.5" r="4" stroke="currentColor" strokeWidth="1.3" fill="none"/>
-                <line x1="8.8" y1="8.8" x2="12" y2="12" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
-                <line x1="3.5" y1="5.5" x2="7.5" y2="5.5" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
-                <line x1="5.5" y1="3.5" x2="5.5" y2="7.5" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
+            {/* ── Laser pointer toggle ── */}
+            <button onClick={() => setShowLaser(v => !v)} title="Laser pointer (presentation mode)"
+              style={{ ...btn, ...(showLaser ? { ...on, color: '#ff4444' } : {}), padding: '3px 7px' }}>
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" style={{ flexShrink: 0 }}>
+                <circle cx="6" cy="6" r="3" fill={showLaser ? '#ff4444' : 'currentColor'} opacity={showLaser ? 1 : 0.7}/>
+                <circle cx="6" cy="6" r="5" stroke={showLaser ? '#ff4444' : 'currentColor'} strokeWidth="1" fill="none" opacity="0.4"/>
               </svg>
-              Lens
+              Laser
             </button>
           </>)}
 
@@ -2294,8 +2320,36 @@
       );
     }
 
-    // ── Search panel — backend-powered, searches entire document ──────────────
-    function SearchPanel({ session, onClose, onNavigate }) {
+    // ── Feature 5: Laser pointer — GPU-accelerated, ref-based, zero setState lag ─
+    function LaserPointer({ active }) {
+      const dotRef = useRef(null);
+      useEffect(() => {
+        if (!active) return;
+        const move = e => {
+          if (dotRef.current) {
+            dotRef.current.style.transform = `translate(${e.clientX - 10}px, ${e.clientY - 10}px)`;
+            dotRef.current.style.opacity = '1';
+          }
+        };
+        document.addEventListener('mousemove', move, { passive: true });
+        return () => document.removeEventListener('mousemove', move);
+      }, [active]);
+      if (!active) return null;
+      return (
+        <div ref={dotRef} style={{
+          position: 'fixed', top: 0, left: 0,
+          width: 20, height: 20, borderRadius: '50%',
+          background: 'radial-gradient(circle, rgba(255,60,60,1) 0%, rgba(255,60,60,0.7) 35%, rgba(255,60,60,0.15) 70%, transparent 100%)',
+          boxShadow: '0 0 8px 3px rgba(255,50,50,0.55), 0 0 18px 6px rgba(255,50,50,0.25)',
+          pointerEvents: 'none', zIndex: 9999,
+          transform: 'translate(-9999px,-9999px)',
+          willChange: 'transform',
+        }} />
+      );
+    }
+
+    // ── Feature 7: Search panel — glassmorphism floating overlay ─────────────
+    function SearchPanel({ session, onClose, onNavigate, onQueryChange }) {
       const [query, setQuery] = useState('');
       const [results, setResults] = useState([]);
       const [loading, setLoading] = useState(false);
@@ -2305,6 +2359,7 @@
       useEffect(() => { inputRef.current?.focus(); }, []);
 
       useEffect(() => {
+        onQueryChange?.(query.trim());
         if (!query.trim() || !session) { setResults([]); return; }
         const timer = setTimeout(async () => {
           setLoading(true);
@@ -2335,56 +2390,92 @@
         setCurrentIdx(prev); goTo(prev);
       };
 
+      const iBtn = {
+        background: 'none', border: 'none', cursor: 'pointer', padding: '3px 5px',
+        color: 'rgba(148,160,176,0.8)', borderRadius: 4, lineHeight: 1,
+        transition: 'color .1s, background .1s', fontSize: 12,
+      };
+
       return (
         <div style={{
-          position: 'absolute', top: 10, right: 10, zIndex: 200,
-          background: C.surface2, border: `1px solid ${C.borderMed}`,
-          borderRadius: 9, padding: '10px 14px', width: 340,
-          boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
-          display: 'flex', flexDirection: 'column', gap: 8
+          position: 'absolute', top: 12, right: 12, zIndex: 200,
+          background: 'rgba(14,18,28,0.85)',
+          backdropFilter: 'blur(18px)', WebkitBackdropFilter: 'blur(18px)',
+          border: '1px solid rgba(90,200,208,0.18)',
+          borderRadius: 10, padding: '10px 12px', width: 350,
+          boxShadow: '0 4px 32px rgba(0,0,0,0.6), 0 0 0 1px rgba(90,200,208,0.06)',
+          display: 'flex', flexDirection: 'column', gap: 0,
         }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ fontSize: 11, color: C.teal2 }}>⌕</span>
+          {/* Input row */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <svg width="13" height="13" viewBox="0 0 13 13" fill="none" style={{ flexShrink: 0, color: '#5ac8d0', opacity: 0.8 }}>
+              <circle cx="5.5" cy="5.5" r="4" stroke="currentColor" strokeWidth="1.4" fill="none"/>
+              <line x1="8.8" y1="8.8" x2="12" y2="12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+            </svg>
             <input
               ref={inputRef}
               value={query}
               onChange={e => setQuery(e.target.value)}
               onKeyDown={e => {
-                if (e.key === 'Enter') { e.shiftKey ? goPrev() : goNext(); }
+                if (e.key === 'Enter') { e.preventDefault(); e.shiftKey ? goPrev() : goNext(); }
                 if (e.key === 'Escape') onClose();
               }}
               placeholder="Search entire document…"
               style={{
                 flex: 1, background: 'transparent', border: 'none', outline: 'none',
-                fontSize: 12, color: C.textPrimary, fontFamily: "'DM Sans',sans-serif"
+                fontSize: 12.5, color: 'rgba(220,228,238,0.95)',
+                fontFamily: "'DM Sans',sans-serif", letterSpacing: '0.01em',
               }}
             />
-            <span style={{ ...mono, fontSize: 10, color: C.textMuted, flexShrink: 0 }}>
+            <span style={{
+              fontFamily: 'ui-monospace,monospace', fontSize: 10,
+              color: loading ? '#5ac8d0' : results.length > 0 ? 'rgba(148,160,176,0.85)' : query.trim() ? 'rgba(200,80,80,0.8)' : 'transparent',
+              flexShrink: 0, minWidth: 32, textAlign: 'right',
+            }}>
               {loading ? '…' : results.length > 0 ? `${currentIdx + 1}/${results.length}` : query.trim() ? '0' : ''}
             </span>
-            <button onClick={goPrev} disabled={results.length === 0} title="Previous (Shift+Enter)"
-              style={{ background: 'none', border: 'none', color: C.textMuted, cursor: 'pointer', fontSize: 12, padding: '2px 4px' }}>↑</button>
-            <button onClick={goNext} disabled={results.length === 0} title="Next (Enter)"
-              style={{ background: 'none', border: 'none', color: C.textMuted, cursor: 'pointer', fontSize: 12, padding: '2px 4px' }}>↓</button>
-            <button onClick={onClose}
-              style={{ background: 'none', border: 'none', color: C.textMuted, cursor: 'pointer', fontSize: 14, lineHeight: 1, padding: '2px 4px' }}>✕</button>
+            <div style={{ display: 'flex', gap: 1, borderLeft: '1px solid rgba(255,255,255,0.07)', paddingLeft: 6, marginLeft: 2 }}>
+              <button onClick={goPrev} disabled={results.length === 0} title="Previous (Shift+Enter)" style={iBtn}>↑</button>
+              <button onClick={goNext} disabled={results.length === 0} title="Next (Enter)" style={iBtn}>↓</button>
+              <button onClick={onClose} title="Close (Esc)" style={{ ...iBtn, fontSize: 13 }}>✕</button>
+            </div>
           </div>
+
+          {/* Divider + results */}
           {results.length > 0 && (
-            <div style={{ maxHeight: 220, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 3 }}>
-              {results.slice(0, 50).map((r, i) => (
-                <div key={i}
-                  onClick={() => { setCurrentIdx(i); onNavigate(r.page); }}
-                  style={{
-                    ...mono, fontSize: 10, color: C.textSecondary,
-                    background: i === currentIdx ? C.accentBg : C.surfaceAlt,
-                    borderRadius: 5, padding: '4px 8px', lineHeight: 1.5,
-                    cursor: 'pointer',
-                    border: i === currentIdx ? `1px solid ${C.borderMed}` : '1px solid transparent',
-                  }}>
-                  <span style={{ color: C.teal2, fontWeight: 700 }}>p.{r.page} </span>
-                  {r.snippet}
+            <>
+              <div style={{ height: 1, background: 'rgba(255,255,255,0.06)', margin: '8px -12px' }} />
+              <div style={{ maxHeight: 240, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 2, margin: '0 -2px' }}>
+                {results.slice(0, 50).map((r, i) => {
+                  const isActive = i === currentIdx;
+                  return (
+                    <div key={i}
+                      onClick={() => { setCurrentIdx(i); onNavigate(r.page); }}
+                      style={{
+                        fontFamily: 'ui-monospace,monospace', fontSize: 10.5,
+                        color: isActive ? 'rgba(220,228,238,0.95)' : 'rgba(148,160,176,0.85)',
+                        background: isActive ? 'rgba(90,200,208,0.12)' : 'transparent',
+                        borderRadius: 5, padding: '5px 8px', lineHeight: 1.55,
+                        cursor: 'pointer', transition: 'background .1s',
+                        border: isActive ? '1px solid rgba(90,200,208,0.2)' : '1px solid transparent',
+                      }}>
+                      <span style={{ color: '#5ac8d0', fontWeight: 700, marginRight: 5 }}>p.{r.page}</span>
+                      {r.snippet}
+                    </div>
+                  );
+                })}
+              </div>
+              {results.length > 50 && (
+                <div style={{ fontSize: 9.5, color: 'rgba(100,112,128,0.7)', textAlign: 'center', paddingTop: 6, fontFamily: "'DM Sans',sans-serif" }}>
+                  Showing 50 of {results.length} results
                 </div>
-              ))}
+              )}
+            </>
+          )}
+
+          {!loading && query.trim() && results.length === 0 && (
+            <div style={{ fontSize: 11, color: 'rgba(148,160,176,0.6)', padding: '8px 2px 2px', fontFamily: "'DM Sans',sans-serif" }}>
+              No matches found
             </div>
           )}
         </div>
@@ -3187,6 +3278,9 @@
       const [docStats, setDocStats] = useState([]);
       const [groupStats, setGroupStats] = useState([]);
       const [analyticsLoading, setAnalyticsLoading] = useState(true);
+      const [selectedHeatmapDoc, setSelectedHeatmapDoc] = useState(null); // {id, filename}
+      const [heatmapData, setHeatmapData] = useState(null);
+      const [heatmapLoading, setHeatmapLoading] = useState(false);
 
       useEffect(() => {
         Promise.all([
@@ -3253,41 +3347,125 @@
 
             {/* ── BY DOCUMENT TAB ── */}
             {analyticsTab === 'documents' && (
-              <Card noPad>
-                <div style={{ padding: '10px 14px', borderBottom: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <SectionLabel>Per-Document Analytics</SectionLabel>
-                  <Chip color={C.textMuted} bg="transparent" border={C.border}>{docStats.length} docs</Chip>
-                </div>
-                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                  <thead>
-                    <tr style={{ borderBottom: `1px solid ${C.border}` }}>
-                      {['Document', 'Group', 'Views', 'Sessions', 'Avg Time', 'Completion', 'Blocked', 'Risk'].map(h => (
-                        <th key={h} style={{ ...label(9), padding: '8px 14px', textAlign: 'left', color: C.textDim }}>{h}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {docStats.length === 0 ? (
-                      <tr><td colSpan={8} style={{ padding: 24, textAlign: 'center', color: C.textMuted, fontSize: 12 }}>No documents yet</td></tr>
-                    ) : docStats.map((d, i) => (
-                      <tr key={d.id} style={{ borderBottom: i === docStats.length - 1 ? 'none' : `1px solid ${C.border}` }}>
-                        <td style={{ padding: '10px 14px', fontSize: 12, color: C.textPrimary, maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.filename}</td>
-                        <td style={{ padding: '10px 14px' }}>
-                          {d.group_name ? (
-                            <span style={{ fontSize: 9, padding: '2px 7px', borderRadius: 10, background: `${d.group_color || '#6366f1'}22`, color: d.group_color || '#6366f1', border: `1px solid ${d.group_color || '#6366f1'}44` }}>{d.group_name}</span>
-                          ) : <span style={{ fontSize: 9, color: C.textDim }}>—</span>}
-                        </td>
-                        <td style={{ ...mono, padding: '10px 14px', fontSize: 11, color: C.textSecondary }}>{d.total_views}</td>
-                        <td style={{ ...mono, padding: '10px 14px', fontSize: 11, color: C.textMuted }}>{d.unique_sessions}</td>
-                        <td style={{ ...mono, padding: '10px 14px', fontSize: 11, color: C.textMuted }}>{d.avg_time_on_page_sec > 0 ? `${Math.floor(d.avg_time_on_page_sec / 60)}m ${d.avg_time_on_page_sec % 60}s` : '—'}</td>
-                        <td style={{ ...mono, padding: '10px 14px', fontSize: 11, color: C.textMuted }}>{d.completion_rate_pct}%</td>
-                        <td style={{ ...mono, padding: '10px 14px', fontSize: 11, color: d.blocked_attempts > 0 ? C.error : C.textMuted }}>{d.blocked_attempts}</td>
-                        <td style={{ padding: '10px 14px' }}><RiskBadge level={d.risk_score} /></td>
+              <>
+                <Card noPad>
+                  <div style={{ padding: '10px 14px', borderBottom: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <SectionLabel>Per-Document Analytics</SectionLabel>
+                    <Chip color={C.textMuted} bg="transparent" border={C.border}>{docStats.length} docs</Chip>
+                  </div>
+                  <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                    <thead>
+                      <tr style={{ borderBottom: `1px solid ${C.border}` }}>
+                        {['Document', 'Group', 'Views', 'Sessions', 'Completion', 'Blocked', 'Risk', ''].map(h => (
+                          <th key={h} style={{ ...label(9), padding: '8px 14px', textAlign: 'left', color: C.textDim }}>{h}</th>
+                        ))}
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </Card>
+                    </thead>
+                    <tbody>
+                      {docStats.length === 0 ? (
+                        <tr><td colSpan={8} style={{ padding: 24, textAlign: 'center', color: C.textMuted, fontSize: 12 }}>No documents yet</td></tr>
+                      ) : docStats.map((d, i) => {
+                        const isSelected = selectedHeatmapDoc?.id === d.id;
+                        return (
+                          <tr key={d.id} onClick={() => {
+                            if (isSelected) { setSelectedHeatmapDoc(null); setHeatmapData(null); return; }
+                            setSelectedHeatmapDoc({ id: d.id, filename: d.filename });
+                            setHeatmapData(null);
+                            setHeatmapLoading(true);
+                            window.SecureDocAPI.getPageHeatmap(d.id)
+                              .then(data => setHeatmapData(data))
+                              .catch(() => setHeatmapData(null))
+                              .finally(() => setHeatmapLoading(false));
+                          }} style={{
+                            borderBottom: i === docStats.length - 1 ? 'none' : `1px solid ${C.border}`,
+                            background: isSelected ? 'rgba(90,200,208,0.04)' : 'transparent',
+                            cursor: 'pointer', transition: 'background .1s',
+                          }}>
+                            <td style={{ padding: '10px 14px', fontSize: 12, color: C.textPrimary, maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.filename}</td>
+                            <td style={{ padding: '10px 14px' }}>
+                              {d.group_name ? (
+                                <span style={{ fontSize: 9, padding: '2px 7px', borderRadius: 10, background: `${d.group_color || '#6366f1'}22`, color: d.group_color || '#6366f1', border: `1px solid ${d.group_color || '#6366f1'}44` }}>{d.group_name}</span>
+                              ) : <span style={{ fontSize: 9, color: C.textDim }}>—</span>}
+                            </td>
+                            <td style={{ ...mono, padding: '10px 14px', fontSize: 11, color: C.textSecondary }}>{d.total_views}</td>
+                            <td style={{ ...mono, padding: '10px 14px', fontSize: 11, color: C.textMuted }}>{d.unique_sessions}</td>
+                            <td style={{ ...mono, padding: '10px 14px', fontSize: 11, color: C.textMuted }}>{d.completion_rate_pct}%</td>
+                            <td style={{ ...mono, padding: '10px 14px', fontSize: 11, color: d.blocked_attempts > 0 ? C.error : C.textMuted }}>{d.blocked_attempts}</td>
+                            <td style={{ padding: '10px 14px' }}><RiskBadge level={d.risk_score} /></td>
+                            <td style={{ padding: '10px 14px', color: C.teal2, fontSize: 10 }}>{isSelected ? '▲ Hide' : '▦ Heatmap'}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </Card>
+
+                {/* Page Heatmap panel — Features 3 & 4 */}
+                {selectedHeatmapDoc && (
+                  <Card style={{ padding: 0 }}>
+                    <div style={{ padding: '12px 16px', borderBottom: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <span style={{ fontSize: 13, color: '#5ac8d0' }}>▦</span>
+                      <div>
+                        <div style={{ fontSize: 12.5, fontWeight: 600, color: C.textPrimary }}>{selectedHeatmapDoc.filename}</div>
+                        <div style={{ fontSize: 10, color: C.textDim, marginTop: 1 }}>Page engagement heatmap · click any row to drill in</div>
+                      </div>
+                      {heatmapData && (
+                        <span style={{ marginLeft: 'auto', ...mono, fontSize: 10, color: C.textMuted }}>{heatmapData.total_views} total page views</span>
+                      )}
+                    </div>
+
+                    {heatmapLoading && (
+                      <div style={{ padding: 32, textAlign: 'center', color: C.textMuted, fontSize: 12 }}>Loading heatmap…</div>
+                    )}
+
+                    {!heatmapLoading && heatmapData && heatmapData.pages.length === 0 && (
+                      <div style={{ padding: 32, textAlign: 'center', color: C.textMuted, fontSize: 12 }}>
+                        No page views recorded yet for this document.
+                      </div>
+                    )}
+
+                    {!heatmapLoading && heatmapData && heatmapData.pages.length > 0 && (
+                      <div style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 5 }}>
+                        {/* Top pages header */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                          <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: C.textDim }}>Most Viewed Pages</span>
+                          <span style={{ ...mono, fontSize: 9, color: C.textDim }}>· {heatmapData.page_count} pages total</span>
+                        </div>
+                        {heatmapData.pages.slice(0, 20).map((p, i) => {
+                          const maxViews = heatmapData.pages[0]?.views || 1;
+                          const barPct = Math.max(2, Math.round((p.views / maxViews) * 100));
+                          const heat = p.pct > 15 ? '#ff6b35' : p.pct > 8 ? '#ffd166' : '#5ac8d0';
+                          return (
+                            <div key={p.page} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                              <div style={{ ...mono, fontSize: 10, color: C.textMuted, width: 52, flexShrink: 0, textAlign: 'right' }}>
+                                {i < 3 ? '🔥' : ''} p.{p.page}
+                              </div>
+                              <div style={{ flex: 1, height: 16, background: 'rgba(255,255,255,0.04)', borderRadius: 3, overflow: 'hidden' }}>
+                                <div style={{
+                                  width: `${barPct}%`, height: '100%',
+                                  background: `linear-gradient(90deg, ${heat}aa, ${heat})`,
+                                  borderRadius: 3, transition: 'width .3s ease',
+                                }} />
+                              </div>
+                              <div style={{ ...mono, fontSize: 10, color: C.textSecondary, width: 52, flexShrink: 0 }}>
+                                {p.views} view{p.views !== 1 ? 's' : ''}
+                              </div>
+                              <div style={{ ...mono, fontSize: 9, color: C.textDim, width: 48, flexShrink: 0 }}>
+                                {p.avg_time_sec > 0 ? `${p.avg_time_sec}s avg` : ''}
+                              </div>
+                            </div>
+                          );
+                        })}
+                        {heatmapData.pages.length > 20 && (
+                          <div style={{ fontSize: 10, color: C.textDim, textAlign: 'center', paddingTop: 4 }}>
+                            Showing top 20 of {heatmapData.pages.length} pages with views
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </Card>
+                )}
+              </>
             )}
 
             {/* ── BY GROUP TAB ── */}

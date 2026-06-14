@@ -319,6 +319,36 @@ window.SecureDocAPI = {
     return r.json();
   },
 
+  async getDocumentLinks(linkToken, sessionId) {
+    const base = API_BASE.replace(/\/$/, '');
+    const r = await fetch(
+      `${base}/api/viewer/links/${encodeURIComponent(linkToken)}`,
+      { headers: this.sessionHeaders(sessionId) }
+    );
+    if (!r.ok) return { pages: [] };
+    return r.json();
+  },
+
+  async getWordPositions(linkToken, sessionId) {
+    const base = API_BASE.replace(/\/$/, '');
+    const r = await fetch(
+      `${base}/api/viewer/words/${encodeURIComponent(linkToken)}`,
+      { headers: this.sessionHeaders(sessionId) }
+    );
+    if (!r.ok) return { pages: [] };
+    return r.json();
+  },
+
+  async getPageHeatmap(documentId) {
+    const params = new URLSearchParams({ document_id: documentId });
+    const r = await fetch(`${API_BASE}/api/analytics/page-heatmap?${params}`, {
+      headers: { ...authHeaders() },
+    });
+    if (r.status === 401) { _clearAndReload(); return; }
+    if (!r.ok) return null;
+    return r.json();
+  },
+
   async searchDocument(linkToken, q, sessionId) {
     const base = API_BASE.replace(/\/$/, '');
     const params = new URLSearchParams({ q: q || '' });

@@ -142,6 +142,10 @@ async def process_pdf_document(
     await extract_and_store_pdf_toc(document_id, pdf_bytes, storage)
     # Extract page text for full-document search (best-effort: never blocks processing)
     await extract_and_store_text_sidecar(document_id, pdf_bytes, storage)
+    # Extract hyperlink annotations for clickable overlay (best-effort)
+    await extract_and_store_links_sidecar(document_id, pdf_bytes, storage)
+    # Extract word bounding boxes for search highlighting (best-effort)
+    await extract_and_store_word_positions(document_id, pdf_bytes, storage)
 
     return {
         "document_id": document_id,
@@ -217,3 +221,160 @@ async def extract_and_store_text_sidecar(
         )
     except Exception as exc:
         logger.warning("Document %s: text sidecar extraction failed (non-fatal): %s", document_id, exc)
+
+
+async def extract_and_store_links_sidecar(
+    document_id: str,
+    pdf_bytes: bytes,
+    storage,
+) -> None:
+    """
+    Extract hyperlink annotations from each PDF page and store as a sidecar.
+
+    Stored at links/{doc_id}.json as [{page, links: [{x,y,w,h,url}]}] with
+    coordinates normalized to [0,1] relative to page dimensions (top-left origin).
+    Only http/https URIs are stored. All errors are non-fatal.
+    """
+    import json as _json
+    try:
+        from io import BytesIO as _BytesIO
+        import pypdf as _pypdf
+
+        reader = _pypdf.PdfReader(_BytesIO(pdf_bytes))
+        pages_data = []
+
+        for i, pdf_page in enumerate(reader.pages, start=1):
+            width_pt = float(pdf_page.mediabox.width)
+            height_pt = float(pdf_page.mediabox.height)
+            if width_pt <= 0 or height_pt <= 0:
+                continue
+
+            links = []
+            raw_annots = pdf_page.get("/Annots")
+            if not raw_annots:
+                continue
+
+            for annot_ref in raw_annots:
+                try:
+                    annot = annot_ref.get_object()
+                    if annot.get("/Subtype") != "/Link":
+                        continue
+                    action = annot.get("/A")
+                    if not action:
+                        continue
+                    uri = action.get("/URI")
+                    if not uri:
+                        continue
+                    uri_str = str(uri)
+                    if not uri_str.startswith(("http://", "https://")):
+                        continue
+                    rect = annot.get("/Rect")
+                    if not rect or len(rect) < 4:
+                        continue
+                    x0, y0, x1, y1 = (float(v) for v in rect[:4])
+                    if x1 <= x0 or y1 <= y0:
+                        continue
+                    # PDF coordinate origin is bottom-left; convert to top-left
+                    nx = x0 / width_pt
+                    ny = 1.0 - y1 / height_pt
+                    nw = (x1 - x0) / width_pt
+                    nh = (y1 - y0) / height_pt
+                    if 0 <= nx <= 1 and 0 <= ny <= 1 and nw > 0 and nh > 0:
+                        links.append({
+                            "x": round(nx, 4), "y": round(ny, 4),
+                            "w": round(nw, 4), "h": round(nh, 4),
+                            "url": uri_str,
+                        })
+                except Exception:
+                    continue
+
+            if links:
+                pages_data.append({"page": i, "links": links})
+
+        if not pages_data:
+            return  # No links in document — skip creating empty sidecar
+        sidecar_key = f"links/{document_id}.json"
+        payload = _json.dumps(pages_data, ensure_ascii=False)
+        await storage.upload_file(payload.encode("utf-8"), sidecar_key, content_type="application/json")
+        logger.info("Document %s: stored links sidecar (%d pages with links)", document_id, len(pages_data))
+    except Exception as exc:
+        logger.warning("Document %s: link sidecar extraction failed (non-fatal): %s", document_id, exc)
+
+
+async def extract_and_store_word_positions(
+    document_id: str,
+    pdf_bytes: bytes,
+    storage,
+) -> None:
+    """
+    Extract word-level bounding boxes from each PDF page for search highlighting.
+
+    Stored at words/{doc_id}.json as [{page, words: [{t,x,y,w,h}]}] with
+    coordinates normalized to [0,1] relative to page dimensions (top-left origin).
+    Uses pypdf's visitor API; accuracy is approximate (±1 char width). Non-fatal.
+    """
+    import json as _json
+    try:
+        from io import BytesIO as _BytesIO
+        import pypdf as _pypdf
+
+        reader = _pypdf.PdfReader(_BytesIO(pdf_bytes))
+        pages_data = []
+
+        for i, pdf_page in enumerate(reader.pages, start=1):
+            width_pt = float(pdf_page.mediabox.width)
+            height_pt = float(pdf_page.mediabox.height)
+            if width_pt <= 0 or height_pt <= 0:
+                continue
+
+            page_words: list = []
+
+            def _visitor(text, cm, tm, fontdict, fontsize, _pw=width_pt, _ph=height_pt, _out=page_words):
+                if not text:
+                    return
+                try:
+                    x = float(tm[4])
+                    y = float(tm[5])
+                    h = abs(float(tm[3])) if tm[3] else float(fontsize or 10.0)
+                    if h < 1:
+                        h = 10.0
+                    char_w = h * 0.52  # approximate average character width
+                    cur_x = x
+                    for part in text.split(" "):
+                        if part:
+                            word_w = len(part) * char_w
+                            nx = cur_x / _pw
+                            ny = 1.0 - (y + h) / _ph
+                            nw = word_w / _pw
+                            nh = h / _ph
+                            if (0 <= nx <= 1 and 0 <= ny <= 1
+                                    and nw > 0 and nh > 0 and len(part) >= 2):
+                                _out.append({
+                                    "t": part,
+                                    "x": round(max(0.0, nx), 4),
+                                    "y": round(max(0.0, ny), 4),
+                                    "w": round(min(1.0 - nx, nw), 4),
+                                    "h": round(min(1.0 - ny, nh), 4),
+                                })
+                            cur_x += word_w + char_w
+                        else:
+                            cur_x += char_w
+                except Exception:
+                    pass
+
+            pdf_page.extract_text(visitor_text=_visitor)
+
+            if page_words:
+                pages_data.append({"page": i, "words": page_words})
+
+        if not pages_data:
+            return
+        sidecar_key = f"words/{document_id}.json"
+        payload = _json.dumps(pages_data, ensure_ascii=False)
+        await storage.upload_file(payload.encode("utf-8"), sidecar_key, content_type="application/json")
+        logger.info(
+            "Document %s: stored word position sidecar (%d pages)",
+            document_id, len(pages_data),
+        )
+    except Exception as exc:
+        logger.warning("Document %s: word position extraction failed (non-fatal): %s", document_id, exc)

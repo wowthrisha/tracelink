@@ -1111,3 +1111,83 @@ async def search_document(
         content={"results": results[:200], "total": len(results), "query": query},
         headers={"Cache-Control": "no-store, no-cache, must-revalidate"},
     )
+
+
+@router.get("/links/{link_token}")
+@limiter.limit("20/minute")
+async def get_document_links(
+    request: Request,
+    link_token: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Return hyperlink annotation metadata for the document.
+
+    Loaded from links/{doc_id}.json (created at processing time). Returns
+    {pages: [{page, links: [{x,y,w,h,url}]}]} with normalized coordinates.
+    Returns empty pages list when no sidecar exists (no links in doc).
+    """
+    from fastapi.responses import JSONResponse as _JSONResponse
+
+    session_id = _get_session_id(request)
+    if not session_id:
+        raise HTTPException(status_code=400, detail="session_id is required")
+
+    link_snap, doc_snap, ip, now = await _get_cached_link_and_doc(link_token, db, request)
+
+    if not await policy_enforcer.is_active_session(db, link_snap.id, session_id):
+        raise HTTPException(status_code=401, detail="Session not recognized. Please re-validate.")
+
+    doc_id_str = str(link_snap.document_id)
+    sidecar_key = f"links/{doc_id_str}.json"
+    try:
+        _storage = get_storage_service()
+        raw = await _storage.download_bytes(sidecar_key)
+        pages_data = json.loads(raw.decode("utf-8"))
+    except Exception:
+        pages_data = []
+
+    return _JSONResponse(
+        content={"pages": pages_data},
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@router.get("/words/{link_token}")
+@limiter.limit("10/minute")
+async def get_word_positions(
+    request: Request,
+    link_token: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Return word-level bounding boxes for search highlighting.
+
+    Loaded from words/{doc_id}.json (created at processing time). Returns
+    {pages: [{page, words: [{t,x,y,w,h}]}]} with normalized coordinates.
+    Returns empty pages list when no sidecar exists.
+    """
+    from fastapi.responses import JSONResponse as _JSONResponse
+
+    session_id = _get_session_id(request)
+    if not session_id:
+        raise HTTPException(status_code=400, detail="session_id is required")
+
+    link_snap, doc_snap, ip, now = await _get_cached_link_and_doc(link_token, db, request)
+
+    if not await policy_enforcer.is_active_session(db, link_snap.id, session_id):
+        raise HTTPException(status_code=401, detail="Session not recognized. Please re-validate.")
+
+    doc_id_str = str(link_snap.document_id)
+    sidecar_key = f"words/{doc_id_str}.json"
+    try:
+        _storage = get_storage_service()
+        raw = await _storage.download_bytes(sidecar_key)
+        pages_data = json.loads(raw.decode("utf-8"))
+    except Exception:
+        pages_data = []
+
+    return _JSONResponse(
+        content={"pages": pages_data},
+        headers={"Cache-Control": "no-store"},
+    )

@@ -306,6 +306,75 @@ class AnalyticsService:
 
         return analytics
 
+    async def get_page_heatmap(
+        self,
+        db: AsyncSession,
+        document_id: uuid.UUID,
+        user_id: uuid.UUID,
+    ) -> Optional[dict]:
+        """
+        Aggregate page_viewed events by page number for a specific document.
+
+        Returns None if the document doesn't exist or belongs to another user.
+        Result: {document_id, page_count, total_views, pages: [{page, views, pct, avg_time_sec}]}
+        Uses existing analytics data only — no new tracking events or DB tables.
+        """
+        # Security: verify document ownership
+        doc_result = await db.execute(
+            select(Document).where(Document.id == document_id, Document.user_id == user_id)
+        )
+        doc = doc_result.scalar_one_or_none()
+        if not doc:
+            return None
+
+        # Get all link IDs for this document
+        links_result = await db.execute(
+            select(ShareLink.id).where(ShareLink.document_id == document_id)
+        )
+        link_ids = [r[0] for r in links_result.all()]
+        if not link_ids:
+            return {
+                "document_id": str(document_id),
+                "filename": doc.filename,
+                "page_count": doc.page_count or 0,
+                "total_views": 0,
+                "pages": [],
+            }
+
+        # Aggregate page_viewed events: COUNT per page + AVG time_spent_ms
+        heatmap_q = (
+            select(
+                AccessEvent.page_number,
+                func.count().label("views"),
+                func.avg(AccessEvent.time_spent_ms).label("avg_ms"),
+            )
+            .where(
+                AccessEvent.link_id.in_(link_ids),
+                AccessEvent.event_type == "page_viewed",
+                AccessEvent.page_number.isnot(None),
+            )
+            .group_by(AccessEvent.page_number)
+            .order_by(AccessEvent.page_number)
+        )
+        rows = (await db.execute(heatmap_q)).all()
+        total_views = sum(r.views for r in rows)
+        pages = [
+            {
+                "page": r.page_number,
+                "views": r.views,
+                "pct": round(r.views / total_views * 100, 1) if total_views > 0 else 0.0,
+                "avg_time_sec": round((r.avg_ms or 0.0) / 1000.0, 1),
+            }
+            for r in rows
+        ]
+        return {
+            "document_id": str(document_id),
+            "filename": doc.filename,
+            "page_count": doc.page_count or 0,
+            "total_views": total_views,
+            "pages": pages,
+        }
+
     async def get_group_analytics(
         self, db: AsyncSession, user_id: Optional[uuid.UUID] = None
     ) -> list:

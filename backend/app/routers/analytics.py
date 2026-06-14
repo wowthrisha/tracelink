@@ -57,6 +57,31 @@ async def get_group_analytics(
     return {"groups": groups}
 
 
+@router.get("/page-heatmap")
+async def get_page_heatmap(
+    document_id: str = Query(...),
+    db: AsyncSession = Depends(get_db),
+    user: dict = Depends(require_scope("analytics:read")),
+):
+    """
+    Return page-level view counts and average time-on-page for a document.
+
+    Uses existing page_viewed analytics events — no new tracking required.
+    Response: {document_id, filename, page_count, total_views, pages: [{page, views, pct, avg_time_sec}]}
+    """
+    try:
+        doc_uuid = uuid.UUID(document_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid document_id")
+
+    result = await analytics_svc.get_page_heatmap(
+        db, document_id=doc_uuid, user_id=uuid.UUID(user["user_id"])
+    )
+    if result is None:
+        raise HTTPException(status_code=404, detail="Document not found")
+    return result
+
+
 @router.get("/events")
 async def get_events(
     document_id: Optional[str] = Query(None),
