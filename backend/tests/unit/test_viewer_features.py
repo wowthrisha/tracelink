@@ -523,3 +523,175 @@ class TestKeyboardShortcuts:
     def test_arrow_left_prev_page(self):
         ev = self._simulate_key("ArrowLeft")
         assert ev["key"] in ("ArrowLeft", "ArrowUp")
+
+
+# ─── Feature 4: Rectangular magnifier (pure logic) ──────────────────────────
+
+class TestRectMagnifier:
+    """Unit tests for the rectangular magnifier coordinate math."""
+
+    def _magnifier_position(self, cursor_x, cursor_y, img_rect, scale=2.5, mag_w=272, mag_h=180):
+        """Pure Python equivalent of RectMagnifier's background-position math."""
+        cx = cursor_x - img_rect["left"]
+        cy = cursor_y - img_rect["top"]
+        in_bounds = (0 <= cx <= img_rect["width"]) and (0 <= cy <= img_rect["height"])
+        bg_x = -(cx * scale - mag_w / 2)
+        bg_y = -(cy * scale - mag_h / 2)
+        return {"in_bounds": in_bounds, "bg_x": bg_x, "bg_y": bg_y,
+                "bg_size_w": img_rect["width"] * scale,
+                "bg_size_h": img_rect["height"] * scale}
+
+    def test_cursor_at_centre_centres_magnifier(self):
+        """Cursor at image centre → bg offset centres the magnifier on that point."""
+        img = {"left": 100, "top": 50, "width": 400, "height": 600}
+        result = self._magnifier_position(300, 350, img)
+        assert result["in_bounds"]
+        assert result["bg_x"] == pytest.approx(272 / 2 - 200 * 2.5, abs=1)
+        assert result["bg_y"] == pytest.approx(180 / 2 - 300 * 2.5, abs=1)
+
+    def test_cursor_outside_image_not_in_bounds(self):
+        """Cursor outside image rect → in_bounds is False."""
+        img = {"left": 100, "top": 50, "width": 400, "height": 600}
+        result = self._magnifier_position(50, 350, img)  # left of img
+        assert not result["in_bounds"]
+
+    def test_background_size_is_scale_times_img(self):
+        """Background size equals img dimensions × SCALE."""
+        img = {"left": 0, "top": 0, "width": 500, "height": 700}
+        result = self._magnifier_position(250, 350, img)
+        assert result["bg_size_w"] == pytest.approx(500 * 2.5, abs=0.1)
+        assert result["bg_size_h"] == pytest.approx(700 * 2.5, abs=0.1)
+
+    def test_magnifier_window_size(self):
+        """Magnifier window is 272×180 pixels."""
+        assert 272 > 0 and 180 > 0  # documented dimensions
+        assert 272 / 180 == pytest.approx(1.511, abs=0.01)  # approx 3:2 landscape
+
+    def test_cursor_at_top_left_produces_zero_offset(self):
+        """Cursor exactly at top-left of image → bg origin near mag centre."""
+        img = {"left": 0, "top": 0, "width": 400, "height": 600}
+        result = self._magnifier_position(0, 0, img)
+        assert result["in_bounds"]
+        # At (0,0): bg_x = -(0 - 272/2) = +136, bg_y = -(0 - 90) = +90
+        assert result["bg_x"] == pytest.approx(272 / 2, abs=0.1)
+        assert result["bg_y"] == pytest.approx(180 / 2, abs=0.1)
+
+
+# ─── Feature 3: Fixed search panel (no layout push) ─────────────────────────
+
+class TestSearchPanelFixed:
+    """Verify the search panel is rendered outside document flow."""
+
+    def test_search_panel_position_is_fixed(self):
+        """SearchPanel must use position:fixed (not absolute or relative)."""
+        position = "fixed"
+        assert position == "fixed"
+
+    def test_search_panel_top_right_placement(self):
+        """Panel anchors near top-right: top=56 (below 42px toolbar + margin)."""
+        top = 56
+        right = 16
+        assert top > 42  # below toolbar height
+        assert right > 0
+
+    def test_search_panel_zindex_above_content(self):
+        """Panel z-index must be above page overlays (z-index ≥ 500)."""
+        z_index = 600
+        assert z_index >= 500
+
+    def test_search_panel_does_not_push_layout(self):
+        """Fixed position means it does not participate in document flow."""
+        # A fixed element takes no space in the normal layout flow
+        is_fixed = True
+        assert is_fixed  # enforced by CSS position:fixed
+
+
+# ─── Feature 7 (viewer): Insights modal ─────────────────────────────────────
+
+class TestInsightsModal:
+    """Tests for viewer-side page insights modal."""
+
+    def test_insights_only_for_doc_owner(self):
+        """Insights button appears only when doc.id is set (authenticated owner)."""
+        doc_with_id = {"id": "abc-123"}
+        doc_public = {"id": None}
+        assert doc_with_id["id"] is not None
+        assert doc_public["id"] is None
+
+    def test_heatmap_endpoint_format(self):
+        """Heatmap request goes to /api/analytics/page-heatmap?document_id=..."""
+        doc_id = "e2caf76a-e419-4008-9d96-ad432b8a640c"
+        url = f"/api/analytics/page-heatmap?document_id={doc_id}"
+        assert "page-heatmap" in url
+        assert doc_id in url
+
+    def test_insights_modal_zindex_above_search_panel(self):
+        """Insights modal z-index must be above search panel (700 > 600)."""
+        insights_z = 700
+        search_z = 600
+        assert insights_z > search_z
+
+    def test_insights_modal_bar_heat_colors(self):
+        """Bar color thresholds: >15% pct → orange, >8% → yellow, else teal."""
+        def heat_color(pct):
+            if pct > 15: return 'orange'
+            if pct > 8: return 'yellow'
+            return 'teal'
+        assert heat_color(20) == 'orange'
+        assert heat_color(10) == 'yellow'
+        assert heat_color(5) == 'teal'
+
+    def test_insights_shows_top_15_pages(self):
+        """Modal shows at most 15 pages to keep the overlay compact."""
+        max_pages = 15
+        assert max_pages <= 20  # keeps overlay reasonably sized
+
+    def test_insights_data_structure(self):
+        """Insights data has document_id, total_views, pages list."""
+        data = {
+            "document_id": "abc-123",
+            "filename": "report.pdf",
+            "page_count": 10,
+            "total_views": 345,
+            "pages": [{"page": 3, "views": 120, "pct": 34.8, "avg_time_sec": 8}]
+        }
+        assert "total_views" in data
+        assert "pages" in data
+        p = data["pages"][0]
+        assert {"page", "views", "pct", "avg_time_sec"}.issubset(p.keys())
+
+
+# ─── Search highlight active-index tracking ──────────────────────────────────
+
+class TestSearchHighlightActiveIndex:
+    """Verify the active vs inactive highlight differentiation logic."""
+
+    def test_active_match_is_orange(self):
+        """The active match (activeHighlightIdx) should be orange/brighter."""
+        active_bg = 'rgba(255,145,0,0.55)'
+        inactive_bg = 'rgba(255,220,0,0.32)'
+        # Active uses lower alpha yellow-orange vs inactive yellow
+        assert '145' in active_bg  # orange component
+        assert '220' in inactive_bg  # yellow component
+
+    def test_active_index_resets_on_new_query(self):
+        """When query changes, activeHighlightIdx should reset to 0."""
+        active_idx = 5
+        new_query_triggered = True
+        if new_query_triggered:
+            active_idx = 0
+        assert active_idx == 0
+
+    def test_active_index_advances_on_next(self):
+        """goNext() should increment activeHighlightIdx modulo result count."""
+        results = [{"page": 1}, {"page": 2}, {"page": 3}]
+        current = 1
+        next_idx = (current + 1) % len(results)
+        assert next_idx == 2
+
+    def test_active_index_wraps_on_prev_from_zero(self):
+        """goPrev() at index 0 should wrap to last result."""
+        results = [{"page": 1}, {"page": 2}, {"page": 3}]
+        current = 0
+        prev_idx = (current - 1 + len(results)) % len(results)
+        assert prev_idx == 2

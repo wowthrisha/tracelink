@@ -1235,12 +1235,17 @@
       const [showSearch, setShowSearch] = useState(false);
       // Phase 7: TOC sidebar for text/md documents
       const [showToc, setShowToc] = useState(false);
-      // Premium: laser pointer (replaces zoom lens), fullscreen, page jump
+      // Premium: laser pointer, magnifier, fullscreen, page jump
       const [showLaser, setShowLaser] = useState(false);
+      const [showMagnifier, setShowMagnifier] = useState(false);
+      const [showInsights, setShowInsights] = useState(false);
+      const [insightsData, setInsightsData] = useState(null);
+      const [insightsLoading, setInsightsLoading] = useState(false);
       const [isFullscreen, setIsFullscreen] = useState(false);
       const [pageInputStr, setPageInputStr] = useState('');
       const [showPageList, setShowPageList] = useState(false);
       const pageImgRef = useRef(null);
+      const pageContainerRef = useRef(null); // Feature 4: magnifier needs page container
       // Feature 1: hyperlink overlay
       const pageLinksRef = useRef({});   // {pageNum: [{x,y,w,h,url}]}
       const [linksLoaded, setLinksLoaded] = useState(false);
@@ -1248,6 +1253,7 @@
       const wordPositionsRef = useRef({}); // {pageNum: [{t,x,y,w,h}]}
       const [searchHighlightQuery, setSearchHighlightQuery] = useState('');
       const [searchHighlights, setSearchHighlights] = useState([]);
+      const [activeHighlightIdx, setActiveHighlightIdx] = useState(0); // which match is orange
       // Phase 7: mobile/touch support — extended for pinch-to-zoom
       const touchRef = useRef({ x: null, y: null, pinchDist: null });
 
@@ -1737,6 +1743,18 @@
             _zoomBy={_zoomBy} _zoomTo={_zoomTo} _setLayout={_setLayout}
             LAYOUT={LAYOUT} ZOOM_STEP={ZOOM_STEP} ZOOM_PRESETS={ZOOM_PRESETS}
             showLaser={showLaser} setShowLaser={setShowLaser}
+            showMagnifier={showMagnifier} setShowMagnifier={setShowMagnifier}
+            showInsights={showInsights} setShowInsights={v => {
+              setShowInsights(v);
+              if (v && !insightsData && !insightsLoading && doc?.id) {
+                setInsightsLoading(true);
+                window.SecureDocAPI.getPageHeatmap(doc.id)
+                  .then(d => setInsightsData(d))
+                  .catch(() => setInsightsData(null))
+                  .finally(() => setInsightsLoading(false));
+              }
+            }}
+            hasInsights={!!doc?.id}
             isFullscreen={isFullscreen} toggleFullscreen={toggleFullscreen}
             showToc={showToc} setShowToc={setShowToc}
             showSearch={showSearch} setShowSearch={setShowSearch}
@@ -1760,6 +1778,28 @@
             }}
             C={C} mono={mono}
           />
+
+          {/* Feature 3: Search panel — fixed viewport overlay, never pushes content */}
+          {showSearch && session && (
+            <SearchPanel
+              session={session}
+              onClose={() => { setShowSearch(false); setSearchHighlightQuery(''); setActiveHighlightIdx(0); }}
+              onNavigate={p => setPage(p)}
+              onQueryChange={q => setSearchHighlightQuery(q)}
+              onActiveChange={idx => setActiveHighlightIdx(idx)}
+            />
+          )}
+
+          {/* Feature 7: Insights modal — fixed overlay, owner-only */}
+          {showInsights && doc?.id && (
+            <InsightsModal
+              docName={docName}
+              loading={insightsLoading}
+              data={insightsData}
+              onClose={() => setShowInsights(false)}
+              C={C} mono={mono}
+            />
+          )}
 
           <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
             {/* Universal TOC sidebar — PDF (page nav) and text/docx/doc (chunk nav) */}
@@ -1821,16 +1861,6 @@
                 </div>
               )}
 
-              {/* Phase 7: In-viewer search panel */}
-              {showSearch && session && (
-                <SearchPanel
-                  session={session}
-                  onClose={() => { setShowSearch(false); setSearchHighlightQuery(''); }}
-                  onNavigate={p => setPage(p)}
-                  onQueryChange={q => setSearchHighlightQuery(q)}
-                />
-              )}
-
               {/* Security badges */}
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'center' }}>
                 <div style={{
@@ -1879,7 +1909,7 @@
                   return { width: `${customZoom * 5.9}px`, maxWidth: '100%', height: undefined };
                 })();
                 return (
-                <div className="viewer-page" style={{
+                <div ref={pageContainerRef} className="viewer-page" style={{
                   position: 'relative', ...(_pgStyle),
                   aspectRatio: layoutMode === LAYOUT.FIT_HEIGHT ? undefined : '8.5/11',
                   flexShrink: 0, transition: 'width .25s ease, height .25s ease',
@@ -1990,18 +2020,22 @@
                     animation: 'sdoc-shimmer 5s ease-in-out infinite',
                   }} />
 
-                  {/* Feature 2: Search highlight overlays — yellow/orange boxes */}
-                  {searchHighlights.map((m, i) => (
-                    <div key={i} style={{
-                      position: 'absolute',
-                      left: `${m.x * 100}%`, top: `${m.y * 100}%`,
-                      width: `${m.w * 100}%`, height: `${m.h * 100}%`,
-                      background: i === 0 ? 'rgba(255,165,0,0.45)' : 'rgba(255,220,0,0.35)',
-                      border: i === 0 ? '1px solid rgba(255,140,0,0.7)' : '1px solid rgba(255,200,0,0.5)',
-                      borderRadius: 1, pointerEvents: 'none', zIndex: 6,
-                      transition: 'background .15s',
-                    }} />
-                  ))}
+                  {/* Feature 2: Search highlight overlays — yellow (inactive) / orange (active) */}
+                  {searchHighlights.map((m, i) => {
+                    const isActive = i === activeHighlightIdx;
+                    return (
+                      <div key={i} style={{
+                        position: 'absolute',
+                        left: `${m.x * 100}%`, top: `${m.y * 100}%`,
+                        width: `${m.w * 100}%`, height: `${m.h * 100}%`,
+                        background: isActive ? 'rgba(255,145,0,0.55)' : 'rgba(255,220,0,0.32)',
+                        border: isActive ? '1.5px solid rgba(255,120,0,0.85)' : '1px solid rgba(255,200,0,0.45)',
+                        borderRadius: 1, pointerEvents: 'none', zIndex: 6,
+                        boxShadow: isActive ? '0 0 6px rgba(255,145,0,0.4)' : 'none',
+                        transition: 'background .15s, border .15s, box-shadow .15s',
+                      }} />
+                    );
+                  })}
 
                   {/* Feature 1: Hyperlink clickable overlays — transparent, pointer-events active */}
                   {linksLoaded && (pageLinksRef.current[page] || []).map((link, i) => (
@@ -2098,6 +2132,8 @@
 
           {/* Feature 5: Laser pointer — GPU-accelerated, ref-based (no setState on mousemove) */}
           <LaserPointer active={showLaser} />
+          {/* Feature 4: Rectangular magnifier */}
+          <RectMagnifier active={showMagnifier} imgSrc={imgSrc} pageContainerRef={pageContainerRef} />
         </div>
       );
     }
@@ -2109,7 +2145,9 @@
       goPrev, goNext,
       layoutMode, customZoom, _zoomBy, _zoomTo, _setLayout,
       LAYOUT, ZOOM_STEP, ZOOM_PRESETS,
-      showLaser, setShowLaser, isFullscreen, toggleFullscreen,
+      showLaser, setShowLaser, showMagnifier, setShowMagnifier,
+      showInsights, setShowInsights, hasInsights,
+      isFullscreen, toggleFullscreen,
       showToc, setShowToc, showSearch, setShowSearch, showInfo, setShowInfo,
       showPageList, setShowPageList,
       canDownload, canPrint, onDownload, onPrint,
@@ -2265,8 +2303,22 @@
                 style={{ ...btn, padding: '3px 6px', fontSize: 14, borderRadius: 0, borderLeft: '1px solid rgba(255,255,255,0.07)' }}>+</button>
             </div>
             {sep}
+            {/* ── Magnifier toggle ── */}
+            <button onClick={() => { setShowMagnifier(v => !v); if (showLaser) setShowLaser(false); }}
+              title="Rectangular magnifier (2.5×)"
+              style={{ ...btn, ...(showMagnifier ? on : {}), padding: '3px 7px' }}>
+              <svg width="13" height="13" viewBox="0 0 13 13" fill="none" style={{ flexShrink: 0 }}>
+                <circle cx="5.5" cy="5.5" r="4" stroke="currentColor" strokeWidth="1.3" fill="none"/>
+                <line x1="8.8" y1="8.8" x2="12" y2="12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+                <line x1="3.5" y1="5.5" x2="7.5" y2="5.5" stroke="currentColor" strokeWidth="1" strokeLinecap="round" opacity=".6"/>
+                <line x1="5.5" y1="3.5" x2="5.5" y2="7.5" stroke="currentColor" strokeWidth="1" strokeLinecap="round" opacity=".6"/>
+              </svg>
+              Magnify
+            </button>
+            {sep}
             {/* ── Laser pointer toggle ── */}
-            <button onClick={() => setShowLaser(v => !v)} title="Laser pointer (presentation mode)"
+            <button onClick={() => { setShowLaser(v => !v); if (showMagnifier) setShowMagnifier(false); }}
+              title="Laser pointer (presentation mode)"
               style={{ ...btn, ...(showLaser ? { ...on, color: '#ff4444' } : {}), padding: '3px 7px' }}>
               <svg width="12" height="12" viewBox="0 0 12 12" fill="none" style={{ flexShrink: 0 }}>
                 <circle cx="6" cy="6" r="3" fill={showLaser ? '#ff4444' : 'currentColor'} opacity={showLaser ? 1 : 0.7}/>
@@ -2279,6 +2331,20 @@
           <div style={{ flex: 1, minWidth: 12 }} />
 
           {/* ── RIGHT: actions ── */}
+          {hasInsights && (
+            <>
+              <button onClick={() => setShowInsights(v => !v)} title="Page engagement insights"
+                style={{ ...btn, ...(showInsights ? on : {}), padding: '3px 7px' }}>
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none" style={{ flexShrink: 0 }}>
+                  <rect x="1" y="7" width="2" height="4" rx="0.5" fill="currentColor" opacity=".9"/>
+                  <rect x="5" y="4" width="2" height="7" rx="0.5" fill="currentColor" opacity=".9"/>
+                  <rect x="9" y="1" width="2" height="10" rx="0.5" fill="currentColor" opacity=".9"/>
+                </svg>
+                Insights
+              </button>
+              {sep}
+            </>
+          )}
           <button onClick={toggleFullscreen} title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen (F)'}
             style={{ ...btn, padding: '3px 7px' }}>
             {isFullscreen
@@ -2346,8 +2412,149 @@
       );
     }
 
-    // ── Feature 7: Search panel — glassmorphism floating overlay ─────────────
-    function SearchPanel({ session, onClose, onNavigate, onQueryChange }) {
+    // ── Feature 4: Rectangular magnifier — GPU-accelerated, ref-based ────────
+    function RectMagnifier({ active, imgSrc, pageContainerRef }) {
+      const MAG_W = 272, MAG_H = 180, SCALE = 2.5;
+      const magnRef = useRef(null);
+
+      useEffect(() => {
+        if (!active || !pageContainerRef?.current) return;
+        const container = pageContainerRef.current;
+
+        const move = e => {
+          const mag = magnRef.current;
+          if (!mag || !imgSrc) return;
+          const imgEl = container.querySelector('img[alt]');
+          if (!imgEl) return;
+          const imgRect = imgEl.getBoundingClientRect();
+          const cx = e.clientX - imgRect.left;
+          const cy = e.clientY - imgRect.top;
+          if (cx < 0 || cy < 0 || cx > imgRect.width || cy > imgRect.height) {
+            mag.style.opacity = '0'; return;
+          }
+          // Position magnifier to the right; flip left if near viewport edge
+          let mx = e.clientX + 24;
+          let my = e.clientY - MAG_H / 2;
+          if (mx + MAG_W > window.innerWidth - 8) mx = e.clientX - MAG_W - 24;
+          if (my < 8) my = 8;
+          if (my + MAG_H > window.innerHeight - 8) my = window.innerHeight - MAG_H - 8;
+          mag.style.transform = `translate(${mx}px, ${my}px)`;
+          // Background-image zoom: position so cursor area is centred in magnifier
+          const bgX = -(cx * SCALE - MAG_W / 2);
+          const bgY = -(cy * SCALE - MAG_H / 2);
+          mag.style.backgroundImage = `url("${imgSrc}")`;
+          mag.style.backgroundSize = `${imgRect.width * SCALE}px ${imgRect.height * SCALE}px`;
+          mag.style.backgroundPosition = `${bgX}px ${bgY}px`;
+          mag.style.opacity = '1';
+        };
+        const leave = () => { if (magnRef.current) magnRef.current.style.opacity = '0'; };
+
+        container.addEventListener('mousemove', move, { passive: true });
+        container.addEventListener('mouseleave', leave, { passive: true });
+        return () => {
+          container.removeEventListener('mousemove', move);
+          container.removeEventListener('mouseleave', leave);
+        };
+      }, [active, imgSrc, pageContainerRef]);
+
+      if (!active) return null;
+      return (
+        <div ref={magnRef} style={{
+          position: 'fixed', top: 0, left: 0, width: MAG_W, height: MAG_H,
+          borderRadius: 8, overflow: 'hidden',
+          border: '1.5px solid rgba(90,200,208,0.45)',
+          boxShadow: '0 8px 32px rgba(0,0,0,0.72), 0 0 0 1px rgba(90,200,208,0.12)',
+          backgroundRepeat: 'no-repeat',
+          opacity: 0, pointerEvents: 'none', zIndex: 1200,
+          willChange: 'transform, opacity, background-position',
+          transform: 'translate(-9999px,-9999px)',
+          transition: 'opacity .08s',
+        }}>
+          <div style={{
+            position: 'absolute', bottom: 6, right: 8, pointerEvents: 'none',
+            fontFamily: 'ui-monospace,monospace', fontSize: 9, letterSpacing: '0.06em',
+            color: 'rgba(90,200,208,0.9)', background: 'rgba(6,8,9,0.78)',
+            padding: '2px 7px', borderRadius: 3,
+            border: '1px solid rgba(90,200,208,0.22)',
+          }}>2.5× ZOOM</div>
+        </div>
+      );
+    }
+
+    // ── Feature 7 (viewer): Insights modal — page engagement heatmap ──────────
+    function InsightsModal({ docName, loading, data, onClose, C, mono }) {
+      return (
+        <div style={{
+          position: 'fixed', top: 56, right: 16, zIndex: 700,
+          width: 340,
+          background: 'rgba(12,16,24,0.92)',
+          backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
+          border: '1px solid rgba(90,200,208,0.2)',
+          borderRadius: 10,
+          boxShadow: '0 8px 40px rgba(0,0,0,0.75), 0 0 0 1px rgba(90,200,208,0.07)',
+          overflow: 'hidden',
+        }}>
+          <div style={{
+            padding: '10px 12px', borderBottom: '1px solid rgba(255,255,255,0.06)',
+            display: 'flex', alignItems: 'center', gap: 8,
+          }}>
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+              <rect x="1" y="7" width="2" height="4" rx="0.5" fill="#5ac8d0" opacity=".9"/>
+              <rect x="5" y="4" width="2" height="7" rx="0.5" fill="#5ac8d0" opacity=".9"/>
+              <rect x="9" y="1" width="2" height="10" rx="0.5" fill="#5ac8d0" opacity=".9"/>
+            </svg>
+            <span style={{ fontSize: 12, fontWeight: 600, color: 'rgba(220,228,238,0.9)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              Page Insights
+            </span>
+            <span style={{ fontSize: 10, color: 'rgba(130,142,158,0.7)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 120 }} title={docName}>{docName}</span>
+            <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(148,160,176,0.7)', fontSize: 14, padding: '0 2px', lineHeight: 1, marginLeft: 4 }}>✕</button>
+          </div>
+          {loading && (
+            <div style={{ padding: '28px 16px', textAlign: 'center', color: 'rgba(130,142,158,0.7)', fontSize: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+              <span style={{ display: 'inline-block', width: 14, height: 14, border: '1.5px solid rgba(90,200,208,0.3)', borderTop: '1.5px solid #5ac8d0', borderRadius: '50%', animation: 'spin .65s linear infinite' }} />
+              Loading insights…
+            </div>
+          )}
+          {!loading && (!data || data.pages.length === 0) && (
+            <div style={{ padding: '28px 16px', textAlign: 'center', color: 'rgba(130,142,158,0.55)', fontSize: 12 }}>
+              No page views recorded yet.
+            </div>
+          )}
+          {!loading && data && data.pages.length > 0 && (
+            <div style={{ padding: '10px 12px', maxHeight: 360, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'rgba(130,142,158,0.55)', marginBottom: 4 }}>
+                Most Viewed Pages · {data.total_views} total views
+              </div>
+              {data.pages.slice(0, 15).map((p, i) => {
+                const maxViews = data.pages[0]?.views || 1;
+                const barPct = Math.max(3, Math.round((p.views / maxViews) * 100));
+                const heat = p.pct > 15 ? '#ff6b35' : p.pct > 8 ? '#ffd166' : '#5ac8d0';
+                return (
+                  <div key={p.page} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <div style={{ fontFamily: 'ui-monospace,monospace', fontSize: 9, color: 'rgba(130,142,158,0.7)', width: 40, flexShrink: 0, textAlign: 'right' }}>
+                      {i < 3 ? '🔥' : ''} p.{p.page}
+                    </div>
+                    <div style={{ flex: 1, height: 14, background: 'rgba(255,255,255,0.04)', borderRadius: 3, overflow: 'hidden' }}>
+                      <div style={{
+                        width: `${barPct}%`, height: '100%',
+                        background: `linear-gradient(90deg, ${heat}88, ${heat})`,
+                        borderRadius: 3,
+                      }} />
+                    </div>
+                    <div style={{ fontFamily: 'ui-monospace,monospace', fontSize: 9, color: 'rgba(148,160,176,0.8)', width: 38, flexShrink: 0, textAlign: 'right' }}>
+                      {p.views}v {p.avg_time_sec > 0 ? `${p.avg_time_sec}s` : ''}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // ── Feature 3 (fixed): Search panel — glassmorphism fixed viewport overlay ─
+    function SearchPanel({ session, onClose, onNavigate, onQueryChange, onActiveChange }) {
       const [query, setQuery] = useState('');
       const [results, setResults] = useState([]);
       const [loading, setLoading] = useState(false);
@@ -2358,7 +2565,7 @@
 
       useEffect(() => {
         onQueryChange?.(query.trim());
-        if (!query.trim() || !session) { setResults([]); return; }
+        if (!query.trim() || !session) { setResults([]); onActiveChange?.(0); return; }
         const timer = setTimeout(async () => {
           setLoading(true);
           try {
@@ -2368,6 +2575,7 @@
             const found = data.results || [];
             setResults(found);
             setCurrentIdx(0);
+            onActiveChange?.(0);
             if (found.length > 0) onNavigate(found[0].page);
           } catch {
             setResults([]);
@@ -2378,7 +2586,7 @@
         return () => clearTimeout(timer);
       }, [query, session?.link_token, session?.session_id]);
 
-      const goTo = idx => { const r = results[idx]; if (r) onNavigate(r.page); };
+      const goTo = (idx, rs) => { const r = (rs || results)[idx]; if (r) { onNavigate(r.page); onActiveChange?.(idx); } };
       const goNext = () => {
         const next = (currentIdx + 1) % Math.max(1, results.length);
         setCurrentIdx(next); goTo(next);
@@ -2396,12 +2604,12 @@
 
       return (
         <div style={{
-          position: 'absolute', top: 12, right: 12, zIndex: 200,
-          background: 'rgba(14,18,28,0.85)',
-          backdropFilter: 'blur(18px)', WebkitBackdropFilter: 'blur(18px)',
-          border: '1px solid rgba(90,200,208,0.18)',
-          borderRadius: 10, padding: '10px 12px', width: 350,
-          boxShadow: '0 4px 32px rgba(0,0,0,0.6), 0 0 0 1px rgba(90,200,208,0.06)',
+          position: 'fixed', top: 56, right: 16, zIndex: 600,
+          background: 'rgba(14,18,28,0.9)',
+          backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
+          border: '1px solid rgba(90,200,208,0.22)',
+          borderRadius: 10, padding: '10px 12px', width: 340,
+          boxShadow: '0 8px 40px rgba(0,0,0,0.7), 0 0 0 1px rgba(90,200,208,0.08)',
           display: 'flex', flexDirection: 'column', gap: 0,
         }}>
           {/* Input row */}
