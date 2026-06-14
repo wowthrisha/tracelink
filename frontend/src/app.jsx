@@ -1241,6 +1241,8 @@
       const [showInsights, setShowInsights] = useState(false);
       const [insightsData, setInsightsData] = useState(null);
       const [insightsLoading, setInsightsLoading] = useState(false);
+      const [showLinks, setShowLinks] = useState(false);
+      const [visitedLinks, setVisitedLinks] = useState(new Set()); // URLs the viewer has opened
       const [isFullscreen, setIsFullscreen] = useState(false);
       const [pageInputStr, setPageInputStr] = useState('');
       const [showPageList, setShowPageList] = useState(false);
@@ -1773,6 +1775,8 @@
               }
             }}
             hasInsights={!!(doc?.id || session?.document_id)}
+            showLinks={showLinks} setShowLinks={setShowLinks}
+            linksCount={linksLoaded ? (pageLinksRef.current[page] || []).length : 0}
             isFullscreen={isFullscreen} toggleFullscreen={toggleFullscreen}
             showToc={showToc} setShowToc={setShowToc}
             showSearch={showSearch} setShowSearch={setShowSearch}
@@ -1854,7 +1858,7 @@
             {/* Main canvas */}
             <div style={{
               flex: 1, overflow: 'auto', background: '#060809',
-              display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '20px 16px', gap: 12,
+              display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '16px 0', gap: 10,
               position: 'relative'
             }}
               onTouchStart={e => { touchRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY }; }}
@@ -2098,50 +2102,6 @@
                 );
               })()}
 
-              {/* Links on this page — all URLs extracted from page (annotation + text) */}
-              {!isTextDoc && !initializing && session && linksLoaded && (() => {
-                const pageLinks = pageLinksRef.current[page] || [];
-                if (pageLinks.length === 0) return null;
-                return (
-                  <div style={{
-                    marginTop: 10, marginBottom: 4,
-                    maxWidth: 'min(590px, 100%)', width: '100%',
-                    display: 'flex', flexDirection: 'column', gap: 5,
-                  }}>
-                    <div style={{
-                      ...mono, fontSize: 9, fontWeight: 700, letterSpacing: '0.08em',
-                      textTransform: 'uppercase', color: 'rgba(90,200,208,0.5)',
-                      paddingLeft: 2,
-                    }}>
-                      🔗 Links on this page ({pageLinks.length})
-                    </div>
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
-                      {pageLinks.slice(0, 25).map((link, i) => {
-                        const raw = link.url.replace(/^https?:\/\//, '');
-                        const display = link.label
-                          ? `${link.label.slice(-25)} ↗`
-                          : raw.slice(0, 38) + (raw.length > 38 ? '…' : '');
-                        return (
-                          <a key={i} href={link.url} target="_blank" rel="noopener noreferrer"
-                            style={{
-                              ...mono, fontSize: 10, color: C.teal2,
-                              background: 'rgba(90,200,208,0.07)',
-                              border: '1px solid rgba(90,200,208,0.22)',
-                              borderRadius: 5, padding: '3px 9px',
-                              textDecoration: 'none', cursor: 'pointer',
-                              maxWidth: 280, overflow: 'hidden',
-                              textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                            }}
-                            title={link.url}
-                          >
-                            ↗ {display}
-                          </a>
-                        );
-                      })}
-                    </div>
-                  </div>
-                );
-              })()}
 
               {!initializing && session && isTextDoc && (
                 <div className="viewer-page" style={{
@@ -2232,6 +2192,17 @@
           <LaserPointer active={showLaser} />
           {/* Feature 4: Rectangular magnifier */}
           <RectMagnifier active={showMagnifier} imgSrc={imgSrc} pageContainerRef={pageContainerRef} />
+          {/* Feature 1b: Links side panel — fixed right overlay, 30% width, per-page */}
+          {showLinks && session && (
+            <LinksPanel
+              page={page}
+              pageLinksRef={pageLinksRef}
+              visitedLinks={visitedLinks}
+              onVisit={setVisitedLinks}
+              onClose={() => setShowLinks(false)}
+              C={C} mono={mono}
+            />
+          )}
         </div>
       );
     }
@@ -2245,6 +2216,7 @@
       LAYOUT, ZOOM_STEP, ZOOM_PRESETS,
       showLaser, setShowLaser, showMagnifier, setShowMagnifier,
       showInsights, setShowInsights, hasInsights,
+      showLinks, setShowLinks, linksCount,
       isFullscreen, toggleFullscreen,
       showToc, setShowToc, showSearch, setShowSearch, showInfo, setShowInfo,
       showPageList, setShowPageList,
@@ -2439,6 +2411,26 @@
           <div style={{ flex: 1, minWidth: 12 }} />
 
           {/* ── RIGHT: actions ── */}
+          {!isTextDoc && (
+            <>
+              <button onClick={() => setShowLinks(v => !v)} title="Links on this page"
+                style={{ ...btn, ...(showLinks ? on : {}), padding: '3px 7px', position: 'relative' }}>
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none" style={{ flexShrink: 0 }}>
+                  <path d="M4.5 7.5l3-3M7 3.5l1.5-1.5a2.12 2.12 0 013 3L10 6.5M5 8.5l-1.5 1.5a2.12 2.12 0 01-3-3L2 5.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+                Links
+                {linksCount > 0 && (
+                  <span style={{
+                    position: 'absolute', top: 1, right: 1,
+                    background: '#5ac8d0', color: '#060809',
+                    borderRadius: 8, fontSize: 8, fontWeight: 700,
+                    padding: '0 4px', lineHeight: '12px', minWidth: 12, textAlign: 'center',
+                  }}>{linksCount}</span>
+                )}
+              </button>
+              {sep}
+            </>
+          )}
           {hasInsights && (
             <>
               <button onClick={() => setShowInsights(v => !v)} title="Page engagement insights"
@@ -2629,11 +2621,11 @@
             </div>
           )}
           {!loading && data && data.pages.length > 0 && (
-            <div style={{ padding: '10px 12px', maxHeight: 360, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <div style={{ padding: '10px 12px', maxHeight: 'calc(100vh - 140px)', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 4 }}>
               <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'rgba(130,142,158,0.55)', marginBottom: 4 }}>
                 Most Viewed Pages · {data.total_views} total views
               </div>
-              {data.pages.slice(0, 15).map((p, i) => {
+              {data.pages.map((p, i) => {
                 const maxViews = data.pages[0]?.views || 1;
                 const barPct = Math.max(3, Math.round((p.views / maxViews) * 100));
                 const heat = p.pct > 15 ? '#ff6b35' : p.pct > 8 ? '#ffd166' : '#5ac8d0';
@@ -2655,6 +2647,135 @@
                   </div>
                 );
               })}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // ── Feature 1b: Links side panel — fixed right overlay, 30% width ──────────
+    function LinksPanel({ page, pageLinksRef, visitedLinks, onVisit, onClose, C, mono }) {
+      const links = pageLinksRef.current[page] || [];
+      const visitedCount = links.filter(l => visitedLinks.has(l.url)).length;
+
+      const toggleVisit = url => {
+        const next = new Set(visitedLinks);
+        if (next.has(url)) next.delete(url); else next.add(url);
+        onVisit(next);
+      };
+
+      return (
+        <div style={{
+          position: 'fixed', top: 56, right: 0,
+          width: 'clamp(240px, 30vw, 400px)',
+          height: 'calc(100vh - 56px)',
+          background: 'rgba(9,13,19,0.96)',
+          backdropFilter: 'blur(28px)', WebkitBackdropFilter: 'blur(28px)',
+          borderLeft: '1px solid rgba(90,200,208,0.18)',
+          display: 'flex', flexDirection: 'column',
+          zIndex: 505, boxShadow: '-8px 0 40px rgba(0,0,0,0.55)',
+        }}>
+          {/* Header */}
+          <div style={{
+            padding: '10px 14px', borderBottom: '1px solid rgba(255,255,255,0.06)',
+            display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0,
+          }}>
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" style={{ flexShrink: 0 }}>
+              <path d="M4.5 7.5l3-3M7 3.5l1.5-1.5a2.12 2.12 0 013 3L10 6.5M5 8.5l-1.5 1.5a2.12 2.12 0 01-3-3L2 5.5" stroke="#5ac8d0" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+            <span style={{ fontSize: 11, fontWeight: 700, color: 'rgba(220,228,238,0.9)', flex: 1 }}>
+              Links — Page {page}
+            </span>
+            {links.length > 0 && (
+              <span style={{ ...mono, fontSize: 9, color: 'rgba(130,142,158,0.6)' }}>
+                {visitedCount}/{links.length} visited
+              </span>
+            )}
+            <button onClick={onClose} style={{
+              background: 'none', border: 'none', cursor: 'pointer',
+              color: 'rgba(148,160,176,0.6)', fontSize: 14, padding: '0 2px',
+              lineHeight: 1, marginLeft: 4, fontFamily: 'inherit',
+            }}>✕</button>
+          </div>
+
+          {/* Links list */}
+          {links.length === 0 ? (
+            <div style={{
+              flex: 1, display: 'flex', flexDirection: 'column',
+              alignItems: 'center', justifyContent: 'center', gap: 8, padding: 24,
+            }}>
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" opacity=".25">
+                <path d="M9 17H5a4 4 0 010-8h4M15 7h4a4 4 0 010 8h-4M8 12h8" stroke="#5ac8d0" strokeWidth="1.5" strokeLinecap="round"/>
+              </svg>
+              <div style={{ ...mono, fontSize: 10, color: 'rgba(130,142,158,0.45)', textAlign: 'center' }}>
+                No links found on this page
+              </div>
+            </div>
+          ) : (
+            <div style={{ flex: 1, overflowY: 'auto', padding: '4px 0' }}>
+              {links.map((link, i) => {
+                const visited = visitedLinks.has(link.url);
+                const domain = (() => { try { return new URL(link.url).hostname; } catch { return link.url.slice(0, 30); } })();
+                return (
+                  <div key={i} style={{
+                    padding: '9px 14px',
+                    borderBottom: '1px solid rgba(255,255,255,0.04)',
+                    display: 'flex', alignItems: 'flex-start', gap: 9,
+                    background: visited ? 'rgba(255,255,255,0.02)' : 'transparent',
+                    transition: 'background .15s',
+                  }}>
+                    <input
+                      type="checkbox"
+                      checked={visited}
+                      onChange={() => toggleVisit(link.url)}
+                      style={{ marginTop: 3, cursor: 'pointer', accentColor: '#5ac8d0', flexShrink: 0 }}
+                    />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <a
+                        href={link.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={() => { const next = new Set(visitedLinks); next.add(link.url); onVisit(next); }}
+                        style={{
+                          fontSize: 11, fontWeight: 500,
+                          color: visited ? 'rgba(90,200,208,0.45)' : '#5ac8d0',
+                          textDecoration: visited ? 'line-through' : 'none',
+                          wordBreak: 'break-all', display: 'block', lineHeight: 1.4,
+                          cursor: 'pointer',
+                        }}
+                        title={link.url}
+                      >
+                        {domain}
+                      </a>
+                      {link.label && (
+                        <div style={{
+                          fontSize: 9, color: 'rgba(130,142,158,0.55)',
+                          marginTop: 2, lineHeight: 1.4, wordBreak: 'break-word',
+                        }}>
+                          {link.label}
+                        </div>
+                      )}
+                      <div style={{
+                        ...mono, fontSize: 8, marginTop: 3,
+                        color: link.type === 'annotation' ? 'rgba(90,200,208,0.35)' : 'rgba(148,160,176,0.35)',
+                      }}>
+                        {link.type === 'annotation' ? '📌 PDF annotation' : '📄 Found in text'}
+                        {visited && <span style={{ marginLeft: 6, color: 'rgba(80,190,120,0.5)' }}>✓ visited</span>}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Footer hint */}
+          {links.length > 0 && (
+            <div style={{
+              padding: '8px 14px', borderTop: '1px solid rgba(255,255,255,0.05)',
+              ...mono, fontSize: 9, color: 'rgba(130,142,158,0.35)', flexShrink: 0,
+            }}>
+              Check links you have reviewed. Updates as you change pages.
             </div>
           )}
         </div>
