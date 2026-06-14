@@ -1251,6 +1251,7 @@
       // Feature 1: hyperlink overlay
       const pageLinksRef = useRef({});   // {pageNum: [{x,y,w,h,url}]}
       const [linksLoaded, setLinksLoaded] = useState(false);
+      const autoExtractAttempted = useRef(false); // fire-once auto-sidecar extraction
       // Feature 2: search highlighting
       const wordPositionsRef = useRef({}); // {pageNum: [{t,x,y,w,h}]}
       const wordPositionsFetched = useRef(false); // avoid re-fetching after empty result
@@ -1598,6 +1599,22 @@
           .catch(() => {});
       }, [session?.link_token, session?.session_id, isTextDoc]);
 
+      // Auto-extract sidecars when authenticated owner's doc has empty links sidecar.
+      // Only fires once per mount; re-fetches caches after 15 s to pick up new data.
+      useEffect(() => {
+        if (!linksLoaded || !doc?.id || autoExtractAttempted.current) return;
+        if (Object.keys(pageLinksRef.current).length > 0) return; // sidecar already populated
+        autoExtractAttempted.current = true;
+        window.SecureDocAPI.extractSidecars(doc.id).catch(() => {});
+        const t = setTimeout(() => {
+          pageLinksRef.current = {};
+          setLinksLoaded(false);
+          wordPositionsRef.current = {};
+          wordPositionsFetched.current = false;
+        }, 15000);
+        return () => clearTimeout(t);
+      }, [linksLoaded, doc?.id]);
+
       // Feature 2: compute search highlights when page or query changes
       const _computeHighlights = useCallback((pageNum, query) => {
         if (!query) { setSearchHighlights([]); return; }
@@ -1791,7 +1808,7 @@
           )}
 
           {/* Feature 7: Insights modal — fixed overlay, owner-only */}
-          {showInsights && doc?.id && (
+          {showInsights && (doc?.id || session?.document_id) && (
             <InsightsModal
               docName={docName}
               loading={insightsLoading}
@@ -2037,13 +2054,27 @@
                     );
                   })}
 
-                  {/* Feature 2 fallback: page-match glow when word positions unavailable */}
+                  {/* Feature 2 fallback: visible match banner when word positions unavailable */}
                   {searchHighlightQuery && searchResultPages.has(page) && searchHighlights.length === 0 && (
-                    <div style={{
-                      position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 5,
-                      boxShadow: 'inset 0 0 0 3px rgba(255,200,0,0.55)',
-                      borderRadius: 2,
-                    }} />
+                    <>
+                      <div style={{
+                        position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+                        pointerEvents: 'none', zIndex: 5,
+                        border: '3px solid rgba(255,210,0,0.75)',
+                        borderRadius: 2, boxSizing: 'border-box',
+                      }} />
+                      <div style={{
+                        position: 'absolute', top: 8, left: '50%', transform: 'translateX(-50%)',
+                        zIndex: 8, pointerEvents: 'none',
+                        background: 'rgba(255,218,0,0.93)',
+                        borderRadius: 12, padding: '3px 14px',
+                        fontFamily: "'DM Sans',sans-serif", fontSize: 10, fontWeight: 700,
+                        color: '#4a2e00', whiteSpace: 'nowrap', letterSpacing: '0.02em',
+                        boxShadow: '0 2px 8px rgba(0,0,0,0.25)',
+                      }}>
+                        ⌕ Match found on this page
+                      </div>
+                    </>
                   )}
 
                   {/* Feature 1: Hyperlink clickable overlays — transparent, pointer-events active */}
@@ -3021,13 +3052,16 @@
     function ViewerInfoPanel({ doc, docId, page, session, pageCount, onSidecarExtract }) {
       const [extracting, setExtracting] = React.useState(false);
       const [extractDone, setExtractDone] = React.useState(false);
-      const canExtract = !!(doc?.id) && !extractDone;
+      const hasAuth = !!(typeof localStorage !== 'undefined' && localStorage.getItem?.('securedoc_token'));
+      const effectiveDocId = doc?.id || (hasAuth ? session?.document_id : null);
+      const canExtract = !!effectiveDocId && !extractDone;
 
       const handleExtract = async () => {
-        if (!doc?.id) return;
+        const eid = doc?.id || session?.document_id;
+        if (!eid) return;
         setExtracting(true);
         try {
-          await window.SecureDocAPI.extractSidecars(doc.id);
+          await window.SecureDocAPI.extractSidecars(eid);
           setExtractDone(true);
           onSidecarExtract?.();
         } catch {}
