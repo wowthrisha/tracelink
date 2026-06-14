@@ -1885,35 +1885,6 @@
                 </div>
               )}
 
-              {/* Security badges */}
-              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'center' }}>
-                <div style={{
-                  ...mono, fontSize: 9, letterSpacing: '0.9px', color: 'rgba(90,200,208,0.75)',
-                  background: 'rgba(90,200,208,0.07)', border: '1px solid rgba(90,200,208,0.18)',
-                  borderRadius: 4, padding: '3px 9px', textTransform: 'uppercase'
-                }}>
-                  ◈ WATERMARKED · TRACKED
-                </div>
-                {!session?.permissions?.can_download && (
-                  <div style={{
-                    ...mono, fontSize: 9, letterSpacing: '0.8px', color: 'rgba(224,90,69,0.75)',
-                    background: 'rgba(224,90,69,0.06)', border: '1px solid rgba(224,90,69,0.18)',
-                    borderRadius: 4, padding: '3px 9px', textTransform: 'uppercase'
-                  }}>
-                    ✕ DOWNLOAD DISABLED
-                  </div>
-                )}
-                {session?.expires_at && (
-                  <div style={{
-                    ...mono, fontSize: 9, letterSpacing: '0.8px', color: 'rgba(224,154,69,0.7)',
-                    background: 'rgba(224,154,69,0.06)', border: '1px solid rgba(224,154,69,0.18)',
-                    borderRadius: 4, padding: '3px 9px', textTransform: 'uppercase'
-                  }}>
-                    ⏱ EXPIRES {session.expires_at.slice(0, 10)}
-                  </div>
-                )}
-              </div>
-
               {initializing && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: C.textMuted, marginTop: 40 }}>
                   <span style={{ display: 'inline-block', width: 18, height: 18, border: `1.5px solid ${C.border}`, borderTop: `1.5px solid ${C.teal2}`, borderRadius: '50%', animation: 'spin .65s linear infinite' }} />
@@ -1927,7 +1898,8 @@
                     return { width: '100%', maxWidth: '100%', height: undefined };
                   }
                   if (layoutMode === LAYOUT.FIT_HEIGHT) {
-                    return { width: 'auto', maxWidth: '100%', height: 'calc(100vh - 220px)', maxHeight: '100%' };
+                    // 42px toolbar + 16px top padding + 16px bottom padding = 74px total offset
+                    return { width: 'auto', maxWidth: '100%', height: 'calc(100vh - 74px)' };
                   }
                   // CUSTOM zoom: 100% = 590px (fits a letter-size PDF at typical DPI)
                   return { width: `${customZoom * 5.9}px`, maxWidth: '100%', height: undefined };
@@ -1935,7 +1907,7 @@
                 return (
                 <div ref={pageContainerRef} className="viewer-page" style={{
                   position: 'relative', ...(_pgStyle),
-                  aspectRatio: layoutMode === LAYOUT.FIT_HEIGHT ? undefined : (pageAspectRatio ? `${pageAspectRatio}` : '8.5/11'),
+                  aspectRatio: pageAspectRatio ? `${pageAspectRatio}` : '8.5/11',
                   flexShrink: 0, transition: 'width .25s ease, height .25s ease',
                   borderRadius: 2, overflow: 'hidden',
                   boxShadow: '0 2px 8px rgba(0,0,0,0.5), 0 8px 48px rgba(0,0,0,0.8), 0 20px 60px rgba(0,0,0,0.35)',
@@ -2715,20 +2687,20 @@
             <div style={{ flex: 1, overflowY: 'auto', padding: '4px 0' }}>
               {links.map((link, i) => {
                 const visited = visitedLinks.has(link.url);
-                const domain = (() => { try { return new URL(link.url).hostname; } catch { return link.url.slice(0, 30); } })();
+                const domain = (() => { try { return new URL(link.url).hostname; } catch { return link.url.slice(0, 40); } })();
                 return (
                   <div key={i} style={{
-                    padding: '9px 14px',
+                    padding: '7px 12px',
                     borderBottom: '1px solid rgba(255,255,255,0.04)',
-                    display: 'flex', alignItems: 'flex-start', gap: 9,
-                    background: visited ? 'rgba(255,255,255,0.02)' : 'transparent',
+                    display: 'flex', alignItems: 'center', gap: 8,
+                    background: visited ? 'rgba(90,200,208,0.03)' : 'transparent',
                     transition: 'background .15s',
                   }}>
                     <input
                       type="checkbox"
                       checked={visited}
                       onChange={() => toggleVisit(link.url)}
-                      style={{ marginTop: 3, cursor: 'pointer', accentColor: '#5ac8d0', flexShrink: 0 }}
+                      style={{ flexShrink: 0, cursor: 'pointer', accentColor: '#5ac8d0', width: 13, height: 13 }}
                     />
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <a
@@ -2737,11 +2709,10 @@
                         rel="noopener noreferrer"
                         onClick={() => { const next = new Set(visitedLinks); next.add(link.url); onVisit(next); }}
                         style={{
-                          fontSize: 11, fontWeight: 500,
+                          display: 'block', fontSize: 11, fontWeight: 500, lineHeight: 1.35,
                           color: visited ? 'rgba(90,200,208,0.45)' : '#5ac8d0',
                           textDecoration: visited ? 'line-through' : 'none',
-                          wordBreak: 'break-all', display: 'block', lineHeight: 1.4,
-                          cursor: 'pointer',
+                          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                         }}
                         title={link.url}
                       >
@@ -2749,20 +2720,22 @@
                       </a>
                       {link.label && (
                         <div style={{
-                          fontSize: 9, color: 'rgba(130,142,158,0.55)',
-                          marginTop: 2, lineHeight: 1.4, wordBreak: 'break-word',
+                          fontSize: 9, color: 'rgba(130,142,158,0.5)', marginTop: 1,
+                          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                         }}>
                           {link.label}
                         </div>
                       )}
-                      <div style={{
-                        ...mono, fontSize: 8, marginTop: 3,
-                        color: link.type === 'annotation' ? 'rgba(90,200,208,0.35)' : 'rgba(148,160,176,0.35)',
-                      }}>
-                        {link.type === 'annotation' ? '📌 PDF annotation' : '📄 Found in text'}
-                        {visited && <span style={{ marginLeft: 6, color: 'rgba(80,190,120,0.5)' }}>✓ visited</span>}
-                      </div>
                     </div>
+                    <span style={{
+                      ...mono, flexShrink: 0, fontSize: 8, letterSpacing: '0.3px',
+                      padding: '1px 5px', borderRadius: 3,
+                      color: link.type === 'annotation' ? 'rgba(90,200,208,0.55)' : 'rgba(148,160,176,0.45)',
+                      background: link.type === 'annotation' ? 'rgba(90,200,208,0.08)' : 'rgba(148,160,176,0.06)',
+                      border: `1px solid ${link.type === 'annotation' ? 'rgba(90,200,208,0.15)' : 'rgba(148,160,176,0.1)'}`,
+                    }}>
+                      {link.type === 'annotation' ? 'PDF' : 'text'}{visited ? ' ✓' : ''}
+                    </span>
                   </div>
                 );
               })}

@@ -261,19 +261,31 @@ async def extract_and_store_links_sidecar(
 
             # ── Strategy 1: PDF annotation hyperlinks ─────────────────────────
             raw_annots = pdf_page.get("/Annots")
+            if raw_annots is not None:
+                # /Annots may be an IndirectObject pointing to an array — resolve it
+                if hasattr(raw_annots, 'get_object'):
+                    raw_annots = raw_annots.get_object()
             if raw_annots:
                 for annot_ref in raw_annots:
                     try:
-                        annot = annot_ref.get_object()
+                        # Each annotation entry may be an IndirectObject — resolve
+                        annot = annot_ref.get_object() if hasattr(annot_ref, 'get_object') else annot_ref
                         if annot.get("/Subtype") != "/Link":
                             continue
                         action = annot.get("/A")
-                        if not action:
+                        if action is None:
                             continue
+                        # Action dict may also be indirect
+                        if hasattr(action, 'get_object'):
+                            action = action.get_object()
                         uri = action.get("/URI")
-                        if not uri:
+                        if uri is None:
                             continue
-                        uri_str = str(uri).strip()
+                        # URI may be stored as bytes in some PDF generators
+                        if isinstance(uri, bytes):
+                            uri_str = uri.decode("utf-8", errors="replace").strip()
+                        else:
+                            uri_str = str(uri).strip()
                         if not uri_str.startswith(("http://", "https://")):
                             continue
                         rect = annot.get("/Rect")
