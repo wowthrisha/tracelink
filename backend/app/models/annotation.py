@@ -3,10 +3,11 @@ from datetime import datetime
 from typing import Optional
 from sqlalchemy import Integer, DateTime, ForeignKey, Text, Index, UniqueConstraint, String, func
 from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from app.database import Base
 
 
-VALID_ANNOTATION_TYPES = frozenset({"highlight", "comment", "bookmark", "rectangle", "arrow"})
+VALID_ANNOTATION_TYPES = frozenset({"highlight", "comment", "bookmark", "rectangle", "arrow", "sticky_note", "draw"})
 
 
 class ViewerAnnotation(Base):
@@ -39,6 +40,13 @@ class ViewerAnnotation(Base):
     coords: Mapped[str] = mapped_column(Text, nullable=False)
     color: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
     comment_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    thickness: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, default=2)
+    resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    parent_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        PGUUID(as_uuid=False),
+        ForeignKey("viewer_annotations.id", ondelete="CASCADE"),
+        nullable=True,
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=func.now(), nullable=False
     )

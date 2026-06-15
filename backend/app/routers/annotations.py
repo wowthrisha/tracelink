@@ -51,6 +51,8 @@ class AnnotationCreate(BaseModel):
     coords: dict
     color: Optional[str] = "#FFFF00"
     comment_text: Optional[str] = None
+    thickness: Optional[int] = 2
+    parent_id: Optional[str] = None
 
     @field_validator("annotation_type")
     @classmethod
@@ -62,13 +64,24 @@ class AnnotationCreate(BaseModel):
     @field_validator("coords")
     @classmethod
     def check_coords(cls, v):
-        # Accept either {x,y,w,h} or {x1,y1,x2,y2} or {x,y} — all floats 0–1
-        allowed_keys = {frozenset(["x", "y", "w", "h"]), frozenset(["x1", "y1", "x2", "y2"]), frozenset(["x", "y"])}
+        # Accept {x,y,w,h}, {x1,y1,x2,y2}, or {x,y} — all floats 0–1
+        allowed_keys = {
+            frozenset(["x", "y", "w", "h"]),
+            frozenset(["x1", "y1", "x2", "y2"]),
+            frozenset(["x", "y"]),
+        }
         if frozenset(v.keys()) not in allowed_keys:
             raise ValueError("coords must contain {x,y,w,h}, {x1,y1,x2,y2}, or {x,y}")
         for key, val in v.items():
             if not isinstance(val, (int, float)) or not (0.0 <= float(val) <= 1.0):
                 raise ValueError(f"coords.{key} must be a float between 0 and 1")
+        return v
+
+    @field_validator("thickness")
+    @classmethod
+    def check_thickness(cls, v):
+        if v is not None and (not isinstance(v, int) or v < 1 or v > 20):
+            raise ValueError("thickness must be an integer between 1 and 20")
         return v
 
     @field_validator("color")
@@ -175,12 +188,15 @@ async def _resolve_link_and_verify_session(
 
 def _serialize_annotation(a: ViewerAnnotation) -> dict:
     return {
-        "id": a.id,
+        "id": str(a.id),
         "page_number": a.page_number,
         "annotation_type": a.annotation_type,
         "coords": json.loads(a.coords),
         "color": a.color,
         "comment_text": a.comment_text,
+        "thickness": a.thickness,
+        "resolved_at": a.resolved_at.isoformat() if a.resolved_at else None,
+        "parent_id": str(a.parent_id) if a.parent_id else None,
         "session_id": a.session_id[:6] + "…",  # only the prefix — never expose full session IDs
         "viewer_email_masked": a.viewer_email_masked,
         "created_at": a.created_at.isoformat() if a.created_at else None,
@@ -256,6 +272,8 @@ async def create_annotation(
         coords=json.dumps(body.coords),
         color=body.color or "#FFFF00",
         comment_text=body.comment_text,
+        thickness=body.thickness or 2,
+        parent_id=body.parent_id or None,
         created_at=datetime.now(timezone.utc),
         updated_at=datetime.now(timezone.utc),
     )
@@ -402,6 +420,85 @@ async def toggle_bookmark(
     }
 
 
+# ── Resolve annotation (uploader-facing) ─────────────────────────────────────
+
+@router.patch("/api/viewer/annotations/{token}/{annotation_id}/resolve")
+@limiter.limit("60/minute")
+async def resolve_annotation(
+    request: Request,
+    token: str,
+    annotation_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """Toggle the resolved_at timestamp on an annotation.  Any session holder with
+    can_annotate can mark a comment resolved; the link owner (via uploader) can
+    do so from the dashboard via the JSON list endpoint."""
+    link_row, session_id = await _resolve_link_and_verify_session(token, request, db)
+
+    annot = await db.get(ViewerAnnotation, annotation_id)
+    if annot is None or str(annot.link_id) != str(link_row.id):
+        raise HTTPException(status_code=404, detail="Annotation not found")
+
+    if annot.resolved_at is None:
+        annot.resolved_at = datetime.now(timezone.utc)
+    else:
+        annot.resolved_at = None
+    annot.updated_at = datetime.now(timezone.utc)
+    await db.commit()
+    await db.refresh(annot)
+    return _serialize_annotation(annot)
+
+
+# ── Uploader: list all annotations for a document (JSON) ─────────────────────
+
+@router.get("/api/documents/{doc_id}/annotations")
+@limiter.limit("30/minute")
+async def list_document_annotations(
+    request: Request,
+    doc_id: str,
+    annotation_type: Optional[str] = None,
+    resolved: Optional[bool] = None,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """List all annotations across all share links for a document.
+    Only the document owner can access this endpoint.
+    Supports filtering by annotation_type and resolved status."""
+    doc = (await db.execute(select(Document).where(Document.id == doc_id))).scalar_one_or_none()
+    if doc is None:
+        raise HTTPException(status_code=404, detail="Document not found")
+    if str(doc.user_id) != str(current_user["user_id"]):
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    q = (
+        select(
+            ViewerAnnotation,
+            ShareLink.label.label("link_label"),
+            ShareLink.token.label("link_token"),
+        )
+        .join(ShareLink, ShareLink.id == ViewerAnnotation.link_id)
+        .where(ShareLink.document_id == doc.id)
+    )
+    if annotation_type:
+        q = q.where(ViewerAnnotation.annotation_type == annotation_type)
+    if resolved is True:
+        q = q.where(ViewerAnnotation.resolved_at.isnot(None))
+    elif resolved is False:
+        q = q.where(ViewerAnnotation.resolved_at.is_(None))
+
+    rows = (await db.execute(q.order_by(ViewerAnnotation.created_at))).all()
+
+    annotations = []
+    for row in rows:
+        a = row[0]
+        d = _serialize_annotation(a)
+        d["link_label"] = row.link_label or ""
+        d["link_token"] = row.link_token
+        annotations.append(d)
+
+    return {"annotations": annotations, "total": len(annotations)}
+
+
 # ── Uploader export ───────────────────────────────────────────────────────────
 
 @router.get("/api/documents/{doc_id}/annotations/export")
@@ -417,7 +514,7 @@ async def export_annotations(
     doc = (await db.execute(select(Document).where(Document.id == doc_id))).scalar_one_or_none()
     if doc is None:
         raise HTTPException(status_code=404, detail="Document not found")
-    if str(doc.user_id) != str(current_user.id):
+    if str(doc.user_id) != str(current_user["user_id"]):
         raise HTTPException(status_code=403, detail="Access denied")
 
     # Collect all annotations across all links for this document

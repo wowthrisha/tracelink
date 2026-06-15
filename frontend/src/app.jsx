@@ -46,6 +46,19 @@
 
     const mono = { fontFamily: "'DM Mono', monospace" };
 
+    /* ─── ERROR MESSAGE HELPER ────────────────────────────────── */
+    function _errMsg(e, fallback) {
+      if (!e) return fallback || 'An error occurred';
+      if (typeof e === 'string') return e;
+      if (e.detail) {
+        if (typeof e.detail === 'string') return e.detail;
+        if (Array.isArray(e.detail) && e.detail[0]?.msg) return e.detail[0].msg;
+        return JSON.stringify(e.detail);
+      }
+      if (e.message) return e.message;
+      return fallback || 'An error occurred';
+    }
+
     /* ─── TOAST CONTEXT ───────────────────────────────────────── */
     const ToastCtx = createContext(null);
     function useToast() { return useContext(ToastCtx); }
@@ -523,6 +536,10 @@
       const [groupForm, setGroupForm] = useState({ name: '', color: '#6366f1', description: '' });
       const [groupSaving, setGroupSaving] = useState(false);
       const [retentionPolicy, setRetentionPolicy] = useState('never');
+      const [commentsDocId, setCommentsDocId] = useState(null); // doc selected for comments panel
+      const [docAnnotations, setDocAnnotations] = useState([]);
+      const [annotationsLoading, setAnnotationsLoading] = useState(false);
+      const [annotFilter, setAnnotFilter] = useState('all'); // 'all' | 'unresolved' | 'resolved' | 'comment' | 'sticky_note'
       const fileRef = useRef();
       const pollRef = useRef(null);
 
@@ -532,7 +549,7 @@
           setDocs(data.documents || []);
           const ov = await window.SecureDocAPI.getAnalyticsOverview();
           setOverview(ov);
-        } catch (e) { toast(e.detail || 'Failed to load documents', 'error'); }
+        } catch (e) { toast(_errMsg(e, 'Failed to load documents'), 'error'); }
         finally { setDocsLoading(false); }
       }, []);
 
@@ -541,6 +558,16 @@
           const data = await window.SecureDocAPI.getGroups();
           setGroups(data.groups || []);
         } catch (e) { /* non-critical */ }
+      }, []);
+
+      const loadDocAnnotations = useCallback(async (docId) => {
+        if (!docId) return;
+        setAnnotationsLoading(true);
+        try {
+          const data = await window.SecureDocAPI.getDocumentAnnotations(docId);
+          setDocAnnotations(data || []);
+        } catch (e) { toast(_errMsg(e, 'Failed to load comments'), 'error'); }
+        finally { setAnnotationsLoading(false); }
       }, []);
 
       useEffect(() => { fetchDocs(); fetchGroups(); }, []);
@@ -627,7 +654,7 @@
           await fetchGroups();
           setGroupModal(null);
         } catch (e) {
-          toast(e.detail || 'Failed to save group', 'error');
+          toast(_errMsg(e, 'Failed to save group'), 'error');
         } finally { setGroupSaving(false); }
       };
 
@@ -637,7 +664,7 @@
           toast(`Group "${g.name}" deleted`, 'success');
           if (activeGroupFilter === g.id) setActiveGroupFilter(null);
           await fetchGroups(); await fetchDocs();
-        } catch (e) { toast(e.detail || 'Failed to delete group', 'error'); }
+        } catch (e) { toast(_errMsg(e, 'Failed to delete group'), 'error'); }
       };
 
       const handleAssignGroup = async (doc, gid) => {
@@ -649,7 +676,7 @@
           }
           await fetchDocs(); await fetchGroups();
           toast(gid ? 'Document added to group' : 'Removed from group', 'success');
-        } catch (e) { toast(e.detail || 'Failed to assign group', 'error'); }
+        } catch (e) { toast(_errMsg(e, 'Failed to assign group'), 'error'); }
       };
 
       const handleDelete = async (doc) => {
@@ -659,7 +686,7 @@
           setDeleteModal(null);
           await fetchDocs();
           toast('Document deleted.', 'success');
-        } catch (e) { toast(e.detail || 'Delete failed', 'error'); }
+        } catch (e) { toast(_errMsg(e, 'Delete failed'), 'error'); }
         finally { setDeleting(false); }
       };
 
@@ -669,7 +696,7 @@
           toast('Reprocessing started…', 'info');
           await fetchDocs();
           startPoll(doc.id, doc.file_type || 'pdf');
-        } catch (e) { toast(e.detail || 'Failed to reprocess', 'error'); }
+        } catch (e) { toast(_errMsg(e, 'Failed to reprocess'), 'error'); }
       };
 
       const filtered = docs.filter(d =>
@@ -861,6 +888,89 @@
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '2px 0' }}>
               <StatusDot status="active" size={5} />
               <span style={{ fontSize: 10, color: C.textMuted }}>All documents converted to images — download disabled by default</span>
+            </div>
+
+            {/* Comments panel */}
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+                <SectionLabel>Viewer Comments</SectionLabel>
+                <select
+                  value={commentsDocId || ''}
+                  onChange={e => { const id = e.target.value; setCommentsDocId(id || null); if (id) loadDocAnnotations(id); else setDocAnnotations([]); }}
+                  style={{ fontSize: 11, background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 6, padding: '4px 8px', color: C.textSecondary, maxWidth: 240 }}>
+                  <option value="">— Select document —</option>
+                  {docs.filter(d => d.status === 'ready').map(d => <option key={d.id} value={d.id}>{d.filename}</option>)}
+                </select>
+                {commentsDocId && (<>
+                  <select
+                    value={annotFilter}
+                    onChange={e => setAnnotFilter(e.target.value)}
+                    style={{ fontSize: 11, background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 6, padding: '4px 8px', color: C.textSecondary }}>
+                    <option value="all">All types</option>
+                    <option value="comment">Comments</option>
+                    <option value="sticky_note">Sticky Notes</option>
+                    <option value="unresolved">Unresolved</option>
+                    <option value="resolved">Resolved</option>
+                  </select>
+                  <Btn variant="ghost" size="sm" onClick={() => loadDocAnnotations(commentsDocId)}>↺ Refresh</Btn>
+                  <Btn variant="ghost" size="sm" onClick={() => window.SecureDocAPI.exportAnnotations(commentsDocId)}>↓ CSV</Btn>
+                </>)}
+              </div>
+              {commentsDocId && (
+                <Card noPad>
+                  {annotationsLoading ? (
+                    <div style={{ padding: 24, textAlign: 'center', color: C.textMuted, fontSize: 13 }}>Loading comments…</div>
+                  ) : (() => {
+                    const filtered = docAnnotations.filter(a => {
+                      if (annotFilter === 'comment') return a.annotation_type === 'comment';
+                      if (annotFilter === 'sticky_note') return a.annotation_type === 'sticky_note';
+                      if (annotFilter === 'unresolved') return !a.resolved_at;
+                      if (annotFilter === 'resolved') return !!a.resolved_at;
+                      return true;
+                    });
+                    if (filtered.length === 0) return (
+                      <div style={{ padding: 24, textAlign: 'center', color: C.textMuted, fontSize: 13 }}>No comments found</div>
+                    );
+                    return (
+                      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                        <thead>
+                          <tr style={{ borderBottom: `1px solid ${C.border}` }}>
+                            {['Viewer', 'Page', 'Type', 'Comment', 'Time', 'Status', ''].map(h => (
+                              <th key={h} style={{ ...label(9), padding: '8px 12px', textAlign: 'left', fontWeight: 600, color: C.textDim }}>{h}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {filtered.map((a, i) => (
+                            <tr key={a.id} style={{ borderTop: i === 0 ? 'none' : `1px solid ${C.border}`, background: a.resolved_at ? C.successBg : 'transparent' }}>
+                              <td style={{ padding: '8px 12px', fontSize: 11, color: C.textMuted, ...mono }}>{a.viewer_email_masked || a.session_id?.slice(0, 8) + '…'}</td>
+                              <td style={{ padding: '8px 12px', fontSize: 11, color: C.textSecondary }}>p.{a.page_number}</td>
+                              <td style={{ padding: '8px 12px', fontSize: 10, ...mono, color: C.teal3 }}>{a.annotation_type}</td>
+                              <td style={{ padding: '8px 12px', fontSize: 12, color: C.textPrimary, maxWidth: 280, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.comment_text || <span style={{ color: C.textDim }}>—</span>}</td>
+                              <td style={{ padding: '8px 12px', fontSize: 10, color: C.textMuted, ...mono, whiteSpace: 'nowrap' }}>{new Date(a.created_at).toLocaleString()}</td>
+                              <td style={{ padding: '8px 12px' }}>
+                                {a.resolved_at
+                                  ? <Chip color={C.success} bg={C.successBg} border="transparent">Resolved</Chip>
+                                  : <Chip color={C.textMuted} bg="transparent" border={C.border}>Open</Chip>}
+                              </td>
+                              <td style={{ padding: '8px 12px' }}>
+                                {(a.annotation_type === 'comment' || a.annotation_type === 'sticky_note') && (
+                                  <Btn variant="ghost" size="sm" onClick={async () => {
+                                    try {
+                                      // Resolve toggle requires a share link token — skip for dashboard view
+                                      toast('Open via viewer link to resolve comments', 'info');
+                                    } catch {}
+                                  }}>{a.resolved_at ? '↩ Reopen' : '✓ Resolve'}</Btn>
+                                )}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    );
+                  })()}
+                </Card>
+              )}
             </div>
           </div>
 
@@ -1202,7 +1312,7 @@
     }
 
     // ── Viewer Layout System constants ─────────────────────────────────────────
-    const LAYOUT = { FIT_WIDTH: 'fit-width', FIT_HEIGHT: 'fit-height', CUSTOM: 'custom' };
+    const LAYOUT = { AUTO: 'auto', FIT_WIDTH: 'fit-width', FIT_HEIGHT: 'fit-height', ACTUAL: 'actual', CUSTOM: 'custom' };
     const ZOOM_PRESETS = [25, 50, 75, 100, 125, 150, 200, 300, 400];
     const ZOOM_MIN = 10;
     const ZOOM_MAX = 400;
@@ -1214,7 +1324,7 @@
       try { localStorage.setItem('sdoc-layout-zoom', String(zoom)); } catch {}
     }
     function _loadLayoutPref() {
-      let mode = LAYOUT.FIT_WIDTH, zoom = 100;
+      let mode = LAYOUT.AUTO, zoom = 100;
       try { const m = localStorage.getItem('sdoc-layout-mode'); if (m) mode = m; } catch {}
       try { const z = parseInt(localStorage.getItem('sdoc-layout-zoom') || '100', 10); if (z >= ZOOM_MIN && z <= ZOOM_MAX) zoom = z; } catch {}
       return { mode, zoom };
@@ -1249,8 +1359,8 @@
       const [imgReady, setImgReady] = useState(false);
       // Phase 7: in-viewer search
       const [showSearch, setShowSearch] = useState(false);
-      // TOC sidebar — open by default on desktop, closed on mobile
-      const [showToc, setShowToc] = useState(typeof window !== 'undefined' ? window.innerWidth > 640 : true);
+      // Pages panel open by default on desktop; TOC closed by default
+      const [showToc, setShowToc] = useState(false);
       // Premium: laser pointer, magnifier, fullscreen, page jump
       const [showLaser, setShowLaser] = useState(false);
       const [showMagnifier, setShowMagnifier] = useState(false);
@@ -1261,11 +1371,14 @@
       const [visitedLinks, setVisitedLinks] = useState(new Set()); // URLs the viewer has opened
       const [isFullscreen, setIsFullscreen] = useState(false);
       const [pageInputStr, setPageInputStr] = useState('');
-      const [showPageList, setShowPageList] = useState(false);
+      const [showPageList, setShowPageList] = useState(typeof window !== 'undefined' ? window.innerWidth > 640 : true);
       const [pageAspectRatio, setPageAspectRatio] = useState(null); // set from actual image dimensions
       const [sidecarExtracted, setSidecarExtracted] = useState(false); // toast-once flag
       // Annotation state
-      const [annotTool, setAnnotTool] = useState(null); // null|'highlight'|'comment'|'rectangle'|'arrow'
+      const [annotTool, setAnnotTool] = useState(null); // null|'highlight'|'comment'|'rectangle'|'arrow'|'sticky_note'|'draw'
+      const [annotColor, setAnnotColor] = useState('#FFE066'); // active tool color
+      const [annotThickness, setAnnotThickness] = useState(2); // stroke thickness for draw/arrow/rect
+      const [annotUndoStack, setAnnotUndoStack] = useState([]); // [{annotId, page}] for undo
       const [pageAnnotations, setPageAnnotations] = useState([]); // annotations for current page
       const [commentDraft, setCommentDraft] = useState(null); // {x,y,coords,type} pending comment text
       const annotCacheRef = useRef(new Map()); // page → annotation[]
@@ -1437,7 +1550,7 @@
           const data = await window.SecureDocAPI.getTextChunk(token, chunkNum, sessionId);
           setTextContent(data.content);
         } catch (e) {
-          setTextError(e?.detail || 'Unable to load content');
+          setTextError(_errMsg(e, 'Unable to load content'));
         } finally {
           setTextLoading(false);
         }
@@ -1470,16 +1583,16 @@
             setGateError(e.detail === 'Wrong password' ? 'Wrong password. Try again.' : null);
           } else if (status === 403 || status === 429) {
             // 403: domain/IP/email/concurrent denied — keep gate visible
-            setGateError(e.detail || 'Access denied');
+            setGateError(_errMsg(e, 'Access denied'));
           } else if (status === 410 || status === 404) {
             // Revoked/expired/gone — clear stored session, show terminal gate
             sessionStorage.removeItem(`securedoc_sess_${token}`);
-            const detail = (e.detail || '').toLowerCase();
+            const detail = (typeof e.detail === 'string' ? e.detail : '').toLowerCase();
             const terminalStatus = status === 404 ? 'not_found'
               : detail.includes('revoked') ? 'revoked' : 'expired';
             setGateInfo({ status: terminalStatus, requires_password: false, requires_email: false });
           } else {
-            toast(e.detail || 'Failed to open viewer', 'error');
+            toast(_errMsg(e, 'Failed to open viewer'), 'error');
           }
         } finally { setInit(false); }
       };
@@ -1529,7 +1642,7 @@
             // No gate restrictions — auto-validate immediately
             await doValidate(token, null, null);
           } catch (e) {
-            toast(e.detail || 'Failed to open viewer', 'error');
+            toast(_errMsg(e, 'Failed to open viewer'), 'error');
             setInit(false);
           }
         })();
@@ -1887,6 +2000,24 @@
             canInfo={session ? !!session?.permissions?.enable_info : true}
             canAnnotate={!!session?.permissions?.can_annotate}
             annotTool={annotTool} setAnnotTool={setAnnotTool}
+            annotColor={annotColor} setAnnotColor={setAnnotColor}
+            annotThickness={annotThickness} setAnnotThickness={setAnnotThickness}
+            annotUndoStack={annotUndoStack}
+            onAnnotUndo={async () => {
+              if (annotUndoStack.length === 0 || !session) return;
+              const last = annotUndoStack[annotUndoStack.length - 1];
+              try {
+                await window.SecureDocAPI.deleteAnnotation(session.link_token, last.annotId, session.session_id);
+                setAnnotUndoStack(s => s.slice(0, -1));
+                if (last.page === page) {
+                  const updated = pageAnnotations.filter(a => a.id !== last.annotId);
+                  annotCacheRef.current.set(page, updated);
+                  setPageAnnotations(updated);
+                } else {
+                  annotCacheRef.current.delete(last.page);
+                }
+              } catch (e) { toast(_errMsg(e, 'Undo failed'), 'error'); }
+            }}
             bookmarked={bookmarks.has(page)}
             onToggleBookmark={async () => {
               if (!session) return;
@@ -1897,7 +2028,7 @@
                   if (res.action === 'added') next.add(page); else next.delete(page);
                   return next;
                 });
-              } catch (e) { toast(e?.detail || 'Bookmark failed', 'error'); }
+              } catch (e) { toast(_errMsg(e, 'Bookmark failed'), 'error'); }
             }}
             onDownload={async () => {
               if (!session?.permissions?.can_download) return;
@@ -1905,7 +2036,7 @@
               try {
                 await window.SecureDocAPI.downloadDocument(session.link_token, session.session_id, session.document_filename);
                 toast('Download complete', 'success');
-              } catch (e) { toast(e?.detail || 'Download failed', 'error'); }
+              } catch (e) { toast(_errMsg(e, 'Download failed'), 'error'); }
             }}
             onPrint={() => {
               if (session?.permissions?.can_print) {
@@ -2015,6 +2146,16 @@
                 // FIT_HEIGHT → each page fills viewport height, CUSTOM → fixed px.
                 // The wrapping flex container splits available width for two-page layout.
                 const _pgStyle = (() => {
+                  if (layoutMode === LAYOUT.AUTO) {
+                    // Auto: fit width on narrow viewports, fit height on wide landscape
+                    const isLandscapePage = pageAspectRatio && parseFloat(pageAspectRatio.split('/')[0]) > parseFloat(pageAspectRatio.split('/')[1]);
+                    if (isLandscapePage) {
+                      return isTwoPage
+                        ? { width: 'auto', height: 'calc(100vh - 74px)' }
+                        : { width: 'auto', maxWidth: '100%', height: 'calc(100vh - 74px)' };
+                    }
+                    return { width: '100%', maxWidth: '100%', height: undefined };
+                  }
                   if (layoutMode === LAYOUT.FIT_WIDTH) {
                     return { width: '100%', maxWidth: '100%', height: undefined };
                   }
@@ -2025,6 +2166,10 @@
                     return isTwoPage
                       ? { width: 'auto', height: 'calc(100vh - 74px)' }
                       : { width: 'auto', maxWidth: '100%', height: 'calc(100vh - 74px)' };
+                  }
+                  if (layoutMode === LAYOUT.ACTUAL) {
+                    // 100% = natural page size (72dpi basis: letter = 612px wide)
+                    return { width: '612px', maxWidth: 'none', height: undefined };
                   }
                   // CUSTOM zoom: 100% = 590px (fits a letter-size PDF at typical DPI)
                   return { width: `${customZoom * 5.9}px`, maxWidth: '100%', height: undefined };
@@ -2209,21 +2354,27 @@
                       sessionPrefix={session?.session_id ? session.session_id.slice(0, 6) : ''}
                       commentDraft={commentDraft}
                       onDraw={async (coords, type) => {
-                        if (type === 'comment') {
+                        if (type === 'comment' || type === 'sticky_note') {
                           setCommentDraft({ coords, type, x: coords.x, y: coords.y });
                           return;
                         }
                         try {
+                          const colorFor = (t) => {
+                            if (t === 'highlight') return annotColor || '#FFE066';
+                            if (t === 'rectangle') return annotColor || 'rgba(90,200,208,0.25)';
+                            if (t === 'draw') return annotColor || '#5ac8d0';
+                            return annotColor || '#5ac8d0';
+                          };
                           const annot = await window.SecureDocAPI.createAnnotation(
                             session.link_token,
-                            { page_number: page, annotation_type: type, coords, color: type === 'highlight' ? '#FFE066' : type === 'rectangle' ? 'rgba(90,200,208,0.25)' : '#5ac8d0' },
+                            { page_number: page, annotation_type: type, coords, color: colorFor(type), thickness: annotThickness },
                             session.session_id
                           );
                           const updated = [...pageAnnotations, annot];
                           annotCacheRef.current.set(page, updated);
                           setPageAnnotations(updated);
-                          window.SecureDocAPI.logEvent(session.link_token, session.session_id, 'annotation_created', page, { type });
-                        } catch (e) { toast(e?.detail || 'Failed to save annotation', 'error'); }
+                          setAnnotUndoStack(s => [...s, { annotId: annot.id, page }]);
+                        } catch (e) { toast(_errMsg(e, 'Failed to save annotation'), 'error'); }
                       }}
                       onDelete={async (annotId) => {
                         try {
@@ -2231,7 +2382,8 @@
                           const updated = pageAnnotations.filter(a => a.id !== annotId);
                           annotCacheRef.current.set(page, updated);
                           setPageAnnotations(updated);
-                        } catch (e) { toast(e?.detail || 'Failed to delete annotation', 'error'); }
+                          setAnnotUndoStack(s => s.filter(u => u.annotId !== annotId));
+                        } catch (e) { toast(_errMsg(e, 'Failed to delete annotation'), 'error'); }
                       }}
                       C={C} mono={mono}
                     />
@@ -2241,19 +2393,20 @@
                     <CommentPopup
                       draft={commentDraft}
                       onSave={async (text) => {
+                        const draft = commentDraft;
                         setCommentDraft(null);
                         if (!text.trim()) return;
                         try {
                           const annot = await window.SecureDocAPI.createAnnotation(
                             session.link_token,
-                            { page_number: page, annotation_type: 'comment', coords: commentDraft.coords, comment_text: text.trim(), color: '#5ac8d0' },
+                            { page_number: page, annotation_type: draft.type || 'comment', coords: draft.coords, comment_text: text.trim(), color: annotColor || '#5ac8d0' },
                             session.session_id
                           );
                           const updated = [...pageAnnotations, annot];
                           annotCacheRef.current.set(page, updated);
                           setPageAnnotations(updated);
-                          window.SecureDocAPI.logEvent(session.link_token, session.session_id, 'annotation_created', page, { type: 'comment' });
-                        } catch (e) { toast(e?.detail || 'Failed to save comment', 'error'); }
+                          setAnnotUndoStack(s => [...s, { annotId: annot.id, page }]);
+                        } catch (e) { toast(_errMsg(e, 'Failed to save comment'), 'error'); }
                       }}
                       onCancel={() => setCommentDraft(null)}
                       C={C}
@@ -2266,13 +2419,14 @@
                 // W-fit → each slot is 50% wide, page fills its slot.
                 // H-fit → each page fills viewport height, slots auto-size to content.
                 // Custom → fixed px per page, slots shrink to content.
-                const _slotStyle = layoutMode === LAYOUT.FIT_WIDTH
+                const _fitWidth = layoutMode === LAYOUT.FIT_WIDTH || layoutMode === LAYOUT.AUTO;
+                const _slotStyle = _fitWidth
                   ? { flex: 1, minWidth: 0, display: 'flex', alignItems: 'flex-start', justifyContent: 'center' }
                   : { flexShrink: 0, display: 'flex', alignItems: 'flex-start', justifyContent: 'center' };
-                // FIT_WIDTH needs width:100% so flex-1 slots split the canvas evenly.
-                // FIT_HEIGHT/CUSTOM: no explicit width — each page sizes to its natural height,
+                // FIT_WIDTH/AUTO needs width:100% so flex-1 slots split the canvas evenly.
+                // FIT_HEIGHT/CUSTOM/ACTUAL: no explicit width — each page sizes to its natural height,
                 // canvas 'safe center' aligns left when spread overflows (enabling horizontal scroll).
-                const _wrapStyle = layoutMode === LAYOUT.FIT_WIDTH
+                const _wrapStyle = _fitWidth
                   ? { display: 'flex', flexDirection: 'row', gap: 2, alignItems: 'flex-start', justifyContent: 'center', width: '100%' }
                   : { display: 'flex', flexDirection: 'row', gap: 2, alignItems: 'flex-start' };
                 return (
@@ -2402,6 +2556,7 @@
     function AnnotationLayer({ annotations, activeTool, sessionPrefix, commentDraft, onDraw, onDelete, C, mono }) {
       const svgRef = useRef(null);
       const [preview, setPreview] = useState(null); // shape being drawn
+      const [drawPoints, setDrawPoints] = useState([]); // freehand path points
       const dragRef = useRef(null);
 
       const _toNorm = (e) => {
@@ -2415,13 +2570,22 @@
         e.preventDefault();
         const { x, y } = _toNorm(e);
         dragRef.current = { x, y };
-        setPreview({ x, y, w: 0, h: 0, x2: x, y2: y });
+        if (activeTool === 'draw') {
+          setDrawPoints([{ x, y }]);
+          setPreview(true);
+        } else {
+          setPreview({ x, y, w: 0, h: 0, x2: x, y2: y });
+        }
       };
       const _onMouseMove = (e) => {
         if (!dragRef.current) return;
         const { x, y } = _toNorm(e);
         const s = dragRef.current;
-        setPreview({ x: Math.min(s.x, x), y: Math.min(s.y, y), w: Math.abs(x - s.x), h: Math.abs(y - s.y), x1: s.x, y1: s.y, x2: x, y2: y });
+        if (activeTool === 'draw') {
+          setDrawPoints(pts => [...pts, { x, y }]);
+        } else {
+          setPreview({ x: Math.min(s.x, x), y: Math.min(s.y, y), w: Math.abs(x - s.x), h: Math.abs(y - s.y), x1: s.x, y1: s.y, x2: x, y2: y });
+        }
       };
       const _onMouseUp = (e) => {
         if (!dragRef.current || !preview) { dragRef.current = null; return; }
@@ -2430,8 +2594,14 @@
         dragRef.current = null;
         setPreview(null);
         const minDrag = 0.01;
-        if (activeTool === 'comment') {
-          onDraw({ x: s.x, y: s.y }, 'comment');
+        if (activeTool === 'comment' || activeTool === 'sticky_note') {
+          onDraw({ x: s.x, y: s.y }, activeTool);
+          return;
+        }
+        if (activeTool === 'draw') {
+          const pts = drawPoints;
+          setDrawPoints([]);
+          if (pts.length >= 2) onDraw({ points: pts }, 'draw');
           return;
         }
         if (Math.abs(x - s.x) < minDrag && Math.abs(y - s.y) < minDrag) return;
@@ -2483,12 +2653,39 @@
                 )}
               </g>
             );
+            if (a.annotation_type === 'sticky_note') return (
+              <g key={a.id} style={{ pointerEvents: isOwn && !activeTool ? 'all' : 'none', cursor: 'pointer' }} onClick={() => !activeTool && isOwn && onDelete(a.id)}>
+                <rect x={`${(coords.x || 0) * 100 - 1}%`} y={`${(coords.y || 0) * 100 - 1}%`} width="22" height="22" rx="3" fill="#FFE066" opacity="0.92"/>
+                <text x={`${(coords.x || 0) * 100}%`} y={`${(coords.y || 0) * 100}%`} textAnchor="middle" dominantBaseline="central" fontSize="11" style={{ transform: `translate(10px, 10px)` }}>📝</text>
+                {a.comment_text && (
+                  <foreignObject x={`${Math.min((coords.x || 0) * 100 + 2, 60)}%`} y={`${(coords.y || 0) * 100}%`} width="160" height="80" style={{ pointerEvents: 'none' }}>
+                    <div style={{ background: '#FFFDE7', border: '1px solid #FFE066', borderRadius: 5, padding: '4px 8px', fontSize: 10, color: '#333', fontFamily: "'DM Sans',sans-serif", lineHeight: 1.4, maxWidth: 160, wordBreak: 'break-word', boxShadow: '0 2px 8px rgba(0,0,0,0.25)' }}>
+                      {a.comment_text}
+                    </div>
+                  </foreignObject>
+                )}
+              </g>
+            );
+            if (a.annotation_type === 'draw') {
+              const pts = Array.isArray(coords.points) ? coords.points : [];
+              if (pts.length < 2) return null;
+              const d = pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x * 100}% ${p.y * 100}%`).join(' ');
+              return (
+                <path key={a.id} d={d} stroke={col} strokeWidth={a.thickness || 2} fill="none" strokeLinecap="round" strokeLinejoin="round" opacity="0.9"
+                  style={{ pointerEvents: isOwn && !activeTool ? 'all' : 'none', cursor: 'pointer' }}
+                  onClick={() => !activeTool && isOwn && onDelete(a.id)} />
+              );
+            }
             return null;
           })}
           {/* Drawing preview */}
           {preview && activeTool === 'highlight' && <rect x={`${preview.x * 100}%`} y={`${preview.y * 100}%`} width={`${preview.w * 100}%`} height={`${preview.h * 100}%`} fill="#FFE066" opacity="0.3" rx="2" style={{ pointerEvents: 'none' }}/>}
           {preview && activeTool === 'rectangle' && <rect x={`${preview.x * 100}%`} y={`${preview.y * 100}%`} width={`${preview.w * 100}%`} height={`${preview.h * 100}%`} fill="none" stroke="#5ac8d0" strokeWidth="1.5" rx="2" opacity="0.7" style={{ pointerEvents: 'none' }}/>}
           {preview && activeTool === 'arrow' && <line x1={`${preview.x1 * 100}%`} y1={`${preview.y1 * 100}%`} x2={`${preview.x2 * 100}%`} y2={`${preview.y2 * 100}%`} stroke="#5ac8d0" strokeWidth="1.8" opacity="0.7" style={{ pointerEvents: 'none' }}/>}
+          {preview && activeTool === 'draw' && drawPoints.length >= 2 && (() => {
+            const d = drawPoints.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x * 100}% ${p.y * 100}%`).join(' ');
+            return <path d={d} stroke="#5ac8d0" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" opacity="0.7" style={{ pointerEvents: 'none' }}/>;
+          })()}
         </svg>
       );
     }
@@ -2500,7 +2697,7 @@
       useEffect(() => { setTimeout(() => inputRef.current?.focus(), 50); }, []);
       return (
         <div style={{ position: 'absolute', left: `${Math.min(draft.x * 100, 70)}%`, top: `${Math.min(draft.y * 100, 70)}%`, zIndex: 20, background: '#0E1416', border: '1px solid rgba(90,200,208,0.3)', borderRadius: 8, padding: '10px 12px', width: 220, boxShadow: '0 4px 24px rgba(0,0,0,0.6)' }}>
-          <div style={{ fontSize: 10, color: 'rgba(148,160,176,0.7)', marginBottom: 6, fontWeight: 600, letterSpacing: '0.5px' }}>ADD COMMENT</div>
+          <div style={{ fontSize: 10, color: 'rgba(148,160,176,0.7)', marginBottom: 6, fontWeight: 600, letterSpacing: '0.5px' }}>{draft.type === 'sticky_note' ? 'ADD STICKY NOTE' : 'ADD COMMENT'}</div>
           <textarea ref={inputRef} value={text} onChange={e => setText(e.target.value)} placeholder="Type your comment…" maxLength={2000}
             style={{ width: '100%', minHeight: 64, fontSize: 11, resize: 'vertical', marginBottom: 8, background: 'rgba(90,200,208,0.05)', border: '1px solid rgba(90,200,208,0.2)', borderRadius: 5, color: '#F0F2F1', fontFamily: "'DM Sans',sans-serif", padding: '6px 8px', outline: 'none' }}
             onKeyDown={e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) onSave(text); if (e.key === 'Escape') onCancel(); }}
@@ -2511,6 +2708,89 @@
           </div>
         </div>
       );
+    }
+
+    // ── Annotation flyout sub-toolbar (extracted to allow useState) ──────────
+    const ANNOT_COLORS = ['#FFE066', '#FF6B6B', '#5ac8d0', '#7BC67A', '#B794F4', '#F6AD55', '#FC8181', '#63B3ED'];
+    const ANNOT_TOOLS = [
+      { tool: 'highlight', label: 'Highlight', icon: <svg width="14" height="12" viewBox="0 0 14 12" fill="none"><rect x="0" y="4" width="14" height="5" rx="1.5" fill="#FFE066" opacity="0.75"/><path d="M2 9.5l1.5-6h7l1.5 6" stroke="currentColor" strokeWidth="1" strokeLinecap="round" opacity="0.5"/></svg> },
+      { tool: 'draw', label: 'Draw', icon: <svg width="14" height="12" viewBox="0 0 14 12" fill="none"><path d="M1 10 Q3 3 7 6 Q11 9 13 2" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" fill="none" opacity="0.9"/></svg> },
+      { tool: 'comment', label: 'Comment', icon: <svg width="14" height="12" viewBox="0 0 14 12" fill="none"><path d="M1 1h12v8H7l-3 2V9H1V1z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/></svg> },
+      { tool: 'sticky_note', label: 'Sticky Note', icon: <svg width="14" height="12" viewBox="0 0 14 12" fill="none"><rect x="1" y="1" width="12" height="10" rx="1.5" fill="#FFE066" opacity="0.25" stroke="#FFE066" strokeWidth="1.2"/><path d="M4 4h6M4 6.5h4" stroke="currentColor" strokeWidth="1" strokeLinecap="round" opacity="0.6"/></svg> },
+      { tool: 'rectangle', label: 'Rectangle', icon: <svg width="14" height="12" viewBox="0 0 14 12" fill="none"><rect x="1.5" y="1.5" width="11" height="9" rx="1.5" stroke="currentColor" strokeWidth="1.3"/></svg> },
+      { tool: 'arrow', label: 'Arrow', icon: <svg width="14" height="12" viewBox="0 0 14 12" fill="none"><path d="M1 6h11M9 3l3 3-3 3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg> },
+    ];
+
+    function AnnotToolbar({ btn, on, sep, mono, annotTool, setAnnotTool, annotColor, setAnnotColor, annotThickness, setAnnotThickness, annotUndoStack, onAnnotUndo, bookmarked, onToggleBookmark }) {
+      const [showFlyout, setShowFlyout] = useState(false);
+      return (<>
+        {sep}
+        <button onClick={onToggleBookmark} title={bookmarked ? 'Remove bookmark' : 'Bookmark page'}
+          style={{ ...btn, ...(bookmarked ? { color: '#FFE066', opacity: 1 } : {}), padding: '3px 7px' }}>
+          <svg width="10" height="13" viewBox="0 0 10 13" fill={bookmarked ? '#FFE066' : 'none'} style={{ flexShrink: 0 }}>
+            <path d="M1 1h8v11l-4-3-4 3V1z" stroke={bookmarked ? '#FFE066' : 'currentColor'} strokeWidth="1.3" strokeLinejoin="round"/>
+          </svg>
+        </button>
+        <div style={{ position: 'relative', flexShrink: 0 }}>
+          <button
+            onClick={() => setShowFlyout(v => !v)}
+            title="Annotation tools"
+            style={{ ...btn, padding: '3px 7px', ...(annotTool || showFlyout ? on : {}) }}
+          >
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" style={{ flexShrink: 0 }}>
+              <path d="M8.5 1.5L10.5 3.5L4 10H2V8L8.5 1.5Z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" fill="none"/>
+              <path d="M7 3L9 5" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
+            </svg>
+            {annotTool && <span style={{ ...mono, fontSize: 8, marginLeft: 2, color: '#5ac8d0' }}>●</span>}
+          </button>
+          {showFlyout && (
+            <div style={{
+              position: 'absolute', top: '100%', right: 0, zIndex: 200, marginTop: 4,
+              background: '#10161d', border: '1px solid rgba(90,200,208,0.18)', borderRadius: 8,
+              padding: 10, minWidth: 180, boxShadow: '0 8px 32px rgba(0,0,0,0.55)',
+              display: 'flex', flexDirection: 'column', gap: 4,
+            }}>
+              <div style={{ fontSize: 9, letterSpacing: '0.7px', textTransform: 'uppercase', color: 'rgba(90,200,208,0.5)', marginBottom: 4, paddingBottom: 4, borderBottom: '1px solid rgba(255,255,255,0.06)' }}>Tools</div>
+              {ANNOT_TOOLS.map(({ tool, label, icon }) => (
+                <button key={tool}
+                  onClick={() => setAnnotTool(t => t === tool ? null : tool)}
+                  style={{ ...btn, borderRadius: 5, padding: '4px 8px', justifyContent: 'flex-start', gap: 8, width: '100%', ...(annotTool === tool ? on : {}) }}
+                >
+                  {icon}
+                  <span style={{ fontSize: 11 }}>{label}</span>
+                  {annotTool === tool && <span style={{ marginLeft: 'auto', fontSize: 9, color: '#5ac8d0' }}>active</span>}
+                </button>
+              ))}
+              <div style={{ fontSize: 9, letterSpacing: '0.7px', textTransform: 'uppercase', color: 'rgba(90,200,208,0.5)', marginTop: 6, marginBottom: 4, paddingTop: 4, borderTop: '1px solid rgba(255,255,255,0.06)' }}>Color</div>
+              <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
+                {ANNOT_COLORS.map(c => (
+                  <div key={c} onClick={() => setAnnotColor(c)}
+                    style={{ width: 18, height: 18, borderRadius: '50%', background: c, cursor: 'pointer', border: annotColor === c ? '2px solid #fff' : '2px solid transparent', flexShrink: 0, transition: 'border .1s' }}
+                    title={c}
+                  />
+                ))}
+              </div>
+              <div style={{ fontSize: 9, letterSpacing: '0.7px', textTransform: 'uppercase', color: 'rgba(90,200,208,0.5)', marginTop: 6, marginBottom: 4, paddingTop: 4, borderTop: '1px solid rgba(255,255,255,0.06)' }}>Thickness</div>
+              <div style={{ display: 'flex', gap: 5 }}>
+                {[1, 2, 4, 6].map(t => (
+                  <button key={t} onClick={() => setAnnotThickness(t)}
+                    style={{ ...btn, borderRadius: 4, padding: '3px 8px', ...(annotThickness === t ? on : {}) }}>
+                    <div style={{ width: 20, height: t, background: 'currentColor', borderRadius: 1 }}/>
+                  </button>
+                ))}
+              </div>
+              <div style={{ display: 'flex', gap: 5, marginTop: 6, paddingTop: 4, borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+                <button onClick={onAnnotUndo} disabled={annotUndoStack.length === 0}
+                  style={{ ...btn, flex: 1, justifyContent: 'center', borderRadius: 5, opacity: annotUndoStack.length === 0 ? 0.3 : 1 }}
+                  title="Undo last annotation">
+                  <svg width="12" height="10" viewBox="0 0 12 10" fill="none"><path d="M1 5h7a3 3 0 010 6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/><path d="M1 5L4 2M1 5l3 3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                  <span style={{ fontSize: 10, marginLeft: 4 }}>Undo</span>
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      </>);
     }
 
     // ── Professional top toolbar ──────────────────────────────────────────────
@@ -2527,7 +2807,9 @@
       showToc, setShowToc, showSearch, setShowSearch, showInfo, setShowInfo,
       showPageList, setShowPageList,
       canDownload, canPrint, canInfo, canAnnotate, onDownload, onPrint,
-      annotTool, setAnnotTool, bookmarked, onToggleBookmark,
+      annotTool, setAnnotTool, annotColor, setAnnotColor, annotThickness, setAnnotThickness,
+      annotUndoStack, onAnnotUndo,
+      bookmarked, onToggleBookmark,
       rotation, onRotate, isTwoPage, onToggleTwoPage,
       C, mono,
     }) {
@@ -2550,8 +2832,10 @@
         setPageInputStr('');
       };
 
-      const zoomLabel = layoutMode === LAYOUT.FIT_WIDTH ? 'W'
+      const zoomLabel = layoutMode === LAYOUT.AUTO ? 'AUTO'
+        : layoutMode === LAYOUT.FIT_WIDTH ? 'W'
         : layoutMode === LAYOUT.FIT_HEIGHT ? 'H'
+        : layoutMode === LAYOUT.ACTUAL ? '100%'
         : `${customZoom}%`;
 
       return (
@@ -2653,24 +2937,34 @@
             {sep}
             {/* ── View group: zoom pill (W · H · − · zoom · +) + 2P + rotate ── */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 2, flexShrink: 0 }}>
-              {/* Unified zoom control: W | H | − | label | + */}
+              {/* Unified zoom control: AUTO | W | H | 100% | − | label | + */}
               <div style={{ display: 'flex', alignItems: 'center', background: 'rgba(255,255,255,0.045)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 5, overflow: 'hidden', flexShrink: 0 }}>
+                <button onClick={() => _setLayout(LAYOUT.AUTO)} title="Auto fit"
+                  style={{ ...btn, borderRadius: 0, padding: '3px 6px', fontSize: 9, fontWeight: 700, borderRight: '1px solid rgba(255,255,255,0.07)', ...(layoutMode === LAYOUT.AUTO ? on : {}) }}>
+                  AUTO
+                </button>
                 <button onClick={() => _setLayout(LAYOUT.FIT_WIDTH)} title="Fit to width"
-                  style={{ ...btn, borderRadius: 0, padding: '3px 7px', fontSize: 10, fontWeight: 700, borderRight: '1px solid rgba(255,255,255,0.07)', ...(layoutMode === LAYOUT.FIT_WIDTH ? on : {}) }}>
+                  style={{ ...btn, borderRadius: 0, padding: '3px 6px', fontSize: 10, fontWeight: 700, borderRight: '1px solid rgba(255,255,255,0.07)', ...(layoutMode === LAYOUT.FIT_WIDTH ? on : {}) }}>
                   W
                 </button>
                 <button onClick={() => _setLayout(LAYOUT.FIT_HEIGHT)} title="Fit to height"
-                  style={{ ...btn, borderRadius: 0, padding: '3px 7px', fontSize: 10, fontWeight: 700, borderRight: '1px solid rgba(255,255,255,0.07)', ...(layoutMode === LAYOUT.FIT_HEIGHT ? on : {}) }}>
+                  style={{ ...btn, borderRadius: 0, padding: '3px 6px', fontSize: 10, fontWeight: 700, borderRight: '1px solid rgba(255,255,255,0.07)', ...(layoutMode === LAYOUT.FIT_HEIGHT ? on : {}) }}>
                   H
+                </button>
+                <button onClick={() => _setLayout(LAYOUT.ACTUAL)} title="Actual size (100%)"
+                  style={{ ...btn, borderRadius: 0, padding: '3px 5px', fontSize: 9, fontWeight: 700, borderRight: '1px solid rgba(255,255,255,0.07)', ...(layoutMode === LAYOUT.ACTUAL ? on : {}) }}>
+                  100%
                 </button>
                 <button onClick={() => _zoomBy(-ZOOM_STEP)} title="Zoom out"
                   style={{ ...btn, borderRadius: 0, padding: '3px 6px', fontSize: 14, borderRight: '1px solid rgba(255,255,255,0.07)' }}>−</button>
                 <select
-                  value={layoutMode === LAYOUT.CUSTOM ? customZoom : layoutMode === LAYOUT.FIT_WIDTH ? 'fw' : 'fh'}
+                  value={layoutMode === LAYOUT.CUSTOM ? customZoom : layoutMode === LAYOUT.FIT_WIDTH ? 'fw' : layoutMode === LAYOUT.FIT_HEIGHT ? 'fh' : layoutMode === LAYOUT.AUTO ? 'auto' : layoutMode === LAYOUT.ACTUAL ? 'actual' : customZoom}
                   onChange={e => {
                     const v = e.target.value;
-                    if (v === 'fw') _setLayout(LAYOUT.FIT_WIDTH);
+                    if (v === 'auto') _setLayout(LAYOUT.AUTO);
+                    else if (v === 'fw') _setLayout(LAYOUT.FIT_WIDTH);
                     else if (v === 'fh') _setLayout(LAYOUT.FIT_HEIGHT);
+                    else if (v === 'actual') _setLayout(LAYOUT.ACTUAL);
                     else _zoomTo(parseInt(v, 10));
                   }}
                   title="Zoom level"
@@ -2684,8 +2978,10 @@
                   {layoutMode === LAYOUT.CUSTOM && !ZOOM_PRESETS.includes(customZoom) && (
                     <option value={customZoom}>{customZoom}%</option>
                   )}
+                  {layoutMode === LAYOUT.AUTO && <option value="auto">AUTO</option>}
                   {layoutMode === LAYOUT.FIT_WIDTH && <option value="fw">W</option>}
                   {layoutMode === LAYOUT.FIT_HEIGHT && <option value="fh">H</option>}
+                  {layoutMode === LAYOUT.ACTUAL && <option value="actual">100%</option>}
                 </select>
                 <button onClick={() => _zoomBy(ZOOM_STEP)} title="Zoom in"
                   style={{ ...btn, borderRadius: 0, padding: '3px 6px', fontSize: 14, borderLeft: '1px solid rgba(255,255,255,0.07)' }}>+</button>
@@ -2775,30 +3071,16 @@
             }
           </button>
           {/* ── Annotation tools — only when can_annotate is on ── */}
-          {canAnnotate && (<>
-            {sep}
-            {/* Bookmark toggle */}
-            <button onClick={onToggleBookmark} title={bookmarked ? 'Remove bookmark' : 'Bookmark page'}
-              style={{ ...btn, ...(bookmarked ? { color: '#FFE066', opacity: 1 } : {}), padding: '3px 7px' }}>
-              <svg width="10" height="13" viewBox="0 0 10 13" fill={bookmarked ? '#FFE066' : 'none'} style={{ flexShrink: 0 }}>
-                <path d="M1 1h8v11l-4-3-4 3V1z" stroke={bookmarked ? '#FFE066' : 'currentColor'} strokeWidth="1.3" strokeLinejoin="round"/>
-              </svg>
-            </button>
-            {/* Annotation tool buttons in a pill */}
-            <div style={{ display: 'flex', alignItems: 'center', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 5, overflow: 'hidden', marginLeft: 2 }}>
-              {[
-                { tool: 'highlight', title: 'Highlight', icon: <svg width="12" height="10" viewBox="0 0 12 10" fill="none"><rect x="0" y="3" width="12" height="5" rx="1" fill="#FFE066" opacity="0.7"/><path d="M2 8l1-5h6l1 5" stroke="currentColor" strokeWidth="1" strokeLinecap="round" opacity="0.5"/></svg> },
-                { tool: 'comment', title: 'Comment', icon: <svg width="12" height="11" viewBox="0 0 12 11" fill="none"><path d="M1 1h10v7H6l-2 2V8H1V1z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/></svg> },
-                { tool: 'rectangle', title: 'Rectangle', icon: <svg width="12" height="10" viewBox="0 0 12 10" fill="none"><rect x="1" y="1" width="10" height="8" rx="1" stroke="currentColor" strokeWidth="1.3"/></svg> },
-                { tool: 'arrow', title: 'Arrow', icon: <svg width="12" height="10" viewBox="0 0 12 10" fill="none"><path d="M1 5h9M7 2l3 3-3 3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg> },
-              ].map(({ tool, title, icon }) => (
-                <button key={tool} onClick={() => setAnnotTool(t => t === tool ? null : tool)} title={title}
-                  style={{ ...btn, borderRadius: 0, padding: '3px 7px', borderRight: '1px solid rgba(255,255,255,0.07)', ...(annotTool === tool ? on : {}) }}>
-                  {icon}
-                </button>
-              ))}
-            </div>
-          </>)}
+          {canAnnotate && (
+            <AnnotToolbar
+              btn={btn} on={on} sep={sep} mono={mono}
+              annotTool={annotTool} setAnnotTool={setAnnotTool}
+              annotColor={annotColor} setAnnotColor={setAnnotColor}
+              annotThickness={annotThickness} setAnnotThickness={setAnnotThickness}
+              annotUndoStack={annotUndoStack} onAnnotUndo={onAnnotUndo}
+              bookmarked={bookmarked} onToggleBookmark={onToggleBookmark}
+            />
+          )}
           {sep}
           <button onClick={onDownload} disabled={!canDownload} title="Download" style={{ ...btn, opacity: canDownload ? 1 : 0.28, padding: '3px 7px' }}>
             <svg width="11" height="12" viewBox="0 0 11 12" fill="none" style={{ flexShrink: 0 }}>
@@ -3719,7 +4001,7 @@
         try {
           const data = await window.SecureDocAPI.getLinks(docId);
           setLinks(data.links || []);
-        } catch (e) { toast(e.detail || 'Failed to load links', 'error'); }
+        } catch (e) { toast(_errMsg(e, 'Failed to load links'), 'error'); }
         finally { setLinksLoading(false); }
       }, [docId]);
 
@@ -3744,7 +4026,7 @@
           setSaved(true); setTimeout(() => setSaved(false), 2500);
           toast('Access policy saved — new link created', 'success');
           await fetchLinks(); setTab('link');
-        } catch (e) { toast(e.detail || 'Failed to create link', 'error'); }
+        } catch (e) { toast(_errMsg(e, 'Failed to create link'), 'error'); }
         finally { setCreating(false); }
       };
 
@@ -3941,7 +4223,7 @@
                         {link.revoked_at && <Chip color={C.error} bg={C.errorBg} border={C.errorBdr}>REVOKED</Chip>}
                       </div>
                       {!link.revoked_at && (
-                        <Btn variant="outline-danger" size="sm" onClick={async () => { try { await window.SecureDocAPI.revokeLink(link.id); toast('Link revoked', 'info'); await fetchLinks(); } catch (e) { toast(e.detail || 'Failed', 'error'); } }}>Revoke</Btn>
+                        <Btn variant="outline-danger" size="sm" onClick={async () => { try { await window.SecureDocAPI.revokeLink(link.id); toast('Link revoked', 'info'); await fetchLinks(); } catch (e) { toast(_errMsg(e, 'Failed'), 'error'); } }}>Revoke</Btn>
                       )}
                     </div>
                     <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 10 }}>
@@ -4080,7 +4362,7 @@
         setLoading(true);
         window.SecureDocAPI.getEvents(docId, 50)
           .then(data => setEvents(data.events || []))
-          .catch(e => toast(e.detail || 'Failed to load events', 'error'))
+          .catch(e => toast(_errMsg(e, 'Failed to load events'), 'error'))
           .finally(() => setLoading(false));
       }, [docId]);
 
@@ -4144,7 +4426,7 @@
           window.SecureDocAPI.getGroupAnalytics(),
         ])
           .then(([ov, ds, gs]) => { setOverview(ov); setDocStats(ds.documents || []); setGroupStats(gs.groups || []); })
-          .catch(e => toast(e.detail || 'Failed to load analytics', 'error'))
+          .catch(e => toast(_errMsg(e, 'Failed to load analytics'), 'error'))
           .finally(() => setAnalyticsLoading(false));
       }, []);
 
@@ -4670,7 +4952,7 @@
           window.SecureDocAPI.getStorageDashboard(),
           window.SecureDocAPI.getStorageForecast(),
         ]).then(([d, f]) => { setDashboard(d); setForecast(f); })
-          .catch(e => toast(e.detail || 'Failed to load storage data', 'error'))
+          .catch(e => toast(_errMsg(e, 'Failed to load storage data'), 'error'))
           .finally(() => setLoading(false));
       }, []);
 
@@ -4681,7 +4963,7 @@
           const d = await window.SecureDocAPI.getStorageDashboard();
           setDashboard(d);
           toast('Retention policy updated', 'success');
-        } catch (e) { toast(e.detail || 'Update failed', 'error'); }
+        } catch (e) { toast(_errMsg(e, 'Update failed'), 'error'); }
         finally { setUpdatingId(null); }
       };
 

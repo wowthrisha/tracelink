@@ -628,4 +628,47 @@ window.SecureDocAPI = {
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
   },
+
+  async getDocumentAnnotations(docId, annotationType = null, resolved = null) {
+    const params = new URLSearchParams();
+    if (annotationType) params.set('annotation_type', annotationType);
+    if (resolved !== null) params.set('resolved', String(resolved));
+    const r = await fetch(`${API_BASE}/api/documents/${docId}/annotations?${params}`, {
+      headers: { ...authHeaders() },
+    });
+    if (r.status === 401) { _clearAndReload(); return; }
+    if (!r.ok) throw await r.json().catch(() => ({ detail: 'Failed to load annotations' }));
+    return r.json();
+  },
+
+  async resolveAnnotation(linkToken, annotationId, sessionId) {
+    const base = API_BASE.replace(/\/$/, '');
+    const r = await fetch(
+      `${base}/api/viewer/annotations/${encodeURIComponent(linkToken)}/${annotationId}/resolve`,
+      { method: 'PATCH', headers: this.sessionHeaders(sessionId) }
+    );
+    if (!r.ok) throw await r.json().catch(() => ({ detail: 'Failed to resolve annotation' }));
+    return r.json();
+  },
+
+  async replyToAnnotation(linkToken, parentId, text, sessionId, pageNumber) {
+    const base = API_BASE.replace(/\/$/, '');
+    const r = await fetch(
+      `${base}/api/viewer/annotations/${encodeURIComponent(linkToken)}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...this.sessionHeaders(sessionId) },
+        body: JSON.stringify({
+          page_number: pageNumber,
+          annotation_type: 'comment',
+          coords: { x: 0.5, y: 0.5 },
+          comment_text: text,
+          parent_id: parentId,
+          color: '#5ac8d0',
+        }),
+      }
+    );
+    if (!r.ok) throw await r.json().catch(() => ({ detail: 'Failed to post reply' }));
+    return r.json();
+  },
 };
