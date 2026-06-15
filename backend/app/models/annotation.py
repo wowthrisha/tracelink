@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 from typing import Optional
-from sqlalchemy import String, Integer, DateTime, ForeignKey, Text, Index, UniqueConstraint, func
+from sqlalchemy import Integer, DateTime, ForeignKey, Text, Index, UniqueConstraint, String, func
 from sqlalchemy.orm import Mapped, mapped_column
 from app.database import Base
 
@@ -28,9 +28,9 @@ class ViewerAnnotation(Base):
         Index("ix_viewer_annotations_session", "session_id"),
     )
 
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    link_id: Mapped[str] = mapped_column(
-        String(36), ForeignKey("share_links.id", ondelete="CASCADE"), nullable=False
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    link_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("share_links.id", ondelete="CASCADE"), nullable=False
     )
     session_id: Mapped[str] = mapped_column(String(64), nullable=False)
     viewer_email_masked: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
@@ -60,9 +60,9 @@ class ViewerBookmark(Base):
         Index("ix_viewer_bookmarks_link_session", "link_id", "session_id"),
     )
 
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    link_id: Mapped[str] = mapped_column(
-        String(36), ForeignKey("share_links.id", ondelete="CASCADE"), nullable=False
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    link_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("share_links.id", ondelete="CASCADE"), nullable=False
     )
     session_id: Mapped[str] = mapped_column(String(64), nullable=False)
     page_number: Mapped[int] = mapped_column(Integer, nullable=False)

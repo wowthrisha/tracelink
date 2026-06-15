@@ -26,6 +26,7 @@ Indexes:
 """
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy.dialects.postgresql import UUID as PGUUID
 
 
 revision = "021"
@@ -33,14 +34,19 @@ down_revision = "020"
 branch_labels = None
 depends_on = None
 
+# share_links.id is a native PostgreSQL UUID column (created in migration 001).
+# Both id and link_id must use the same UUID type or PostgreSQL rejects the FK.
+# PGUUID(as_uuid=False) renders as UUID on PostgreSQL and VARCHAR(36) on SQLite.
+_uuid = PGUUID(as_uuid=False)
+
 
 def upgrade():
     op.create_table(
         "viewer_annotations",
-        sa.Column("id", sa.String(36), primary_key=True),
+        sa.Column("id", _uuid, primary_key=True),
         sa.Column(
             "link_id",
-            sa.String(36),
+            _uuid,
             sa.ForeignKey("share_links.id", ondelete="CASCADE"),
             nullable=False,
         ),
@@ -79,10 +85,10 @@ def upgrade():
 
     op.create_table(
         "viewer_bookmarks",
-        sa.Column("id", sa.String(36), primary_key=True),
+        sa.Column("id", _uuid, primary_key=True),
         sa.Column(
             "link_id",
-            sa.String(36),
+            _uuid,
             sa.ForeignKey("share_links.id", ondelete="CASCADE"),
             nullable=False,
         ),
