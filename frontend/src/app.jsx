@@ -324,6 +324,7 @@
         label: 'Insights',
         items: [
           { id: 'analytics', icon: '▦', label: 'Analytics', badge: null },
+          { id: 'storage', icon: '◻', label: 'Storage', badge: null },
         ]
       },
       {
@@ -521,6 +522,7 @@
       const [groupModal, setGroupModal] = useState(null); // null | 'new' | {id,name,color,description}
       const [groupForm, setGroupForm] = useState({ name: '', color: '#6366f1', description: '' });
       const [groupSaving, setGroupSaving] = useState(false);
+      const [retentionPolicy, setRetentionPolicy] = useState('never');
       const fileRef = useRef();
       const pollRef = useRef(null);
 
@@ -599,7 +601,7 @@
         }
         setUploading(true); setProgress(0); setUploadDone(false);
         try {
-          const res = await window.SecureDocAPI.uploadDocument(file, p => setProgress(p), selectedGroupId || null);
+          const res = await window.SecureDocAPI.uploadDocument(file, p => setProgress(p), selectedGroupId || null, retentionPolicy);
           setUploadedDoc(res);
           toast(_isDocType(fileType) ? 'Upload complete — converting pages to images' : 'Upload complete — preparing text document', 'info');
           startPoll(res.id, fileType);
@@ -722,19 +724,31 @@
                   </div>
                   <div style={{ ...mono, fontSize: 10, color: C.textMuted }}>PDF · DOCX · DOC · TXT · MD · LOG · Doc max 100 MB · Text max 10 MB</div>
                 </div>
-                {/* Group selector for upload */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                {/* Upload options row */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                   <SectionLabel>Assign to group</SectionLabel>
                   <select value={selectedGroupId} onChange={e => setSelectedGroupId(e.target.value)}
                     style={{
                       fontSize: 11, background: C.surface2, border: `1px solid ${C.border}`,
-                      borderRadius: 6, padding: '4px 8px', color: C.textSecondary,
-                      flex: 1, maxWidth: 220
+                      borderRadius: 6, padding: '4px 8px', color: C.textSecondary, maxWidth: 180
                     }}>
                     <option value="">— None —</option>
                     {groups.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
                   </select>
                   <Btn variant="ghost" size="sm" onClick={() => { setGroupForm({ name: '', color: '#6366f1', description: '' }); setGroupModal('new'); }}>+ New group</Btn>
+                  <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <SectionLabel>Delete after</SectionLabel>
+                    <select value={retentionPolicy} onChange={e => setRetentionPolicy(e.target.value)}
+                      style={{
+                        fontSize: 11, background: C.surface2, border: `1px solid ${C.border}`,
+                        borderRadius: 6, padding: '4px 8px', color: C.textSecondary
+                      }}>
+                      <option value="never">Never</option>
+                      <option value="30_days">30 days</option>
+                      <option value="60_days">60 days</option>
+                      <option value="90_days">90 days</option>
+                    </select>
+                  </div>
                 </div>
               </div>
             )}
@@ -4641,6 +4655,167 @@
     }
 
     /* ══════════════════════════════════════════════════════════════
+       STORAGE SCREEN
+    ══════════════════════════════════════════════════════════════ */
+
+    function StorageScreen() {
+      const toast = useToast();
+      const [dashboard, setDashboard] = useState(null);
+      const [forecast, setForecast] = useState(null);
+      const [loading, setLoading] = useState(true);
+      const [updatingId, setUpdatingId] = useState(null);
+
+      useEffect(() => {
+        Promise.all([
+          window.SecureDocAPI.getStorageDashboard(),
+          window.SecureDocAPI.getStorageForecast(),
+        ]).then(([d, f]) => { setDashboard(d); setForecast(f); })
+          .catch(e => toast(e.detail || 'Failed to load storage data', 'error'))
+          .finally(() => setLoading(false));
+      }, []);
+
+      const handleRetentionChange = async (docId, policy) => {
+        setUpdatingId(docId);
+        try {
+          await window.SecureDocAPI.updateRetention(docId, policy);
+          const d = await window.SecureDocAPI.getStorageDashboard();
+          setDashboard(d);
+          toast('Retention policy updated', 'success');
+        } catch (e) { toast(e.detail || 'Update failed', 'error'); }
+        finally { setUpdatingId(null); }
+      };
+
+      const fmtBytes = (b) => {
+        if (!b) return '0 B';
+        if (b < 1024) return `${b} B`;
+        if (b < 1024 * 1024) return `${(b / 1024).toFixed(1)} KB`;
+        if (b < 1024 * 1024 * 1024) return `${(b / 1024 / 1024).toFixed(2)} MB`;
+        return `${(b / 1024 / 1024 / 1024).toFixed(2)} GB`;
+      };
+
+      const lifecycleBadge = (state) => {
+        const styles = {
+          active:   { background: 'rgba(52,199,89,0.12)',  color: '#34c759' },
+          archived: { background: 'rgba(100,100,120,0.18)', color: '#888' },
+          expired:  { background: 'rgba(255,69,58,0.12)',  color: '#ff453a' },
+          deleted:  { background: 'rgba(255,69,58,0.08)',  color: '#ff453a' },
+        };
+        const s = styles[state] || styles.active;
+        return (
+          <span style={{ ...s, fontSize: 9, fontWeight: 700, borderRadius: 4, padding: '2px 6px', textTransform: 'uppercase', letterSpacing: '.5px' }}>
+            {state}
+          </span>
+        );
+      };
+
+      if (loading) return <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: C.textMuted, fontSize: 13 }}>Loading…</div>;
+
+      const totalBytes = dashboard?.total_bytes || 0;
+      const maxBytes = Math.max(...(dashboard?.by_document || []).map(d => d.storage_bytes), 1);
+
+      return (
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }} className="fade-in">
+          <Header screen="storage">
+            <span style={{ ...mono, fontSize: 11, color: C.textMuted }}>
+              {fmtBytes(totalBytes)} used · {dashboard?.document_count || 0} documents
+            </span>
+          </Header>
+          <div style={{ flex: 1, overflow: 'auto', padding: 20, display: 'flex', flexDirection: 'column', gap: 16 }}>
+
+            {/* Summary cards */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 10 }}>
+              {[
+                { label: 'Total Storage', value: fmtBytes(totalBytes), sub: `${dashboard?.document_count} docs`, color: C.teal2 },
+                { label: '30-Day Projection', value: fmtBytes(forecast?.projected_30d_bytes || 0), sub: `+${fmtBytes(forecast?.daily_growth_bytes || 0)}/day`, color: C.textSecondary },
+                { label: '90-Day Projection', value: fmtBytes(forecast?.projected_90d_bytes || 0), sub: forecast?.planned_deletions_90d_bytes ? `−${fmtBytes(forecast.planned_deletions_90d_bytes)} planned deletions` : 'No scheduled deletions', color: forecast?.planned_deletions_90d_bytes ? C.warning : C.textMuted },
+              ].map(s => (
+                <Card key={s.label} style={{ padding: '14px 18px' }}>
+                  <div style={{ fontSize: 10, color: C.textMuted, fontWeight: 600, letterSpacing: '.5px', textTransform: 'uppercase', marginBottom: 6 }}>{s.label}</div>
+                  <div style={{ fontSize: 22, fontWeight: 700, color: s.color, marginBottom: 2 }}>{s.value}</div>
+                  <div style={{ ...mono, fontSize: 10, color: C.textMuted }}>{s.sub}</div>
+                </Card>
+              ))}
+            </div>
+
+            {/* Per-org breakdown */}
+            {(dashboard?.by_org || []).length > 1 && (
+              <Card style={{ padding: '14px 18px' }}>
+                <div style={{ fontSize: 11, fontWeight: 600, color: C.textSecondary, marginBottom: 10 }}>Storage by Organization</div>
+                {(dashboard.by_org || []).map(org => (
+                  <div key={org.org_id} style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+                    <div style={{ ...mono, fontSize: 11, color: C.textMuted, width: 120, flexShrink: 0 }}>
+                      {org.org_id === '_personal' ? 'Personal' : org.org_id.slice(0, 8) + '…'}
+                    </div>
+                    <div style={{ flex: 1, height: 6, background: C.surface3, borderRadius: 3 }}>
+                      <div style={{ height: '100%', width: `${Math.min(100, (org.total_bytes / totalBytes) * 100)}%`, background: C.teal2, borderRadius: 3 }} />
+                    </div>
+                    <div style={{ ...mono, fontSize: 11, color: C.textSecondary, width: 70, textAlign: 'right' }}>{fmtBytes(org.total_bytes)}</div>
+                  </div>
+                ))}
+              </Card>
+            )}
+
+            {/* Per-document table */}
+            <Card style={{ padding: 0, overflow: 'hidden' }}>
+              <div style={{ padding: '12px 18px', borderBottom: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div style={{ fontSize: 11, fontWeight: 600, color: C.textSecondary }}>Storage by Document</div>
+                <div style={{ ...mono, fontSize: 10, color: C.textMuted }}>Retention policy · delete after</div>
+              </div>
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                  <thead>
+                    <tr style={{ background: C.surface2 }}>
+                      {['Document', 'State', 'Size', 'Usage', 'Expires', 'Delete after'].map(h => (
+                        <th key={h} style={{ ...mono, fontSize: 9, color: C.textMuted, padding: '6px 14px', textAlign: 'left', fontWeight: 600, letterSpacing: '.5px', textTransform: 'uppercase' }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(dashboard?.by_document || []).map(doc => (
+                      <tr key={doc.id} style={{ borderTop: `1px solid ${C.border}` }}>
+                        <td style={{ padding: '8px 14px', maxWidth: 220 }}>
+                          <div style={{ fontSize: 12, color: C.textSecondary, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{doc.filename}</div>
+                          <div style={{ ...mono, fontSize: 9, color: C.textMuted }}>{doc.id.slice(0, 8)}…</div>
+                        </td>
+                        <td style={{ padding: '8px 14px' }}>{lifecycleBadge(doc.lifecycle_state)}</td>
+                        <td style={{ ...mono, padding: '8px 14px', fontSize: 11, color: C.textSecondary }}>{fmtBytes(doc.storage_bytes)}</td>
+                        <td style={{ padding: '8px 14px', minWidth: 100 }}>
+                          <div style={{ height: 4, background: C.surface3, borderRadius: 2 }}>
+                            <div style={{ height: '100%', width: `${Math.min(100, (doc.storage_bytes / maxBytes) * 100)}%`, background: C.teal2, borderRadius: 2 }} />
+                          </div>
+                        </td>
+                        <td style={{ ...mono, padding: '8px 14px', fontSize: 10, color: doc.expires_at ? C.warning : C.textMuted }}>
+                          {doc.expires_at ? new Date(doc.expires_at).toLocaleDateString() : '—'}
+                        </td>
+                        <td style={{ padding: '8px 14px' }}>
+                          <select
+                            disabled={updatingId === doc.id}
+                            value={doc.retention_policy}
+                            onChange={e => handleRetentionChange(doc.id, e.target.value)}
+                            style={{
+                              fontSize: 10, background: C.surface2, border: `1px solid ${C.border}`,
+                              borderRadius: 5, padding: '3px 6px', color: C.textSecondary,
+                              opacity: updatingId === doc.id ? 0.5 : 1,
+                            }}>
+                            <option value="never">Never</option>
+                            <option value="30_days">30 days</option>
+                            <option value="60_days">60 days</option>
+                            <option value="90_days">90 days</option>
+                          </select>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </Card>
+
+          </div>
+        </div>
+      );
+    }
+
+    /* ══════════════════════════════════════════════════════════════
        ROOT APP
     ══════════════════════════════════════════════════════════════ */
     /* ─── JWT HELPER ──────────────────────────────────────────── */
@@ -5168,6 +5343,7 @@
               {screen === 'viewer' && <ViewerErrorBoundary><ViewerScreen doc={activeDoc} onSelectDoc={handleViewDoc} /></ViewerErrorBoundary>}
               {screen === 'access' && <AccessScreen doc={activeDoc} onSelectDoc={handleAccessDoc} />}
               {screen === 'analytics' && <AnalyticsScreen />}
+              {screen === 'storage' && <StorageScreen />}
               {screen === 'billing' && <BillingScreen onPlanChange={setPlan} />}
             </div>
           </div>

@@ -113,6 +113,7 @@ async def upload_document(
     group_id: Optional[str] = Form(None),
     org_id: Optional[str] = Form(None),
     parent_document_id: Optional[str] = Form(None),
+    retention_policy: Optional[str] = Form(None),
     db: AsyncSession = Depends(get_db),
     user: dict = Depends(require_scope("documents:write")),
 ):
@@ -219,6 +220,14 @@ async def upload_document(
         resolved_parent_id = parent_uuid
         doc_version = (parent_doc.version or 1) + 1
 
+    from app.models.document import RETENTION_POLICIES
+    from app.services.retention import compute_expires_at
+    from datetime import datetime, timezone as _tz
+
+    resolved_retention = retention_policy if retention_policy in RETENTION_POLICIES else "never"
+    now_utc = datetime.now(_tz.utc)
+    resolved_expires_at = compute_expires_at(now_utc, resolved_retention)
+
     doc = Document(
         id=doc_id,
         filename=original_filename,
@@ -231,6 +240,9 @@ async def upload_document(
         user_id=user_uuid,
         version=doc_version,
         parent_document_id=resolved_parent_id,
+        retention_policy=resolved_retention,
+        lifecycle_state="active",
+        expires_at=resolved_expires_at,
     )
     db.add(doc)
     await db.commit()
@@ -574,29 +586,18 @@ async def delete_document(
     storage = get_storage_service()
 
     # Invalidate all cache tiers for this document before removing from storage.
-    # Metadata caches (link/doc/page snapshots) + text/chunk caches:
     from app.services.viewer_cache import invalidate_doc_entries
     invalidate_doc_entries(str(document_id), storage_key=doc.storage_key)
-    # L1 + L2 byte caches (page images and thumbnails):
     from app.services.page_cache import clear_doc_bytes
     await clear_doc_bytes(str(document_id))
     logger.info("cache_invalidate doc_id=%s all_tiers=true", document_id)
 
-    # Delete page images
-    page_keys = await storage.list_keys_with_prefix(f"pages/{document_id}/")
-    for key in page_keys:
-        await storage.delete_file(key)
-
-    # Delete thumbnails
-    thumb_keys = await storage.list_keys_with_prefix(f"thumbs/{document_id}/")
-    for key in thumb_keys:
-        await storage.delete_file(key)
-
-    # Delete original
-    await storage.delete_file(doc.storage_key)
-
+    # Delete all storage objects (pages, thumbs, sidecars, original).
+    from app.services.retention import delete_document_storage
     doc_filename = doc.filename
     doc_id_str = str(document_id)
+    storage_summary = await delete_document_storage(doc_id_str, doc.storage_key, storage)
+
     await db.delete(doc)
     await db.commit()
 
@@ -609,7 +610,7 @@ async def delete_document(
             actor_user_id=user["user_id"],
             target_type="document",
             target_id=doc_id_str,
-            details={"filename": doc_filename},
+            details={"filename": doc_filename, **storage_summary},
         )
     except Exception:
         pass

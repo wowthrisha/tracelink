@@ -143,11 +143,12 @@ window.SecureDocAPI = {
 
   // ── Documents ──────────────────────────────────────────────────────────────
 
-  async uploadDocument(file, onProgress, groupId = null) {
+  async uploadDocument(file, onProgress, groupId = null, retentionPolicy = 'never') {
     const fd = new FormData();
     fd.append('file', file);
     fd.append('filename', file.name);
     if (groupId) fd.append('group_id', groupId);
+    if (retentionPolicy) fd.append('retention_policy', retentionPolicy);
     return new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest();
       xhr.open('POST', `${API_BASE}/api/documents/upload`);
@@ -164,6 +165,37 @@ window.SecureDocAPI = {
       xhr.onerror = () => reject({ detail: 'Network error' });
       xhr.send(fd);
     });
+  },
+
+  async getStorageDashboard(orgId = null) {
+    const url = new URL(`${API_BASE}/api/storage/dashboard`);
+    if (orgId) url.searchParams.set('org_id', orgId);
+    const r = await fetch(url, { headers: { ...authHeaders() } });
+    if (r.status === 401) { _clearAndReload(); return; }
+    if (!r.ok) throw await r.json();
+    return r.json();
+  },
+
+  async getStorageForecast() {
+    const r = await fetch(`${API_BASE}/api/storage/forecast`, {
+      headers: { ...authHeaders() },
+    });
+    if (r.status === 401) { _clearAndReload(); return; }
+    if (!r.ok) throw await r.json();
+    return r.json();
+  },
+
+  async updateRetention(docId, retentionPolicy, lifecycleState = null) {
+    const body = { retention_policy: retentionPolicy };
+    if (lifecycleState) body.lifecycle_state = lifecycleState;
+    const r = await fetch(`${API_BASE}/api/documents/${docId}/retention`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      body: JSON.stringify(body),
+    });
+    if (r.status === 401) { _clearAndReload(); return; }
+    if (!r.ok) throw await r.json();
+    return r.json();
   },
 
   async getDocuments() {

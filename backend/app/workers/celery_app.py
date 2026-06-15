@@ -11,7 +11,7 @@ celery_app = Celery(
     "securedoc",
     broker=settings.redis_url,
     backend=settings.redis_url,
-    include=["app.workers.tasks"],
+    include=["app.workers.tasks", "app.workers.cleanup"],
 )
 
 celery_app.conf.update(
@@ -42,6 +42,19 @@ celery_app.conf.update(
         "requeue-orphaned-uploads-every-5-min": {
             "task": "securedoc.requeue_orphaned_uploads",
             "schedule": 300,  # seconds (5 minutes)
+        },
+        # Storage lifecycle — run in order: snapshot → sync → cleanup
+        "take-storage-snapshot-daily": {
+            "task": "securedoc.take_storage_snapshot",
+            "schedule": 86400,  # once per day (01:00 UTC via crontab is not yet configured)
+        },
+        "sync-document-access-times-daily": {
+            "task": "securedoc.sync_document_access_times",
+            "schedule": 86400,
+        },
+        "cleanup-expired-documents-daily": {
+            "task": "securedoc.cleanup_expired_documents",
+            "schedule": 86400,
         },
     },
 )
