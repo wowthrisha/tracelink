@@ -1188,7 +1188,7 @@
     }
 
     // ── Viewer Layout System constants ─────────────────────────────────────────
-    const LAYOUT = { FIT_WIDTH: 'fit-width', FIT_HEIGHT: 'fit-height', CUSTOM: 'custom', TWO_PAGE: 'two-page' };
+    const LAYOUT = { FIT_WIDTH: 'fit-width', FIT_HEIGHT: 'fit-height', CUSTOM: 'custom' };
     const ZOOM_PRESETS = [25, 50, 75, 100, 125, 150, 200, 300, 400];
     const ZOOM_MIN = 10;
     const ZOOM_MAX = 400;
@@ -1216,6 +1216,7 @@
       // Legacy zoom alias (kept for sessionStorage restore compat)
       const zoom = layoutMode === LAYOUT.CUSTOM ? customZoom : 100;
       const [rotation, setRotation] = useState(0); // 0, 90, 180, 270
+      const [twoPageMode, setTwoPageMode] = useState(false);
       const [showInfo, setShowInfo] = useState(false);
       const [session, setSession] = useState(null);
       const [imgSrc, setImgSrc] = useState('');
@@ -1425,7 +1426,7 @@
       const docId = doc?.id || '';
       const PAGE_COUNT = session?.page_count || 1;
       const isTextDoc = !!(session?.doc_type && ['txt', 'md', 'log'].includes(session.doc_type));
-      const isTwoPage = layoutMode === LAYOUT.TWO_PAGE;
+      const isTwoPage = twoPageMode;
       const pageStep = isTwoPage ? 2 : 1;
 
       const doValidate = async (token, email, password) => {
@@ -1853,7 +1854,7 @@
               }
             }}
             rotation={rotation} onRotate={() => setRotation(r => (r + 90) % 360)}
-            isTwoPage={isTwoPage} onToggleTwoPage={() => _setLayout(isTwoPage ? LAYOUT.FIT_WIDTH : LAYOUT.TWO_PAGE)}
+            isTwoPage={isTwoPage} onToggleTwoPage={() => setTwoPageMode(v => !v)}
             C={C} mono={mono}
           />
 
@@ -1949,28 +1950,27 @@
               )}
               {!initializing && session && !isTextDoc && (() => {
                 const rotated90 = rotation === 90 || rotation === 270;
-                // Compute page dimensions based on layout mode
+                // Compute page dimensions based on layout mode.
+                // In two-page mode: FIT_WIDTH → each page fills its flex slot (width:100%),
+                // FIT_HEIGHT → each page fills viewport height, CUSTOM → fixed px.
+                // The wrapping flex container splits available width for two-page layout.
                 const _pgStyle = (() => {
-                  if (layoutMode === LAYOUT.TWO_PAGE) {
-                    return { width: rotated90 ? 'calc(50vh - 37px)' : 'calc(50% - 6px)', maxWidth: rotated90 ? 'calc(50vh - 37px)' : 'calc(50% - 6px)', height: undefined };
-                  }
                   if (layoutMode === LAYOUT.FIT_WIDTH) {
                     return { width: '100%', maxWidth: '100%', height: undefined };
                   }
                   if (layoutMode === LAYOUT.FIT_HEIGHT) {
-                    // 42px toolbar + 16px top padding + 16px bottom padding = 74px total offset
                     return { width: 'auto', maxWidth: '100%', height: 'calc(100vh - 74px)' };
                   }
                   // CUSTOM zoom: 100% = 590px (fits a letter-size PDF at typical DPI)
                   return { width: `${customZoom * 5.9}px`, maxWidth: '100%', height: undefined };
                 })();
+                const _arBase = pageAspectRatio || '8.5/11';
+                const _arRot = pageAspectRatio ? pageAspectRatio.split('/').reverse().join('/') : '11/8.5';
                 const _rotStyle = rotation !== 0 ? { transform: `rotate(${rotation}deg)`, transformOrigin: 'center center' } : {};
                 const _pageEl = (
                 <div ref={pageContainerRef} className="viewer-page" style={{
                   position: 'relative', ...(_pgStyle),
-                  aspectRatio: rotated90
-                    ? (pageAspectRatio ? `${pageAspectRatio.split('/').reverse().join('/')}` : '11/8.5')
-                    : (pageAspectRatio ? `${pageAspectRatio}` : '8.5/11'),
+                  aspectRatio: rotated90 ? _arRot : _arBase,
                   flexShrink: 0, transition: 'width .25s ease, height .25s ease',
                   borderRadius: 2, overflow: 'hidden',
                   boxShadow: '0 2px 8px rgba(0,0,0,0.5), 0 8px 48px rgba(0,0,0,0.8), 0 20px 60px rgba(0,0,0,0.35)',
@@ -2138,17 +2138,23 @@
                 </div>
                 );
                 if (!isTwoPage) return _pageEl;
-                // Two-page view: show right page alongside
-                const _pg2Style = { ..._pgStyle, flexShrink: 0 };
+                // Two-page view: each page in a flex-1 slot so W/H/custom all work correctly.
+                // W-fit → each slot is 50% wide, page fills its slot.
+                // H-fit → each page fills viewport height, slots auto-size to content.
+                // Custom → fixed px per page, slots shrink to content.
+                const _slotStyle = layoutMode === LAYOUT.FIT_WIDTH
+                  ? { flex: 1, minWidth: 0, display: 'flex', alignItems: 'flex-start', justifyContent: 'center' }
+                  : { flexShrink: 0, display: 'flex', alignItems: 'flex-start', justifyContent: 'center' };
                 return (
                   <div style={{ display: 'flex', flexDirection: 'row', gap: 8, alignItems: 'flex-start', justifyContent: 'center', width: '100%' }}>
-                    {_pageEl}
+                    <div style={_slotStyle}>{_pageEl}</div>
                     {page + 1 <= PAGE_COUNT && (
-                      <div style={{ position: 'relative', ..._pg2Style, aspectRatio: rotated90 ? (pageAspectRatio ? pageAspectRatio.split('/').reverse().join('/') : '11/8.5') : (pageAspectRatio || '8.5/11'), borderRadius: 2, overflow: 'hidden', boxShadow: '0 2px 8px rgba(0,0,0,0.5), 0 8px 48px rgba(0,0,0,0.8)' }} onContextMenu={e => e.preventDefault()}>
-                        {imgSrc2 && <img src={imgSrc2} draggable={false} style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block', userSelect: 'none', WebkitUserSelect: 'none', ..._rotStyle }} alt={`Page ${page + 1}`} />}
-                        {imgLoading2 && <div style={{ position: 'absolute', bottom: 8, right: 8, zIndex: 2, background: 'rgba(6,8,9,0.72)', borderRadius: 20, padding: '4px 10px' }}><span style={{ display: 'inline-block', width: 12, height: 12, border: `1.5px solid ${C.border}`, borderTop: `1.5px solid ${C.teal2}`, borderRadius: '50%', animation: 'spin .65s linear infinite' }} /></div>}
-                        {page2Error && <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: C.surface, flexDirection: 'column', gap: 8 }}><span style={{ fontSize: 18, color: 'rgba(224,154,69,0.7)' }}>⚠</span><span style={{ ...mono, fontSize: 10, color: C.textMuted }}>{page2Error}</span></div>}
-                        <div style={{ position: 'absolute', bottom: 4, left: 0, right: 0, textAlign: 'center', pointerEvents: 'none' }}><span style={{ ...mono, fontSize: 9, color: 'rgba(100,112,128,0.5)' }}>p.{page + 1}</span></div>
+                      <div style={_slotStyle}>
+                        <div style={{ position: 'relative', ..._pgStyle, aspectRatio: rotated90 ? _arRot : _arBase, flexShrink: 0, borderRadius: 2, overflow: 'hidden', boxShadow: '0 2px 8px rgba(0,0,0,0.5), 0 8px 48px rgba(0,0,0,0.8)' }} onContextMenu={e => e.preventDefault()}>
+                          {imgSrc2 && <img src={imgSrc2} draggable={false} style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block', userSelect: 'none', WebkitUserSelect: 'none', ..._rotStyle }} alt={`Page ${page + 1}`} />}
+                          {imgLoading2 && <div style={{ position: 'absolute', bottom: 8, right: 8, zIndex: 2, background: 'rgba(6,8,9,0.72)', borderRadius: 20, padding: '4px 10px' }}><span style={{ display: 'inline-block', width: 12, height: 12, border: `1.5px solid ${C.border}`, borderTop: `1.5px solid ${C.teal2}`, borderRadius: '50%', animation: 'spin .65s linear infinite' }} /></div>}
+                          {page2Error && <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: C.surface, flexDirection: 'column', gap: 8 }}><span style={{ fontSize: 18, color: 'rgba(224,154,69,0.7)' }}>⚠</span><span style={{ ...mono, fontSize: 10, color: C.textMuted }}>{page2Error}</span></div>}
+                        </div>
                       </div>
                     )}
                   </div>
@@ -2397,67 +2403,72 @@
 
           {!isTextDoc && (<>
             {sep}
-            {/* ── Fit-Width / Fit-Height / Two-page buttons ── */}
-            <button onClick={() => _setLayout(LAYOUT.FIT_WIDTH)} title="Fit to width"
-              style={{ ...btn, ...(layoutMode === LAYOUT.FIT_WIDTH ? on : {}), padding: '3px 7px', fontSize: 10, fontWeight: 600 }}>
-              W
-            </button>
-            <button onClick={() => _setLayout(LAYOUT.FIT_HEIGHT)} title="Fit to height"
-              style={{ ...btn, ...(layoutMode === LAYOUT.FIT_HEIGHT ? on : {}), padding: '3px 7px', fontSize: 10, fontWeight: 600 }}>
-              H
-            </button>
-            {/* ── Two-page view toggle ── */}
-            <button onClick={onToggleTwoPage} title="Two-page view"
-              style={{ ...btn, ...(isTwoPage ? on : {}), padding: '3px 7px' }}>
-              <svg width="15" height="12" viewBox="0 0 15 12" fill="none" style={{ flexShrink: 0 }}>
-                <rect x="0.5" y="0.5" width="6" height="11" rx="1" stroke="currentColor" strokeWidth="1.2" fill="none"/>
-                <rect x="8.5" y="0.5" width="6" height="11" rx="1" stroke="currentColor" strokeWidth="1.2" fill="none"/>
-              </svg>
-              <span className="toolbar-btn-label">2 Pages</span>
-            </button>
-            {/* ── Rotate ── */}
-            <button onClick={onRotate} title={`Rotate 90° (current: ${rotation}°)`}
-              style={{ ...btn, ...(rotation !== 0 ? on : {}), padding: '3px 7px' }}>
-              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" style={{ flexShrink: 0 }}>
-                <path d="M9.5 2.5A5 5 0 1 0 11 6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" fill="none"/>
-                <path d="M11 2.5h-2v2" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
-              </svg>
-              <span className="toolbar-btn-label">{rotation !== 0 ? `${rotation}°` : 'Rotate'}</span>
-            </button>
-            {sep}
-            {/* ── Zoom pill: − [level] + ── */}
-            <div style={{ display: 'flex', alignItems: 'center', background: 'rgba(255,255,255,0.045)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 4, overflow: 'hidden', flexShrink: 0 }}>
-              <button onClick={() => _zoomBy(-ZOOM_STEP)} title="Zoom out"
-                style={{ ...btn, padding: '3px 6px', fontSize: 14, borderRadius: 0, borderRight: '1px solid rgba(255,255,255,0.07)' }}>−</button>
-              <select
-                value={layoutMode === LAYOUT.CUSTOM ? customZoom : layoutMode === LAYOUT.FIT_WIDTH ? 'fw' : 'fh'}
-                onChange={e => {
-                  const v = e.target.value;
-                  if (v === 'fw') _setLayout(LAYOUT.FIT_WIDTH);
-                  else if (v === 'fh') _setLayout(LAYOUT.FIT_HEIGHT);
-                  else _zoomTo(parseInt(v, 10));
-                }}
-                title="Zoom level"
-                style={{
-                  ...mono, fontSize: 10, color: 'rgba(165,175,188,0.9)',
-                  background: 'transparent', border: 'none',
-                  padding: '3px 2px', cursor: 'pointer',
-                  width: 44, textAlign: 'center', appearance: 'none', WebkitAppearance: 'none', outline: 'none',
-                }}>
-                {ZOOM_PRESETS.map(p => <option key={p} value={p}>{p}%</option>)}
-                {layoutMode === LAYOUT.CUSTOM && !ZOOM_PRESETS.includes(customZoom) && (
-                  <option value={customZoom}>{customZoom}%</option>
-                )}
-                {layoutMode === LAYOUT.FIT_WIDTH && <option value="fw">W-fit</option>}
-                {layoutMode === LAYOUT.FIT_HEIGHT && <option value="fh">H-fit</option>}
-              </select>
-              <button onClick={() => _zoomBy(ZOOM_STEP)} title="Zoom in"
-                style={{ ...btn, padding: '3px 6px', fontSize: 14, borderRadius: 0, borderLeft: '1px solid rgba(255,255,255,0.07)' }}>+</button>
+            {/* ── View group: zoom pill (W · H · − · zoom · +) + 2P + rotate ── */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 2, flexShrink: 0 }}>
+              {/* Unified zoom control: W | H | − | label | + */}
+              <div style={{ display: 'flex', alignItems: 'center', background: 'rgba(255,255,255,0.045)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 5, overflow: 'hidden', flexShrink: 0 }}>
+                <button onClick={() => _setLayout(LAYOUT.FIT_WIDTH)} title="Fit to width"
+                  style={{ ...btn, borderRadius: 0, padding: '3px 7px', fontSize: 10, fontWeight: 700, borderRight: '1px solid rgba(255,255,255,0.07)', ...(layoutMode === LAYOUT.FIT_WIDTH ? on : {}) }}>
+                  W
+                </button>
+                <button onClick={() => _setLayout(LAYOUT.FIT_HEIGHT)} title="Fit to height"
+                  style={{ ...btn, borderRadius: 0, padding: '3px 7px', fontSize: 10, fontWeight: 700, borderRight: '1px solid rgba(255,255,255,0.07)', ...(layoutMode === LAYOUT.FIT_HEIGHT ? on : {}) }}>
+                  H
+                </button>
+                <button onClick={() => _zoomBy(-ZOOM_STEP)} title="Zoom out"
+                  style={{ ...btn, borderRadius: 0, padding: '3px 6px', fontSize: 14, borderRight: '1px solid rgba(255,255,255,0.07)' }}>−</button>
+                <select
+                  value={layoutMode === LAYOUT.CUSTOM ? customZoom : layoutMode === LAYOUT.FIT_WIDTH ? 'fw' : 'fh'}
+                  onChange={e => {
+                    const v = e.target.value;
+                    if (v === 'fw') _setLayout(LAYOUT.FIT_WIDTH);
+                    else if (v === 'fh') _setLayout(LAYOUT.FIT_HEIGHT);
+                    else _zoomTo(parseInt(v, 10));
+                  }}
+                  title="Zoom level"
+                  style={{
+                    ...mono, fontSize: 10, color: 'rgba(165,175,188,0.9)',
+                    background: 'transparent', border: 'none',
+                    padding: '3px 2px', cursor: 'pointer',
+                    width: 42, textAlign: 'center', appearance: 'none', WebkitAppearance: 'none', outline: 'none',
+                  }}>
+                  {ZOOM_PRESETS.map(p => <option key={p} value={p}>{p}%</option>)}
+                  {layoutMode === LAYOUT.CUSTOM && !ZOOM_PRESETS.includes(customZoom) && (
+                    <option value={customZoom}>{customZoom}%</option>
+                  )}
+                  {layoutMode === LAYOUT.FIT_WIDTH && <option value="fw">W</option>}
+                  {layoutMode === LAYOUT.FIT_HEIGHT && <option value="fh">H</option>}
+                </select>
+                <button onClick={() => _zoomBy(ZOOM_STEP)} title="Zoom in"
+                  style={{ ...btn, borderRadius: 0, padding: '3px 6px', fontSize: 14, borderLeft: '1px solid rgba(255,255,255,0.07)' }}>+</button>
+              </div>
+
+              {/* Two-page toggle */}
+              <button onClick={onToggleTwoPage} title="Two-page view"
+                style={{ ...btn, ...(isTwoPage ? on : {}), padding: '3px 8px', marginLeft: 2 }}>
+                <svg width="15" height="11" viewBox="0 0 15 11" fill="none" style={{ flexShrink: 0 }}>
+                  <rect x="0.5" y="0.5" width="6" height="10" rx="1" stroke="currentColor" strokeWidth="1.2" fill="none"/>
+                  <rect x="8.5" y="0.5" width="6" height="10" rx="1" stroke="currentColor" strokeWidth="1.2" fill="none"/>
+                </svg>
+                <span className="toolbar-btn-label" style={{ marginLeft: 3 }}>2P</span>
+              </button>
+
+              {/* Rotate */}
+              <button onClick={onRotate} title={`Rotate clockwise (${rotation}°)`}
+                style={{ ...btn, ...(rotation !== 0 ? on : {}), padding: '3px 7px' }}>
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none" style={{ flexShrink: 0 }}>
+                  <path d="M9.5 2.5A5 5 0 1 0 11 6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" fill="none"/>
+                  <path d="M11 2.5h-2v2" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+                {rotation !== 0 && <span style={{ ...mono, fontSize: 9, marginLeft: 2 }}>{rotation}°</span>}
+              </button>
             </div>
+
             {sep}
-            {/* ── Magnifier toggle ── */}
+
+            {/* ── Tools: magnifier + laser (icon only) ── */}
             <button onClick={() => { setShowMagnifier(v => !v); if (showLaser) setShowLaser(false); }}
-              title="Rectangular magnifier (2.5×)"
+              title="Magnifier"
               style={{ ...btn, ...(showMagnifier ? on : {}), padding: '3px 7px' }}>
               <svg width="13" height="13" viewBox="0 0 13 13" fill="none" style={{ flexShrink: 0 }}>
                 <circle cx="5.5" cy="5.5" r="4" stroke="currentColor" strokeWidth="1.3" fill="none"/>
@@ -2465,59 +2476,50 @@
                 <line x1="3.5" y1="5.5" x2="7.5" y2="5.5" stroke="currentColor" strokeWidth="1" strokeLinecap="round" opacity=".6"/>
                 <line x1="5.5" y1="3.5" x2="5.5" y2="7.5" stroke="currentColor" strokeWidth="1" strokeLinecap="round" opacity=".6"/>
               </svg>
-              <span className="toolbar-btn-label">Magnify</span>
             </button>
-            {sep}
-            {/* ── Laser pointer toggle ── */}
             <button onClick={() => { setShowLaser(v => !v); if (showMagnifier) setShowMagnifier(false); }}
-              title="Laser pointer (presentation mode)"
+              title="Laser pointer"
               style={{ ...btn, ...(showLaser ? { ...on, color: '#ff4444' } : {}), padding: '3px 7px' }}>
               <svg width="12" height="12" viewBox="0 0 12 12" fill="none" style={{ flexShrink: 0 }}>
                 <circle cx="6" cy="6" r="3" fill={showLaser ? '#ff4444' : 'currentColor'} opacity={showLaser ? 1 : 0.7}/>
                 <circle cx="6" cy="6" r="5" stroke={showLaser ? '#ff4444' : 'currentColor'} strokeWidth="1" fill="none" opacity="0.4"/>
               </svg>
-              <span className="toolbar-btn-label">Laser</span>
             </button>
           </>)}
 
-          <div style={{ flex: 1, minWidth: 12 }} />
+          <div style={{ flex: 1, minWidth: 8 }} />
 
-          {/* ── RIGHT: actions ── */}
+          {/* ── RIGHT: info + actions (icon only, with tooltips) ── */}
           {!isTextDoc && (
-            <>
-              <button onClick={() => setShowLinks(v => !v)} title="Links on this page"
-                style={{ ...btn, ...(showLinks ? on : {}), padding: '3px 7px', position: 'relative' }}>
-                <svg width="12" height="12" viewBox="0 0 12 12" fill="none" style={{ flexShrink: 0 }}>
-                  <path d="M4.5 7.5l3-3M7 3.5l1.5-1.5a2.12 2.12 0 013 3L10 6.5M5 8.5l-1.5 1.5a2.12 2.12 0 01-3-3L2 5.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
-                </svg>
-                <span className="toolbar-btn-label">Links</span>
-                {linksCount > 0 && (
-                  <span style={{
-                    position: 'absolute', top: 1, right: 1,
-                    background: '#5ac8d0', color: '#060809',
-                    borderRadius: 8, fontSize: 8, fontWeight: 700,
-                    padding: '0 4px', lineHeight: '12px', minWidth: 12, textAlign: 'center',
-                  }}>{linksCount}</span>
-                )}
-              </button>
-              {sep}
-            </>
+            <button onClick={() => setShowLinks(v => !v)} title="Links on this page"
+              style={{ ...btn, ...(showLinks ? on : {}), padding: '3px 8px', position: 'relative' }}>
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" style={{ flexShrink: 0 }}>
+                <path d="M4.5 7.5l3-3M7 3.5l1.5-1.5a2.12 2.12 0 013 3L10 6.5M5 8.5l-1.5 1.5a2.12 2.12 0 01-3-3L2 5.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+              <span className="toolbar-btn-label">Links</span>
+              {linksCount > 0 && (
+                <span style={{
+                  position: 'absolute', top: 2, right: 2,
+                  background: '#5ac8d0', color: '#060809',
+                  borderRadius: 8, fontSize: 8, fontWeight: 700,
+                  padding: '0 3px', lineHeight: '11px', minWidth: 11, textAlign: 'center',
+                }}>{linksCount}</span>
+              )}
+            </button>
           )}
           {hasInsights && (
-            <>
-              <button onClick={() => setShowInsights(v => !v)} title="Page engagement insights"
-                style={{ ...btn, ...(showInsights ? on : {}), padding: '3px 7px' }}>
-                <svg width="12" height="12" viewBox="0 0 12 12" fill="none" style={{ flexShrink: 0 }}>
-                  <rect x="1" y="7" width="2" height="4" rx="0.5" fill="currentColor" opacity=".9"/>
-                  <rect x="5" y="4" width="2" height="7" rx="0.5" fill="currentColor" opacity=".9"/>
-                  <rect x="9" y="1" width="2" height="10" rx="0.5" fill="currentColor" opacity=".9"/>
-                </svg>
-                <span className="toolbar-btn-label">Insights</span>
-              </button>
-              {sep}
-            </>
+            <button onClick={() => setShowInsights(v => !v)} title="Page insights"
+              style={{ ...btn, ...(showInsights ? on : {}), padding: '3px 8px' }}>
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" style={{ flexShrink: 0 }}>
+                <rect x="1" y="7" width="2" height="4" rx="0.5" fill="currentColor" opacity=".9"/>
+                <rect x="5" y="4" width="2" height="7" rx="0.5" fill="currentColor" opacity=".9"/>
+                <rect x="9" y="1" width="2" height="10" rx="0.5" fill="currentColor" opacity=".9"/>
+              </svg>
+              <span className="toolbar-btn-label">Insights</span>
+            </button>
           )}
-          <button onClick={toggleFullscreen} title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen (F)'}
+          {sep}
+          <button onClick={toggleFullscreen} title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
             style={{ ...btn, padding: '3px 7px' }}>
             {isFullscreen
               ? <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M4 1H1v3M8 1h3v3M4 11H1V8M8 11h3V8" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>
@@ -2525,32 +2527,25 @@
             }
           </button>
           {sep}
-          <button onClick={onDownload} disabled={!canDownload} title="Download"
-            style={{ ...btn, opacity: canDownload ? 1 : 0.28 }}>
+          <button onClick={onDownload} disabled={!canDownload} title="Download" style={{ ...btn, opacity: canDownload ? 1 : 0.28, padding: '3px 7px' }}>
             <svg width="11" height="12" viewBox="0 0 11 12" fill="none" style={{ flexShrink: 0 }}>
               <path d="M5.5 1v7M2.5 5.5l3 3 3-3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
               <path d="M1 10h9" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
             </svg>
-            <span className="toolbar-btn-label">Download</span>
           </button>
-          <button onClick={onPrint} disabled={!canPrint} title="Print"
-            style={{ ...btn, opacity: canPrint ? 1 : 0.28 }}>
+          <button onClick={onPrint} disabled={!canPrint} title="Print" style={{ ...btn, opacity: canPrint ? 1 : 0.28, padding: '3px 7px' }}>
             <svg width="12" height="11" viewBox="0 0 12 11" fill="none" style={{ flexShrink: 0 }}>
               <rect x="2" y="4" width="8" height="5" rx="1" stroke="currentColor" strokeWidth="1.2" fill="none"/>
               <path d="M3 4V2h6v2" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
               <rect x="3.5" y="6" width="5" height="1" rx="0.4" fill="currentColor" opacity=".7"/>
               <rect x="3.5" y="7.8" width="3" height="1" rx="0.4" fill="currentColor" opacity=".7"/>
             </svg>
-            <span className="toolbar-btn-label">Print</span>
           </button>
-          {sep}
-          <button onClick={() => setShowInfo(v => !v)} title="Document info"
-            style={{ ...btn, ...(showInfo ? on : {}), padding: '3px 7px' }}>
+          <button onClick={() => setShowInfo(v => !v)} title="Document info" style={{ ...btn, ...(showInfo ? on : {}), padding: '3px 7px' }}>
             <svg width="11" height="13" viewBox="0 0 11 13" fill="none" style={{ flexShrink: 0 }}>
               <circle cx="5.5" cy="3" r="1.2" fill="currentColor"/>
               <rect x="4.5" y="6" width="2" height="5" rx="0.8" fill="currentColor"/>
             </svg>
-            <span className="toolbar-btn-label">Info</span>
           </button>
         </div>
       );
