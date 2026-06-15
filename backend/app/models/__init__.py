@@ -4,5 +4,10 @@ from app.models.event import AccessEvent
 from app.models.group import DocumentGroup
 from app.models.session import ViewerSession
 from app.models.billing import UserBilling
+from app.models.annotation import ViewerAnnotation, ViewerBookmark
 
-__all__ = ["Document", "DocumentPage", "ShareLink", "AccessEvent", "DocumentGroup", "ViewerSession", "UserBilling"]
+__all__ = [
+    "Document", "DocumentPage", "ShareLink", "AccessEvent",
+    "DocumentGroup", "ViewerSession", "UserBilling",
+    "ViewerAnnotation", "ViewerBookmark",
+]

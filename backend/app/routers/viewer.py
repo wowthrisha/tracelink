@@ -303,6 +303,8 @@ async def validate_link(
         "can_copy": False,
         "can_right_click": False,
         "watermark_enabled": True,
+        "can_annotate": False,
+        "enable_info": True,   # info panel visible by default; uploader can hide it
     }
     if link.permissions:
         try:

@@ -506,4 +506,94 @@ window.SecureDocAPI = {
     const i = Math.floor(Math.log(bytes) / Math.log(k));
     return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
   },
+
+  // ── Annotations (viewer) ───────────────────────────────────────────────────
+
+  async getAnnotations(linkToken, pageNumber, sessionId) {
+    const base = API_BASE.replace(/\/$/, '');
+    const r = await fetch(
+      `${base}/api/viewer/annotations/${encodeURIComponent(linkToken)}/${pageNumber}`,
+      { headers: this.sessionHeaders(sessionId) }
+    );
+    if (!r.ok) throw await r.json().catch(() => ({ detail: 'Failed to load annotations' }));
+    return r.json();
+  },
+
+  async createAnnotation(linkToken, payload, sessionId) {
+    const base = API_BASE.replace(/\/$/, '');
+    const r = await fetch(
+      `${base}/api/viewer/annotations/${encodeURIComponent(linkToken)}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...this.sessionHeaders(sessionId) },
+        body: JSON.stringify(payload),
+      }
+    );
+    if (!r.ok) throw await r.json().catch(() => ({ detail: 'Failed to create annotation' }));
+    return r.json();
+  },
+
+  async updateAnnotation(linkToken, annotationId, payload, sessionId) {
+    const base = API_BASE.replace(/\/$/, '');
+    const r = await fetch(
+      `${base}/api/viewer/annotations/${encodeURIComponent(linkToken)}/${annotationId}`,
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...this.sessionHeaders(sessionId) },
+        body: JSON.stringify(payload),
+      }
+    );
+    if (!r.ok) throw await r.json().catch(() => ({ detail: 'Failed to update annotation' }));
+    return r.json();
+  },
+
+  async deleteAnnotation(linkToken, annotationId, sessionId) {
+    const base = API_BASE.replace(/\/$/, '');
+    const r = await fetch(
+      `${base}/api/viewer/annotations/${encodeURIComponent(linkToken)}/${annotationId}`,
+      { method: 'DELETE', headers: this.sessionHeaders(sessionId) }
+    );
+    if (!r.ok) throw await r.json().catch(() => ({ detail: 'Failed to delete annotation' }));
+  },
+
+  async getBookmarks(linkToken, sessionId) {
+    const base = API_BASE.replace(/\/$/, '');
+    const r = await fetch(
+      `${base}/api/viewer/bookmarks/${encodeURIComponent(linkToken)}`,
+      { headers: this.sessionHeaders(sessionId) }
+    );
+    if (!r.ok) return { bookmarks: [] };
+    return r.json();
+  },
+
+  async toggleBookmark(linkToken, pageNumber, sessionId, label = null) {
+    const base = API_BASE.replace(/\/$/, '');
+    const r = await fetch(
+      `${base}/api/viewer/bookmarks/${encodeURIComponent(linkToken)}/${pageNumber}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...this.sessionHeaders(sessionId) },
+        body: JSON.stringify({ label }),
+      }
+    );
+    if (!r.ok) throw await r.json().catch(() => ({ detail: 'Failed to toggle bookmark' }));
+    return r.json();
+  },
+
+  async exportAnnotations(docId) {
+    const r = await fetch(`${API_BASE}/api/documents/${docId}/annotations/export`, {
+      headers: { ...authHeaders() },
+    });
+    if (r.status === 401) { _clearAndReload(); return; }
+    if (!r.ok) throw await r.json().catch(() => ({ detail: 'Export failed' }));
+    const blob = await r.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `annotations_${docId.slice(0, 8)}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  },
 };

@@ -19,6 +19,7 @@ from app.middleware.security_headers import SecurityHeadersMiddleware
 from app.middleware.request_id import RequestIDMiddleware
 from app.middleware.metrics import PrometheusMiddleware
 from app.routers import documents, links, viewer, analytics, groups, billing, webhooks, api_keys, orgs, admin, notifications, auth as auth_router
+from app.routers import annotations as annotations_router
 from app.auth import _fetch_jwks
 
 _IP_SALT_DEFAULT = "securedoc_ip_salt_change_in_production"
@@ -231,6 +232,7 @@ app.include_router(api_keys.router)
 app.include_router(orgs.router)
 app.include_router(admin.router)
 app.include_router(notifications.router)
+app.include_router(annotations_router.router)
 
 
 @app.get("/metrics", include_in_schema=False)

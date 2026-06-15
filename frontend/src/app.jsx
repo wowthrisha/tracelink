@@ -1250,6 +1250,13 @@
       const [showPageList, setShowPageList] = useState(false);
       const [pageAspectRatio, setPageAspectRatio] = useState(null); // set from actual image dimensions
       const [sidecarExtracted, setSidecarExtracted] = useState(false); // toast-once flag
+      // Annotation state
+      const [annotTool, setAnnotTool] = useState(null); // null|'highlight'|'comment'|'rectangle'|'arrow'
+      const [pageAnnotations, setPageAnnotations] = useState([]); // annotations for current page
+      const [commentDraft, setCommentDraft] = useState(null); // {x,y,coords,type} pending comment text
+      const annotCacheRef = useRef(new Map()); // page → annotation[]
+      const [bookmarks, setBookmarks] = useState(new Set()); // bookmarked page numbers
+      const [drawingState, setDrawingState] = useState(null); // {startX,startY} normalized 0-1
       const pageImgRef = useRef(null);
       const pageContainerRef = useRef(null); // Feature 4: magnifier needs page container
       // Feature 1: hyperlink overlay
@@ -1613,6 +1620,30 @@
       const goNext = useCallback(() => setPage(p => Math.min(p + pageStep, PAGE_COUNT)), [PAGE_COUNT, pageStep]);
       const goPrev = useCallback(() => setPage(p => Math.max(p - pageStep, 1)), [pageStep]);
 
+      // Lazy-load annotations for the current page when annotations are enabled
+      useEffect(() => {
+        if (!session || !session.permissions?.can_annotate || isTextDoc) return;
+        if (annotCacheRef.current.has(page)) {
+          setPageAnnotations(annotCacheRef.current.get(page));
+          return;
+        }
+        window.SecureDocAPI.getAnnotations(session.link_token, page, session.session_id)
+          .then(data => {
+            const annots = data.annotations || [];
+            annotCacheRef.current.set(page, annots);
+            setPageAnnotations(annots);
+          })
+          .catch(() => {});
+      }, [session?.link_token, session?.session_id, page, session?.permissions?.can_annotate, isTextDoc]);
+
+      // Load bookmarks once on session start
+      useEffect(() => {
+        if (!session || !session.permissions?.can_annotate) return;
+        window.SecureDocAPI.getBookmarks(session.link_token, session.session_id)
+          .then(data => setBookmarks(new Set((data.bookmarks || []).map(b => b.page_number))))
+          .catch(() => {});
+      }, [session?.link_token, session?.session_id, session?.permissions?.can_annotate]);
+
       // Layout helpers (stable identity — no setState in dep array needed)
       const _setLayout = useCallback((mode, zoom) => {
         setLayoutMode(mode);
@@ -1839,6 +1870,21 @@
             showPageList={showPageList} setShowPageList={setShowPageList}
             canDownload={!!session?.permissions?.can_download}
             canPrint={!!session?.permissions?.can_print}
+            canInfo={session ? !!session?.permissions?.enable_info : true}
+            canAnnotate={!!session?.permissions?.can_annotate}
+            annotTool={annotTool} setAnnotTool={setAnnotTool}
+            bookmarked={bookmarks.has(page)}
+            onToggleBookmark={async () => {
+              if (!session) return;
+              try {
+                const res = await window.SecureDocAPI.toggleBookmark(session.link_token, page, session.session_id);
+                setBookmarks(prev => {
+                  const next = new Set(prev);
+                  if (res.action === 'added') next.add(page); else next.delete(page);
+                  return next;
+                });
+              } catch (e) { toast(e?.detail || 'Bookmark failed', 'error'); }
+            }}
             onDownload={async () => {
               if (!session?.permissions?.can_download) return;
               toast('Preparing download…', 'info');
@@ -2140,6 +2186,65 @@
                         title={link.url}
                       />
                     ))}
+
+                  {/* Annotation overlay layer — rendered above page image, never modifies it */}
+                  {session?.permissions?.can_annotate && (
+                    <AnnotationLayer
+                      annotations={pageAnnotations}
+                      activeTool={annotTool}
+                      sessionPrefix={session?.session_id ? session.session_id.slice(0, 6) : ''}
+                      commentDraft={commentDraft}
+                      onDraw={async (coords, type) => {
+                        if (type === 'comment') {
+                          setCommentDraft({ coords, type, x: coords.x, y: coords.y });
+                          return;
+                        }
+                        try {
+                          const annot = await window.SecureDocAPI.createAnnotation(
+                            session.link_token,
+                            { page_number: page, annotation_type: type, coords, color: type === 'highlight' ? '#FFE066' : type === 'rectangle' ? 'rgba(90,200,208,0.25)' : '#5ac8d0' },
+                            session.session_id
+                          );
+                          const updated = [...pageAnnotations, annot];
+                          annotCacheRef.current.set(page, updated);
+                          setPageAnnotations(updated);
+                          window.SecureDocAPI.logEvent(session.link_token, session.session_id, 'annotation_created', page, { type });
+                        } catch (e) { toast(e?.detail || 'Failed to save annotation', 'error'); }
+                      }}
+                      onDelete={async (annotId) => {
+                        try {
+                          await window.SecureDocAPI.deleteAnnotation(session.link_token, annotId, session.session_id);
+                          const updated = pageAnnotations.filter(a => a.id !== annotId);
+                          annotCacheRef.current.set(page, updated);
+                          setPageAnnotations(updated);
+                        } catch (e) { toast(e?.detail || 'Failed to delete annotation', 'error'); }
+                      }}
+                      C={C} mono={mono}
+                    />
+                  )}
+                  {/* Comment text input popup */}
+                  {commentDraft && (
+                    <CommentPopup
+                      draft={commentDraft}
+                      onSave={async (text) => {
+                        setCommentDraft(null);
+                        if (!text.trim()) return;
+                        try {
+                          const annot = await window.SecureDocAPI.createAnnotation(
+                            session.link_token,
+                            { page_number: page, annotation_type: 'comment', coords: commentDraft.coords, comment_text: text.trim(), color: '#5ac8d0' },
+                            session.session_id
+                          );
+                          const updated = [...pageAnnotations, annot];
+                          annotCacheRef.current.set(page, updated);
+                          setPageAnnotations(updated);
+                          window.SecureDocAPI.logEvent(session.link_token, session.session_id, 'annotation_created', page, { type: 'comment' });
+                        } catch (e) { toast(e?.detail || 'Failed to save comment', 'error'); }
+                      }}
+                      onCancel={() => setCommentDraft(null)}
+                      C={C}
+                    />
+                  )}
                 </div>
                 );
                 if (!isTwoPage) return _pageEl;
@@ -2277,6 +2382,123 @@
       );
     }
 
+    // ── Annotation overlay layer ──────────────────────────────────────────────
+    // Renders existing annotations as SVG shapes + handles draw gestures.
+    // Positioned absolute over the page image — never touches the image data.
+    function AnnotationLayer({ annotations, activeTool, sessionPrefix, commentDraft, onDraw, onDelete, C, mono }) {
+      const svgRef = useRef(null);
+      const [preview, setPreview] = useState(null); // shape being drawn
+      const dragRef = useRef(null);
+
+      const _toNorm = (e) => {
+        const rect = svgRef.current?.getBoundingClientRect();
+        if (!rect) return { x: 0, y: 0 };
+        return { x: Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width)), y: Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height)) };
+      };
+
+      const _onMouseDown = (e) => {
+        if (!activeTool || e.button !== 0) return;
+        e.preventDefault();
+        const { x, y } = _toNorm(e);
+        dragRef.current = { x, y };
+        setPreview({ x, y, w: 0, h: 0, x2: x, y2: y });
+      };
+      const _onMouseMove = (e) => {
+        if (!dragRef.current) return;
+        const { x, y } = _toNorm(e);
+        const s = dragRef.current;
+        setPreview({ x: Math.min(s.x, x), y: Math.min(s.y, y), w: Math.abs(x - s.x), h: Math.abs(y - s.y), x1: s.x, y1: s.y, x2: x, y2: y });
+      };
+      const _onMouseUp = (e) => {
+        if (!dragRef.current || !preview) { dragRef.current = null; return; }
+        const s = dragRef.current;
+        const { x, y } = _toNorm(e);
+        dragRef.current = null;
+        setPreview(null);
+        const minDrag = 0.01;
+        if (activeTool === 'comment') {
+          onDraw({ x: s.x, y: s.y }, 'comment');
+          return;
+        }
+        if (Math.abs(x - s.x) < minDrag && Math.abs(y - s.y) < minDrag) return;
+        const coords = activeTool === 'arrow'
+          ? { x1: s.x, y1: s.y, x2: x, y2: y }
+          : { x: Math.min(s.x, x), y: Math.min(s.y, y), w: Math.abs(x - s.x), h: Math.abs(y - s.y) };
+        onDraw(coords, activeTool);
+      };
+
+      const isInteractive = !!activeTool;
+      return (
+        <svg
+          ref={svgRef}
+          style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', zIndex: 8, pointerEvents: isInteractive ? 'all' : 'none', cursor: isInteractive ? (activeTool === 'comment' ? 'crosshair' : 'crosshair') : 'default', overflow: 'visible' }}
+          onMouseDown={_onMouseDown} onMouseMove={_onMouseMove} onMouseUp={_onMouseUp}
+        >
+          {annotations.map(a => {
+            const isOwn = a.session_id === sessionPrefix + '…' || a.session_id?.startsWith(sessionPrefix);
+            const coords = typeof a.coords === 'string' ? JSON.parse(a.coords) : a.coords;
+            const col = a.color || '#FFE066';
+            if (a.annotation_type === 'highlight') return (
+              <rect key={a.id} x={`${coords.x * 100}%`} y={`${coords.y * 100}%`} width={`${coords.w * 100}%`} height={`${coords.h * 100}%`}
+                fill={col} opacity="0.35" rx="2"
+                style={{ pointerEvents: isOwn && !activeTool ? 'all' : 'none', cursor: 'pointer' }}
+                onClick={() => !activeTool && isOwn && onDelete(a.id)} />
+            );
+            if (a.annotation_type === 'rectangle') return (
+              <rect key={a.id} x={`${coords.x * 100}%`} y={`${coords.y * 100}%`} width={`${coords.w * 100}%`} height={`${coords.h * 100}%`}
+                fill="none" stroke={col} strokeWidth="1.5" rx="2" opacity="0.8"
+                style={{ pointerEvents: isOwn && !activeTool ? 'all' : 'none', cursor: 'pointer' }}
+                onClick={() => !activeTool && isOwn && onDelete(a.id)} />
+            );
+            if (a.annotation_type === 'arrow') return (
+              <g key={a.id} style={{ pointerEvents: isOwn && !activeTool ? 'all' : 'none', cursor: 'pointer' }} onClick={() => !activeTool && isOwn && onDelete(a.id)}>
+                <defs><marker id={`ah-${a.id}`} markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto"><path d="M0,0 L0,6 L6,3 z" fill={col}/></marker></defs>
+                <line x1={`${coords.x1 * 100}%`} y1={`${coords.y1 * 100}%`} x2={`${coords.x2 * 100}%`} y2={`${coords.y2 * 100}%`} stroke={col} strokeWidth="1.8" opacity="0.9" markerEnd={`url(#ah-${a.id})`}/>
+              </g>
+            );
+            if (a.annotation_type === 'comment' || a.annotation_type === 'bookmark') return (
+              <g key={a.id} style={{ pointerEvents: isOwn && !activeTool ? 'all' : 'none', cursor: 'pointer' }} onClick={() => !activeTool && isOwn && onDelete(a.id)}>
+                <circle cx={`${(coords.x || 0) * 100}%`} cy={`${(coords.y || 0) * 100}%`} r="8" fill={col} opacity="0.85"/>
+                <text x={`${(coords.x || 0) * 100}%`} y={`${(coords.y || 0) * 100}%`} textAnchor="middle" dominantBaseline="central" fontSize="9" fill="#060809" fontWeight="700">{a.annotation_type === 'comment' ? '💬' : '🔖'}</text>
+                {a.comment_text && (
+                  <foreignObject x={`${Math.min((coords.x || 0) * 100 + 2, 60)}%`} y={`${(coords.y || 0) * 100}%`} width="160" height="60" style={{ pointerEvents: 'none' }}>
+                    <div style={{ background: 'rgba(6,8,9,0.88)', border: `1px solid ${col}`, borderRadius: 5, padding: '4px 8px', fontSize: 10, color: '#F0F2F1', fontFamily: "'DM Sans',sans-serif", lineHeight: 1.4, maxWidth: 160, wordBreak: 'break-word' }}>
+                      {a.comment_text}
+                    </div>
+                  </foreignObject>
+                )}
+              </g>
+            );
+            return null;
+          })}
+          {/* Drawing preview */}
+          {preview && activeTool === 'highlight' && <rect x={`${preview.x * 100}%`} y={`${preview.y * 100}%`} width={`${preview.w * 100}%`} height={`${preview.h * 100}%`} fill="#FFE066" opacity="0.3" rx="2" style={{ pointerEvents: 'none' }}/>}
+          {preview && activeTool === 'rectangle' && <rect x={`${preview.x * 100}%`} y={`${preview.y * 100}%`} width={`${preview.w * 100}%`} height={`${preview.h * 100}%`} fill="none" stroke="#5ac8d0" strokeWidth="1.5" rx="2" opacity="0.7" style={{ pointerEvents: 'none' }}/>}
+          {preview && activeTool === 'arrow' && <line x1={`${preview.x1 * 100}%`} y1={`${preview.y1 * 100}%`} x2={`${preview.x2 * 100}%`} y2={`${preview.y2 * 100}%`} stroke="#5ac8d0" strokeWidth="1.8" opacity="0.7" style={{ pointerEvents: 'none' }}/>}
+        </svg>
+      );
+    }
+
+    // Comment text popup — shown after clicking comment tool on the page
+    function CommentPopup({ draft, onSave, onCancel, C }) {
+      const [text, setText] = useState('');
+      const inputRef = useRef(null);
+      useEffect(() => { setTimeout(() => inputRef.current?.focus(), 50); }, []);
+      return (
+        <div style={{ position: 'absolute', left: `${Math.min(draft.x * 100, 70)}%`, top: `${Math.min(draft.y * 100, 70)}%`, zIndex: 20, background: '#0E1416', border: '1px solid rgba(90,200,208,0.3)', borderRadius: 8, padding: '10px 12px', width: 220, boxShadow: '0 4px 24px rgba(0,0,0,0.6)' }}>
+          <div style={{ fontSize: 10, color: 'rgba(148,160,176,0.7)', marginBottom: 6, fontWeight: 600, letterSpacing: '0.5px' }}>ADD COMMENT</div>
+          <textarea ref={inputRef} value={text} onChange={e => setText(e.target.value)} placeholder="Type your comment…" maxLength={2000}
+            style={{ width: '100%', minHeight: 64, fontSize: 11, resize: 'vertical', marginBottom: 8, background: 'rgba(90,200,208,0.05)', border: '1px solid rgba(90,200,208,0.2)', borderRadius: 5, color: '#F0F2F1', fontFamily: "'DM Sans',sans-serif", padding: '6px 8px', outline: 'none' }}
+            onKeyDown={e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) onSave(text); if (e.key === 'Escape') onCancel(); }}
+          />
+          <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+            <button onClick={onCancel} style={{ fontSize: 11, padding: '4px 10px', background: 'none', border: '1px solid rgba(148,160,176,0.2)', borderRadius: 5, color: 'rgba(148,160,176,0.7)', cursor: 'pointer' }}>Cancel</button>
+            <button onClick={() => onSave(text)} style={{ fontSize: 11, padding: '4px 10px', background: 'rgba(90,200,208,0.15)', border: '1px solid rgba(90,200,208,0.3)', borderRadius: 5, color: '#5ac8d0', cursor: 'pointer', fontWeight: 600 }}>Save</button>
+          </div>
+        </div>
+      );
+    }
+
     // ── Professional top toolbar ──────────────────────────────────────────────
     function ViewerToolbar({
       doc, docName, isTextDoc,
@@ -2290,7 +2512,8 @@
       isFullscreen, toggleFullscreen,
       showToc, setShowToc, showSearch, setShowSearch, showInfo, setShowInfo,
       showPageList, setShowPageList,
-      canDownload, canPrint, onDownload, onPrint,
+      canDownload, canPrint, canInfo, canAnnotate, onDownload, onPrint,
+      annotTool, setAnnotTool, bookmarked, onToggleBookmark,
       rotation, onRotate, isTwoPage, onToggleTwoPage,
       C, mono,
     }) {
@@ -2537,6 +2760,31 @@
               : <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M1 4V1h3M8 1h3v3M11 8v3H8M4 11H1V8" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>
             }
           </button>
+          {/* ── Annotation tools — only when can_annotate is on ── */}
+          {canAnnotate && (<>
+            {sep}
+            {/* Bookmark toggle */}
+            <button onClick={onToggleBookmark} title={bookmarked ? 'Remove bookmark' : 'Bookmark page'}
+              style={{ ...btn, ...(bookmarked ? { color: '#FFE066', opacity: 1 } : {}), padding: '3px 7px' }}>
+              <svg width="10" height="13" viewBox="0 0 10 13" fill={bookmarked ? '#FFE066' : 'none'} style={{ flexShrink: 0 }}>
+                <path d="M1 1h8v11l-4-3-4 3V1z" stroke={bookmarked ? '#FFE066' : 'currentColor'} strokeWidth="1.3" strokeLinejoin="round"/>
+              </svg>
+            </button>
+            {/* Annotation tool buttons in a pill */}
+            <div style={{ display: 'flex', alignItems: 'center', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 5, overflow: 'hidden', marginLeft: 2 }}>
+              {[
+                { tool: 'highlight', title: 'Highlight', icon: <svg width="12" height="10" viewBox="0 0 12 10" fill="none"><rect x="0" y="3" width="12" height="5" rx="1" fill="#FFE066" opacity="0.7"/><path d="M2 8l1-5h6l1 5" stroke="currentColor" strokeWidth="1" strokeLinecap="round" opacity="0.5"/></svg> },
+                { tool: 'comment', title: 'Comment', icon: <svg width="12" height="11" viewBox="0 0 12 11" fill="none"><path d="M1 1h10v7H6l-2 2V8H1V1z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/></svg> },
+                { tool: 'rectangle', title: 'Rectangle', icon: <svg width="12" height="10" viewBox="0 0 12 10" fill="none"><rect x="1" y="1" width="10" height="8" rx="1" stroke="currentColor" strokeWidth="1.3"/></svg> },
+                { tool: 'arrow', title: 'Arrow', icon: <svg width="12" height="10" viewBox="0 0 12 10" fill="none"><path d="M1 5h9M7 2l3 3-3 3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg> },
+              ].map(({ tool, title, icon }) => (
+                <button key={tool} onClick={() => setAnnotTool(t => t === tool ? null : tool)} title={title}
+                  style={{ ...btn, borderRadius: 0, padding: '3px 7px', borderRight: '1px solid rgba(255,255,255,0.07)', ...(annotTool === tool ? on : {}) }}>
+                  {icon}
+                </button>
+              ))}
+            </div>
+          </>)}
           {sep}
           <button onClick={onDownload} disabled={!canDownload} title="Download" style={{ ...btn, opacity: canDownload ? 1 : 0.28, padding: '3px 7px' }}>
             <svg width="11" height="12" viewBox="0 0 11 12" fill="none" style={{ flexShrink: 0 }}>
@@ -2552,12 +2800,14 @@
               <rect x="3.5" y="7.8" width="3" height="1" rx="0.4" fill="currentColor" opacity=".7"/>
             </svg>
           </button>
-          <button onClick={() => setShowInfo(v => !v)} title="Document info" style={{ ...btn, ...(showInfo ? on : {}), padding: '3px 7px' }}>
-            <svg width="11" height="13" viewBox="0 0 11 13" fill="none" style={{ flexShrink: 0 }}>
-              <circle cx="5.5" cy="3" r="1.2" fill="currentColor"/>
-              <rect x="4.5" y="6" width="2" height="5" rx="0.8" fill="currentColor"/>
-            </svg>
-          </button>
+          {canInfo && (
+            <button onClick={() => setShowInfo(v => !v)} title="Document info" style={{ ...btn, ...(showInfo ? on : {}), padding: '3px 7px' }}>
+              <svg width="11" height="13" viewBox="0 0 11 13" fill="none" style={{ flexShrink: 0 }}>
+                <circle cx="5.5" cy="3" r="1.2" fill="currentColor"/>
+                <rect x="4.5" y="6" width="2" height="5" rx="0.8" fill="currentColor"/>
+              </svg>
+            </button>
+          )}
         </div>
       );
     }
@@ -3380,6 +3630,7 @@
                 { label: 'Print', ok: !!session?.permissions?.can_print },
                 { label: 'Copy text', ok: !!session?.permissions?.can_copy },
                 { label: 'Watermark', ok: !!session?.permissions?.watermark_enabled },
+                { label: 'Annotations', ok: !!session?.permissions?.can_annotate },
                 { label: 'View tracking', ok: true },
                 { label: 'Expiry', ok: !!session?.expires_at },
               ].map(r => (
@@ -3442,6 +3693,8 @@
         can_copy: false,
         can_right_click: false,
         watermark_enabled: true,
+        can_annotate: false,
+        enable_info: true,
       });
 
       const docName = doc?.filename || doc?.name || 'Document';
@@ -3627,7 +3880,9 @@
                           can_print: 'Print',
                           can_copy: 'Copy Text',
                           can_right_click: 'Right Click',
-                          watermark_enabled: 'Watermark'
+                          watermark_enabled: 'Watermark',
+                          can_annotate: 'Annotations',
+                          enable_info: 'Info Panel',
                         }).map(([key, labelText]) => (
                           <div key={key} style={{
                             display: 'flex', alignItems: 'center', justifyContent: 'space-between',
