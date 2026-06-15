@@ -64,6 +64,18 @@ class AnnotationCreate(BaseModel):
     @field_validator("coords")
     @classmethod
     def check_coords(cls, v):
+        # draw annotations send {points: [{x, y}, ...]} — validate separately
+        if frozenset(v.keys()) == frozenset(["points"]):
+            pts = v["points"]
+            if not isinstance(pts, list) or len(pts) < 2:
+                raise ValueError("coords.points must be a list of at least 2 {x,y} objects")
+            for i, p in enumerate(pts):
+                if not isinstance(p, dict) or set(p.keys()) != {"x", "y"}:
+                    raise ValueError(f"coords.points[{i}] must be {{x, y}}")
+                for k in ("x", "y"):
+                    if not isinstance(p[k], (int, float)) or not (0.0 <= float(p[k]) <= 1.0):
+                        raise ValueError(f"coords.points[{i}].{k} must be a float 0–1")
+            return v
         # Accept {x,y,w,h}, {x1,y1,x2,y2}, or {x,y} — all floats 0–1
         allowed_keys = {
             frozenset(["x", "y", "w", "h"]),
@@ -71,7 +83,7 @@ class AnnotationCreate(BaseModel):
             frozenset(["x", "y"]),
         }
         if frozenset(v.keys()) not in allowed_keys:
-            raise ValueError("coords must contain {x,y,w,h}, {x1,y1,x2,y2}, or {x,y}")
+            raise ValueError("coords must contain {x,y,w,h}, {x1,y1,x2,y2}, {x,y}, or {points:[{x,y}...]}")
         for key, val in v.items():
             if not isinstance(val, (int, float)) or not (0.0 <= float(val) <= 1.0):
                 raise ValueError(f"coords.{key} must be a float between 0 and 1")

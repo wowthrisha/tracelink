@@ -536,10 +536,6 @@
       const [groupForm, setGroupForm] = useState({ name: '', color: '#6366f1', description: '' });
       const [groupSaving, setGroupSaving] = useState(false);
       const [retentionPolicy, setRetentionPolicy] = useState('never');
-      const [commentsDocId, setCommentsDocId] = useState(null); // doc selected for comments panel
-      const [docAnnotations, setDocAnnotations] = useState([]);
-      const [annotationsLoading, setAnnotationsLoading] = useState(false);
-      const [annotFilter, setAnnotFilter] = useState('all'); // 'all' | 'unresolved' | 'resolved' | 'comment' | 'sticky_note'
       const fileRef = useRef();
       const pollRef = useRef(null);
 
@@ -560,15 +556,6 @@
         } catch (e) { /* non-critical */ }
       }, []);
 
-      const loadDocAnnotations = useCallback(async (docId) => {
-        if (!docId) return;
-        setAnnotationsLoading(true);
-        try {
-          const data = await window.SecureDocAPI.getDocumentAnnotations(docId);
-          setDocAnnotations(data || []);
-        } catch (e) { toast(_errMsg(e, 'Failed to load comments'), 'error'); }
-        finally { setAnnotationsLoading(false); }
-      }, []);
 
       useEffect(() => { fetchDocs(); fetchGroups(); }, []);
 
@@ -890,88 +877,6 @@
               <span style={{ fontSize: 10, color: C.textMuted }}>All documents converted to images — download disabled by default</span>
             </div>
 
-            {/* Comments panel */}
-            <div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
-                <SectionLabel>Viewer Comments</SectionLabel>
-                <select
-                  value={commentsDocId || ''}
-                  onChange={e => { const id = e.target.value; setCommentsDocId(id || null); if (id) loadDocAnnotations(id); else setDocAnnotations([]); }}
-                  style={{ fontSize: 11, background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 6, padding: '4px 8px', color: C.textSecondary, maxWidth: 240 }}>
-                  <option value="">— Select document —</option>
-                  {docs.filter(d => d.status === 'ready').map(d => <option key={d.id} value={d.id}>{d.filename}</option>)}
-                </select>
-                {commentsDocId && (<>
-                  <select
-                    value={annotFilter}
-                    onChange={e => setAnnotFilter(e.target.value)}
-                    style={{ fontSize: 11, background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 6, padding: '4px 8px', color: C.textSecondary }}>
-                    <option value="all">All types</option>
-                    <option value="comment">Comments</option>
-                    <option value="sticky_note">Sticky Notes</option>
-                    <option value="unresolved">Unresolved</option>
-                    <option value="resolved">Resolved</option>
-                  </select>
-                  <Btn variant="ghost" size="sm" onClick={() => loadDocAnnotations(commentsDocId)}>↺ Refresh</Btn>
-                  <Btn variant="ghost" size="sm" onClick={() => window.SecureDocAPI.exportAnnotations(commentsDocId)}>↓ CSV</Btn>
-                </>)}
-              </div>
-              {commentsDocId && (
-                <Card noPad>
-                  {annotationsLoading ? (
-                    <div style={{ padding: 24, textAlign: 'center', color: C.textMuted, fontSize: 13 }}>Loading comments…</div>
-                  ) : (() => {
-                    const filtered = docAnnotations.filter(a => {
-                      if (annotFilter === 'comment') return a.annotation_type === 'comment';
-                      if (annotFilter === 'sticky_note') return a.annotation_type === 'sticky_note';
-                      if (annotFilter === 'unresolved') return !a.resolved_at;
-                      if (annotFilter === 'resolved') return !!a.resolved_at;
-                      return true;
-                    });
-                    if (filtered.length === 0) return (
-                      <div style={{ padding: 24, textAlign: 'center', color: C.textMuted, fontSize: 13 }}>No comments found</div>
-                    );
-                    return (
-                      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                        <thead>
-                          <tr style={{ borderBottom: `1px solid ${C.border}` }}>
-                            {['Viewer', 'Page', 'Type', 'Comment', 'Time', 'Status', ''].map(h => (
-                              <th key={h} style={{ ...label(9), padding: '8px 12px', textAlign: 'left', fontWeight: 600, color: C.textDim }}>{h}</th>
-                            ))}
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {filtered.map((a, i) => (
-                            <tr key={a.id} style={{ borderTop: i === 0 ? 'none' : `1px solid ${C.border}`, background: a.resolved_at ? C.successBg : 'transparent' }}>
-                              <td style={{ padding: '8px 12px', fontSize: 11, color: C.textMuted, ...mono }}>{a.viewer_email_masked || a.session_id?.slice(0, 8) + '…'}</td>
-                              <td style={{ padding: '8px 12px', fontSize: 11, color: C.textSecondary }}>p.{a.page_number}</td>
-                              <td style={{ padding: '8px 12px', fontSize: 10, ...mono, color: C.teal3 }}>{a.annotation_type}</td>
-                              <td style={{ padding: '8px 12px', fontSize: 12, color: C.textPrimary, maxWidth: 280, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.comment_text || <span style={{ color: C.textDim }}>—</span>}</td>
-                              <td style={{ padding: '8px 12px', fontSize: 10, color: C.textMuted, ...mono, whiteSpace: 'nowrap' }}>{new Date(a.created_at).toLocaleString()}</td>
-                              <td style={{ padding: '8px 12px' }}>
-                                {a.resolved_at
-                                  ? <Chip color={C.success} bg={C.successBg} border="transparent">Resolved</Chip>
-                                  : <Chip color={C.textMuted} bg="transparent" border={C.border}>Open</Chip>}
-                              </td>
-                              <td style={{ padding: '8px 12px' }}>
-                                {(a.annotation_type === 'comment' || a.annotation_type === 'sticky_note') && (
-                                  <Btn variant="ghost" size="sm" onClick={async () => {
-                                    try {
-                                      // Resolve toggle requires a share link token — skip for dashboard view
-                                      toast('Open via viewer link to resolve comments', 'info');
-                                    } catch {}
-                                  }}>{a.resolved_at ? '↩ Reopen' : '✓ Resolve'}</Btn>
-                                )}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    );
-                  })()}
-                </Card>
-              )}
-            </div>
           </div>
 
           <Modal open={!!deleteModal} onClose={() => setDeleteModal(null)} title="Delete Document" width={400}>
@@ -3973,6 +3878,13 @@
       const [revoking, setRevoking] = useState(null);
       const [linkCopied, setLinkCopied] = useState(null);
       const [saved, setSaved] = useState(false);
+      // Comments tab state
+      const [docAnnotations, setDocAnnotations] = useState([]);
+      const [annotationsLoading, setAnnotationsLoading] = useState(false);
+      const [annotFilter, setAnnotFilter] = useState('all');
+      const [replyDraft, setReplyDraft] = useState(null); // annotId being replied to
+      const [replyText, setReplyText] = useState('');
+
       // Policy form
       const [password, setPassword] = useState('');
       const [showPass, setShowPass] = useState(false);
@@ -4005,7 +3917,18 @@
         finally { setLinksLoading(false); }
       }, [docId]);
 
+      const fetchDocAnnotations = useCallback(async () => {
+        if (!docId) return;
+        setAnnotationsLoading(true);
+        try {
+          const data = await window.SecureDocAPI.getDocumentAnnotations(docId);
+          setDocAnnotations(Array.isArray(data) ? data : (data?.annotations || []));
+        } catch (e) { toast(_errMsg(e, 'Failed to load comments'), 'error'); }
+        finally { setAnnotationsLoading(false); }
+      }, [docId]);
+
       useEffect(() => { fetchLinks(); }, [fetchLinks]);
+      useEffect(() => { if (tab === 'comments' && docAnnotations.length === 0 && !annotationsLoading) fetchDocAnnotations(); }, [tab]);
 
       const activeLinks = links.filter(l => !l.revoked_at && (!l.expires_at || new Date(l.expires_at) > new Date()));
 
@@ -4048,6 +3971,7 @@
         { id: 'policy', label: 'Policy' },
         { id: 'link', label: 'Share Link' },
         { id: 'log', label: 'Access Log' },
+        { id: 'comments', label: 'Comments' },
       ];
 
       // No document selected — show inline picker so user stays on this tab.
@@ -4286,6 +4210,137 @@
             {tab === 'log' && (
               <div className="fade-in">
                 <AccessLog docId={docId} />
+              </div>
+            )}
+
+            {tab === 'comments' && (
+              <div className="fade-in" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                {/* Toolbar: filter + actions */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                  <select
+                    value={annotFilter}
+                    onChange={e => setAnnotFilter(e.target.value)}
+                    style={{ fontSize: 11, background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 6, padding: '4px 8px', color: C.textSecondary }}>
+                    <option value="all">All annotations</option>
+                    <option value="comment">Comments only</option>
+                    <option value="sticky_note">Sticky Notes only</option>
+                    <option value="unresolved">Unresolved</option>
+                    <option value="resolved">Resolved</option>
+                  </select>
+                  <Btn variant="ghost" size="sm" onClick={fetchDocAnnotations}>↺ Refresh</Btn>
+                  <Btn variant="ghost" size="sm" onClick={() => window.SecureDocAPI.exportAnnotations(docId)}>↓ Export CSV</Btn>
+                  <span style={{ ...mono, fontSize: 10, color: C.textMuted, marginLeft: 'auto' }}>
+                    {docAnnotations.length} annotation{docAnnotations.length !== 1 ? 's' : ''} total
+                  </span>
+                </div>
+
+                {/* Annotations table */}
+                <Card noPad>
+                  {annotationsLoading ? (
+                    <div style={{ padding: 32, textAlign: 'center', color: C.textMuted, fontSize: 13 }}>Loading comments…</div>
+                  ) : (() => {
+                    const filtered = docAnnotations.filter(a => {
+                      if (annotFilter === 'comment') return a.annotation_type === 'comment';
+                      if (annotFilter === 'sticky_note') return a.annotation_type === 'sticky_note';
+                      if (annotFilter === 'unresolved') return !a.resolved_at;
+                      if (annotFilter === 'resolved') return !!a.resolved_at;
+                      return true;
+                    });
+                    // Group by parent: top-level first, replies indented
+                    const topLevel = filtered.filter(a => !a.parent_id);
+                    const replies = filtered.filter(a => !!a.parent_id);
+                    const byParent = {};
+                    replies.forEach(r => { (byParent[r.parent_id] = byParent[r.parent_id] || []).push(r); });
+                    const rows = [];
+                    topLevel.forEach(a => { rows.push({ a, indent: 0 }); (byParent[a.id] || []).forEach(r => rows.push({ a: r, indent: 1 })); });
+                    if (rows.length === 0) return (
+                      <div style={{ padding: 32, textAlign: 'center', color: C.textMuted, fontSize: 13 }}>No annotations yet</div>
+                    );
+                    return (
+                      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                        <thead>
+                          <tr style={{ borderBottom: `1px solid ${C.border}` }}>
+                            {['Viewer', 'Page', 'Type', 'Comment / Note', 'Time', 'Status', ''].map(h => (
+                              <th key={h} style={{ ...label(9), padding: '9px 14px', textAlign: 'left', fontWeight: 600, color: C.textDim }}>{h}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {rows.map(({ a, indent }, i) => (
+                            <React.Fragment key={a.id}>
+                              <tr style={{
+                                borderTop: `1px solid ${C.border}`,
+                                background: a.resolved_at ? C.successBg : indent > 0 ? C.surfaceAlt : 'transparent',
+                              }}>
+                                <td style={{ padding: '8px 14px', fontSize: 11, color: C.textMuted, ...mono, paddingLeft: indent > 0 ? 28 : 14 }}>
+                                  {indent > 0 && <span style={{ color: C.teal3, marginRight: 6 }}>↳</span>}
+                                  {a.viewer_email_masked || (a.session_id?.slice(0, 8) + '…')}
+                                </td>
+                                <td style={{ padding: '8px 14px', fontSize: 11, color: C.textSecondary, whiteSpace: 'nowrap' }}>p.{a.page_number}</td>
+                                <td style={{ padding: '8px 14px', fontSize: 10, ...mono, color: C.teal3 }}>{a.annotation_type}</td>
+                                <td style={{ padding: '8px 14px', fontSize: 12, color: C.textPrimary, maxWidth: 300, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                  {a.comment_text || <span style={{ color: C.textDim }}>—</span>}
+                                </td>
+                                <td style={{ padding: '8px 14px', fontSize: 10, color: C.textMuted, ...mono, whiteSpace: 'nowrap' }}>
+                                  {new Date(a.created_at).toLocaleString()}
+                                </td>
+                                <td style={{ padding: '8px 14px', whiteSpace: 'nowrap' }}>
+                                  {a.resolved_at
+                                    ? <Chip color={C.success} bg={C.successBg} border="transparent">Resolved</Chip>
+                                    : <Chip color={C.textMuted} bg="transparent" border={C.border}>Open</Chip>}
+                                </td>
+                                <td style={{ padding: '8px 14px', whiteSpace: 'nowrap' }}>
+                                  {(a.annotation_type === 'comment' || a.annotation_type === 'sticky_note') && indent === 0 && (
+                                    <Btn variant="ghost" size="sm" onClick={() => { setReplyDraft(a.id); setReplyText(''); }}>↩ Reply</Btn>
+                                  )}
+                                </td>
+                              </tr>
+                              {/* Inline reply composer */}
+                              {replyDraft === a.id && (
+                                <tr style={{ background: C.surfaceMid }}>
+                                  <td colSpan={7} style={{ padding: '8px 14px 10px 28px' }}>
+                                    <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+                                      <span style={{ color: C.teal3, fontSize: 12, marginTop: 6 }}>↳</span>
+                                      <textarea
+                                        value={replyText}
+                                        onChange={e => setReplyText(e.target.value)}
+                                        placeholder="Write a reply…"
+                                        autoFocus
+                                        style={{
+                                          flex: 1, fontSize: 11, resize: 'vertical', minHeight: 48,
+                                          background: C.surface3, border: `1px solid ${C.borderMed}`,
+                                          borderRadius: 5, padding: '6px 8px', color: C.textPrimary,
+                                          fontFamily: "'DM Sans',sans-serif", outline: 'none',
+                                        }}
+                                        onKeyDown={e => e.key === 'Escape' && setReplyDraft(null)}
+                                      />
+                                      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                                        <Btn variant="primary" size="sm" onClick={async () => {
+                                          if (!replyText.trim()) return;
+                                          try {
+                                            // Use the first active share link token to post reply
+                                            const linkToken = activeLinks[0]?.token;
+                                            if (!linkToken) { toast('No active share link — create one first', 'warning'); return; }
+                                            await window.SecureDocAPI.replyToAnnotation(linkToken, a.id, replyText.trim(), 'owner-reply', a.page_number);
+                                            setReplyDraft(null);
+                                            setReplyText('');
+                                            await fetchDocAnnotations();
+                                            toast('Reply posted', 'success');
+                                          } catch (err) { toast(_errMsg(err, 'Failed to post reply'), 'error'); }
+                                        }}>Send</Btn>
+                                        <Btn variant="ghost" size="sm" onClick={() => setReplyDraft(null)}>Cancel</Btn>
+                                      </div>
+                                    </div>
+                                  </td>
+                                </tr>
+                              )}
+                            </React.Fragment>
+                          ))}
+                        </tbody>
+                      </table>
+                    );
+                  })()}
+                </Card>
               </div>
             )}
           </div>
