@@ -1188,7 +1188,7 @@
     }
 
     // ── Viewer Layout System constants ─────────────────────────────────────────
-    const LAYOUT = { FIT_WIDTH: 'fit-width', FIT_HEIGHT: 'fit-height', CUSTOM: 'custom' };
+    const LAYOUT = { FIT_WIDTH: 'fit-width', FIT_HEIGHT: 'fit-height', CUSTOM: 'custom', TWO_PAGE: 'two-page' };
     const ZOOM_PRESETS = [25, 50, 75, 100, 125, 150, 200, 300, 400];
     const ZOOM_MIN = 10;
     const ZOOM_MAX = 400;
@@ -1209,12 +1209,13 @@
     function ViewerScreen({ doc, publicToken, onSelectDoc }) {
       const toast = useToast();
       const [page, setPage] = useState(1);
-      // Layout system: fit-width, fit-height, or custom zoom
+      // Layout system: fit-width, fit-height, custom zoom, or two-page
       const _initPref = _loadLayoutPref();
       const [layoutMode, setLayoutMode] = useState(_initPref.mode);
       const [customZoom, setCustomZoom] = useState(_initPref.zoom);
       // Legacy zoom alias (kept for sessionStorage restore compat)
       const zoom = layoutMode === LAYOUT.CUSTOM ? customZoom : 100;
+      const [rotation, setRotation] = useState(0); // 0, 90, 180, 270
       const [showInfo, setShowInfo] = useState(false);
       const [session, setSession] = useState(null);
       const [imgSrc, setImgSrc] = useState('');
@@ -1233,8 +1234,8 @@
       const [imgReady, setImgReady] = useState(false);
       // Phase 7: in-viewer search
       const [showSearch, setShowSearch] = useState(false);
-      // TOC sidebar — open by default
-      const [showToc, setShowToc] = useState(true);
+      // TOC sidebar — open by default on desktop, closed on mobile
+      const [showToc, setShowToc] = useState(typeof window !== 'undefined' ? window.innerWidth > 640 : true);
       // Premium: laser pointer, magnifier, fullscreen, page jump
       const [showLaser, setShowLaser] = useState(false);
       const [showMagnifier, setShowMagnifier] = useState(false);
@@ -1263,6 +1264,12 @@
       const [activeHighlightIdx, setActiveHighlightIdx] = useState(0); // which match is orange
       // Phase 7: mobile/touch support — extended for pinch-to-zoom
       const touchRef = useRef({ x: null, y: null, pinchDist: null });
+      // Two-page view: second page image
+      const [imgSrc2, setImgSrc2] = useState('');
+      const [imgLoading2, setImgLoading2] = useState(false);
+      const [page2Error, setPage2Error] = useState(null);
+      // Ref for session auto-revalidation on 401
+      const reinitRef = useRef(null);
 
       // ── Phase 7: request deduplication — one inflight fetch per page key ─────
       const inflightRef = useRef(new Map());
@@ -1347,6 +1354,10 @@
               let detail = null;
               try { detail = (await r.json()).detail; } catch {}
               console.error('[SecureDoc] page fetch HTTP error', r.status, url, detail);
+              if (r.status === 401 && reinitRef.current) {
+                reinitRef.current();
+                return;
+              }
               setPageError(detail || `Unable to load page (${r.status})`);
               setImgReady(true);
               return;
@@ -1378,6 +1389,22 @@
           .then(r => r.ok ? r.blob() : Promise.reject())
           .then(blob => { _cacheSet(key, URL.createObjectURL(blob)); })
           .catch(() => {});
+      }, []);
+
+      const loadPage2 = useCallback(async (token, pageNum, sessionId, total) => {
+        if (!token || !sessionId || pageNum < 1 || pageNum > total) { setImgSrc2(''); return; }
+        const key = `${token}:${pageNum}`;
+        if (pageCache.current.has(key)) { setImgSrc2(pageCache.current.get(key)); return; }
+        setImgLoading2(true);
+        setPage2Error(null);
+        try {
+          const r = await fetch(window.SecureDocAPI.getPageUrl(token, pageNum), { headers: window.SecureDocAPI.sessionHeaders(sessionId) });
+          if (!r.ok) { const d = await r.json().catch(() => ({})); setPage2Error(d.detail || `Error (${r.status})`); return; }
+          const blobUrl = URL.createObjectURL(await r.blob());
+          _cacheSet(key, blobUrl);
+          setImgSrc2(blobUrl);
+        } catch { setPage2Error('Network error'); }
+        finally { setImgLoading2(false); }
       }, []);
 
       const loadTextChunk = useCallback(async (token, chunkNum, sessionId) => {
@@ -1431,6 +1458,24 @@
             toast(e.detail || 'Failed to open viewer', 'error');
           }
         } finally { setInit(false); }
+      };
+
+      // Expose revalidation to loadPage (which has empty deps and can't close over doValidate directly)
+      reinitRef.current = async () => {
+        const token = session?.link_token || pendingToken;
+        if (!token) return;
+        sessionStorage.removeItem(`securedoc_sess_${token}`);
+        try {
+          const gate = await window.SecureDocAPI.getGateRequirements(token);
+          if (gate.status !== 'active' || gate.requires_password || gate.requires_email) {
+            setSession(null);
+            setGateInfo(gate);
+            setPendingToken(token);
+            setInit(false);
+          } else {
+            await doValidate(token, null, null);
+          }
+        } catch { toast('Session expired. Please reload the page.', 'error'); }
       };
 
       // Auto-create link + probe gate requirements, then validate if no restrictions
@@ -1528,6 +1573,13 @@
         if (page > 1) prefetchPage(session.link_token, page - 1, session.session_id, PAGE_COUNT);
       }, [session?.link_token, session?.session_id, page, imgLoading, PAGE_COUNT, prefetchPage, isTextDoc]);
 
+      // Load second page in two-page view mode
+      useEffect(() => {
+        if (!session || isTextDoc || !isTwoPage) { setImgSrc2(''); return; }
+        if (session.doc_status && session.doc_status !== 'ready') return;
+        loadPage2(session.link_token, page + 1, session.session_id, PAGE_COUNT);
+      }, [session?.link_token, session?.session_id, page, isTwoPage, isTextDoc, PAGE_COUNT, session?.doc_status, loadPage2]);
+
       // Eagerly prefetch page 2 in parallel with page 1 the moment a session
       // is established, so forward navigation feels instant on page 1.
       useEffect(() => {
@@ -1555,8 +1607,10 @@
         }
       }, [session?.link_token, session?.session_id, page, session?.doc_status, session?.doc_type, loadTextChunk]);
 
-      const goNext = useCallback(() => setPage(p => Math.min(p + 1, PAGE_COUNT)), [PAGE_COUNT]);
-      const goPrev = useCallback(() => setPage(p => Math.max(p - 1, 1)), []);
+      const isTwoPage = layoutMode === LAYOUT.TWO_PAGE;
+      const pageStep = isTwoPage ? 2 : 1;
+      const goNext = useCallback(() => setPage(p => Math.min(p + pageStep, PAGE_COUNT)), [PAGE_COUNT, pageStep]);
+      const goPrev = useCallback(() => setPage(p => Math.max(p - pageStep, 1)), [pageStep]);
 
       // Layout helpers (stable identity — no setState in dep array needed)
       const _setLayout = useCallback((mode, zoom) => {
@@ -1798,6 +1852,8 @@
                 window.SecureDocAPI?.logEvent(session.link_token, session.session_id, 'printed');
               }
             }}
+            rotation={rotation} onRotate={() => setRotation(r => (r + 90) % 360)}
+            isTwoPage={isTwoPage} onToggleTwoPage={() => _setLayout(isTwoPage ? LAYOUT.FIT_WIDTH : LAYOUT.TWO_PAGE)}
             C={C} mono={mono}
           />
 
@@ -1892,8 +1948,12 @@
                 </div>
               )}
               {!initializing && session && !isTextDoc && (() => {
+                const rotated90 = rotation === 90 || rotation === 270;
                 // Compute page dimensions based on layout mode
                 const _pgStyle = (() => {
+                  if (layoutMode === LAYOUT.TWO_PAGE) {
+                    return { width: rotated90 ? 'calc(50vh - 37px)' : 'calc(50% - 6px)', maxWidth: rotated90 ? 'calc(50vh - 37px)' : 'calc(50% - 6px)', height: undefined };
+                  }
                   if (layoutMode === LAYOUT.FIT_WIDTH) {
                     return { width: '100%', maxWidth: '100%', height: undefined };
                   }
@@ -1904,10 +1964,13 @@
                   // CUSTOM zoom: 100% = 590px (fits a letter-size PDF at typical DPI)
                   return { width: `${customZoom * 5.9}px`, maxWidth: '100%', height: undefined };
                 })();
-                return (
+                const _rotStyle = rotation !== 0 ? { transform: `rotate(${rotation}deg)`, transformOrigin: 'center center' } : {};
+                const _pageEl = (
                 <div ref={pageContainerRef} className="viewer-page" style={{
                   position: 'relative', ...(_pgStyle),
-                  aspectRatio: pageAspectRatio ? `${pageAspectRatio}` : '8.5/11',
+                  aspectRatio: rotated90
+                    ? (pageAspectRatio ? `${pageAspectRatio.split('/').reverse().join('/')}` : '11/8.5')
+                    : (pageAspectRatio ? `${pageAspectRatio}` : '8.5/11'),
                   flexShrink: 0, transition: 'width .25s ease, height .25s ease',
                   borderRadius: 2, overflow: 'hidden',
                   boxShadow: '0 2px 8px rgba(0,0,0,0.5), 0 8px 48px rgba(0,0,0,0.8), 0 20px 60px rgba(0,0,0,0.35)',
@@ -1954,6 +2017,7 @@
                         filter: blurred ? 'blur(14px)' : 'none',
                         opacity: imgReady ? 0 : 1,
                         transition: 'opacity .22s ease, filter .3s',
+                        ..._rotStyle,
                       }}
                       alt=""
                     />
@@ -1974,6 +2038,7 @@
                         filter: blurred ? 'blur(14px)' : 'none',
                         opacity: imgReady ? 1 : 0,
                         transition: 'opacity .22s ease, filter .3s',
+                        ..._rotStyle,
                       }}
                       alt={`Page ${page}`}
                     />
@@ -2071,6 +2136,22 @@
                       />
                     ))}
                 </div>
+                );
+                if (!isTwoPage) return _pageEl;
+                // Two-page view: show right page alongside
+                const _pg2Style = { ..._pgStyle, flexShrink: 0 };
+                return (
+                  <div style={{ display: 'flex', flexDirection: 'row', gap: 8, alignItems: 'flex-start', justifyContent: 'center', width: '100%' }}>
+                    {_pageEl}
+                    {page + 1 <= PAGE_COUNT && (
+                      <div style={{ position: 'relative', ..._pg2Style, aspectRatio: rotated90 ? (pageAspectRatio ? pageAspectRatio.split('/').reverse().join('/') : '11/8.5') : (pageAspectRatio || '8.5/11'), borderRadius: 2, overflow: 'hidden', boxShadow: '0 2px 8px rgba(0,0,0,0.5), 0 8px 48px rgba(0,0,0,0.8)' }} onContextMenu={e => e.preventDefault()}>
+                        {imgSrc2 && <img src={imgSrc2} draggable={false} style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block', userSelect: 'none', WebkitUserSelect: 'none', ..._rotStyle }} alt={`Page ${page + 1}`} />}
+                        {imgLoading2 && <div style={{ position: 'absolute', bottom: 8, right: 8, zIndex: 2, background: 'rgba(6,8,9,0.72)', borderRadius: 20, padding: '4px 10px' }}><span style={{ display: 'inline-block', width: 12, height: 12, border: `1.5px solid ${C.border}`, borderTop: `1.5px solid ${C.teal2}`, borderRadius: '50%', animation: 'spin .65s linear infinite' }} /></div>}
+                        {page2Error && <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: C.surface, flexDirection: 'column', gap: 8 }}><span style={{ fontSize: 18, color: 'rgba(224,154,69,0.7)' }}>⚠</span><span style={{ ...mono, fontSize: 10, color: C.textMuted }}>{page2Error}</span></div>}
+                        <div style={{ position: 'absolute', bottom: 4, left: 0, right: 0, textAlign: 'center', pointerEvents: 'none' }}><span style={{ ...mono, fontSize: 9, color: 'rgba(100,112,128,0.5)' }}>p.{page + 1}</span></div>
+                      </div>
+                    )}
+                  </div>
                 );
               })()}
 
@@ -2193,6 +2274,7 @@
       showToc, setShowToc, showSearch, setShowSearch, showInfo, setShowInfo,
       showPageList, setShowPageList,
       canDownload, canPrint, onDownload, onPrint,
+      rotation, onRotate, isTwoPage, onToggleTwoPage,
       C, mono,
     }) {
       const btn = {
@@ -2238,7 +2320,7 @@
               <rect x="0" y="8" width="3" height="2" rx="0.5" fill="currentColor" opacity=".7"/>
               <rect x="5" y="8" width="5" height="2" rx="0.5" fill="currentColor"/>
             </svg>
-            TOC
+            <span className="toolbar-btn-label">TOC</span>
           </button>
 
           {!isTextDoc && (
@@ -2250,7 +2332,7 @@
                 <rect x="3" y="5.5" width="5" height="1" rx="0.4" fill="currentColor"/>
                 <rect x="3" y="8" width="3" height="1" rx="0.4" fill="currentColor"/>
               </svg>
-              Pages
+              <span className="toolbar-btn-label">Pages</span>
             </button>
           )}
 
@@ -2260,7 +2342,7 @@
               <circle cx="5" cy="5" r="3.5" stroke="currentColor" strokeWidth="1.3" fill="none"/>
               <line x1="7.8" y1="7.8" x2="11" y2="11" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
             </svg>
-            Search
+            <span className="toolbar-btn-label">Search</span>
           </button>
 
           {sep}
@@ -2315,7 +2397,7 @@
 
           {!isTextDoc && (<>
             {sep}
-            {/* ── Fit-Width / Fit-Height buttons ── */}
+            {/* ── Fit-Width / Fit-Height / Two-page buttons ── */}
             <button onClick={() => _setLayout(LAYOUT.FIT_WIDTH)} title="Fit to width"
               style={{ ...btn, ...(layoutMode === LAYOUT.FIT_WIDTH ? on : {}), padding: '3px 7px', fontSize: 10, fontWeight: 600 }}>
               W
@@ -2323,6 +2405,24 @@
             <button onClick={() => _setLayout(LAYOUT.FIT_HEIGHT)} title="Fit to height"
               style={{ ...btn, ...(layoutMode === LAYOUT.FIT_HEIGHT ? on : {}), padding: '3px 7px', fontSize: 10, fontWeight: 600 }}>
               H
+            </button>
+            {/* ── Two-page view toggle ── */}
+            <button onClick={onToggleTwoPage} title="Two-page view"
+              style={{ ...btn, ...(isTwoPage ? on : {}), padding: '3px 7px' }}>
+              <svg width="15" height="12" viewBox="0 0 15 12" fill="none" style={{ flexShrink: 0 }}>
+                <rect x="0.5" y="0.5" width="6" height="11" rx="1" stroke="currentColor" strokeWidth="1.2" fill="none"/>
+                <rect x="8.5" y="0.5" width="6" height="11" rx="1" stroke="currentColor" strokeWidth="1.2" fill="none"/>
+              </svg>
+              <span className="toolbar-btn-label">2 Pages</span>
+            </button>
+            {/* ── Rotate ── */}
+            <button onClick={onRotate} title={`Rotate 90° (current: ${rotation}°)`}
+              style={{ ...btn, ...(rotation !== 0 ? on : {}), padding: '3px 7px' }}>
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" style={{ flexShrink: 0 }}>
+                <path d="M9.5 2.5A5 5 0 1 0 11 6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" fill="none"/>
+                <path d="M11 2.5h-2v2" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+              <span className="toolbar-btn-label">{rotation !== 0 ? `${rotation}°` : 'Rotate'}</span>
             </button>
             {sep}
             {/* ── Zoom pill: − [level] + ── */}
@@ -2365,7 +2465,7 @@
                 <line x1="3.5" y1="5.5" x2="7.5" y2="5.5" stroke="currentColor" strokeWidth="1" strokeLinecap="round" opacity=".6"/>
                 <line x1="5.5" y1="3.5" x2="5.5" y2="7.5" stroke="currentColor" strokeWidth="1" strokeLinecap="round" opacity=".6"/>
               </svg>
-              Magnify
+              <span className="toolbar-btn-label">Magnify</span>
             </button>
             {sep}
             {/* ── Laser pointer toggle ── */}
@@ -2376,7 +2476,7 @@
                 <circle cx="6" cy="6" r="3" fill={showLaser ? '#ff4444' : 'currentColor'} opacity={showLaser ? 1 : 0.7}/>
                 <circle cx="6" cy="6" r="5" stroke={showLaser ? '#ff4444' : 'currentColor'} strokeWidth="1" fill="none" opacity="0.4"/>
               </svg>
-              Laser
+              <span className="toolbar-btn-label">Laser</span>
             </button>
           </>)}
 
@@ -2390,7 +2490,7 @@
                 <svg width="12" height="12" viewBox="0 0 12 12" fill="none" style={{ flexShrink: 0 }}>
                   <path d="M4.5 7.5l3-3M7 3.5l1.5-1.5a2.12 2.12 0 013 3L10 6.5M5 8.5l-1.5 1.5a2.12 2.12 0 01-3-3L2 5.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
                 </svg>
-                Links
+                <span className="toolbar-btn-label">Links</span>
                 {linksCount > 0 && (
                   <span style={{
                     position: 'absolute', top: 1, right: 1,
@@ -2412,7 +2512,7 @@
                   <rect x="5" y="4" width="2" height="7" rx="0.5" fill="currentColor" opacity=".9"/>
                   <rect x="9" y="1" width="2" height="10" rx="0.5" fill="currentColor" opacity=".9"/>
                 </svg>
-                Insights
+                <span className="toolbar-btn-label">Insights</span>
               </button>
               {sep}
             </>
@@ -2431,7 +2531,7 @@
               <path d="M5.5 1v7M2.5 5.5l3 3 3-3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
               <path d="M1 10h9" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
             </svg>
-            Download
+            <span className="toolbar-btn-label">Download</span>
           </button>
           <button onClick={onPrint} disabled={!canPrint} title="Print"
             style={{ ...btn, opacity: canPrint ? 1 : 0.28 }}>
@@ -2441,7 +2541,7 @@
               <rect x="3.5" y="6" width="5" height="1" rx="0.4" fill="currentColor" opacity=".7"/>
               <rect x="3.5" y="7.8" width="3" height="1" rx="0.4" fill="currentColor" opacity=".7"/>
             </svg>
-            Print
+            <span className="toolbar-btn-label">Print</span>
           </button>
           {sep}
           <button onClick={() => setShowInfo(v => !v)} title="Document info"
@@ -2450,7 +2550,7 @@
               <circle cx="5.5" cy="3" r="1.2" fill="currentColor"/>
               <rect x="4.5" y="6" width="2" height="5" rx="0.8" fill="currentColor"/>
             </svg>
-            Info
+            <span className="toolbar-btn-label">Info</span>
           </button>
         </div>
       );
