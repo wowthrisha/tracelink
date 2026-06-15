@@ -1425,6 +1425,8 @@
       const docId = doc?.id || '';
       const PAGE_COUNT = session?.page_count || 1;
       const isTextDoc = !!(session?.doc_type && ['txt', 'md', 'log'].includes(session.doc_type));
+      const isTwoPage = layoutMode === LAYOUT.TWO_PAGE;
+      const pageStep = isTwoPage ? 2 : 1;
 
       const doValidate = async (token, email, password) => {
         setInit(true);
@@ -1607,8 +1609,6 @@
         }
       }, [session?.link_token, session?.session_id, page, session?.doc_status, session?.doc_type, loadTextChunk]);
 
-      const isTwoPage = layoutMode === LAYOUT.TWO_PAGE;
-      const pageStep = isTwoPage ? 2 : 1;
       const goNext = useCallback(() => setPage(p => Math.min(p + pageStep, PAGE_COUNT)), [PAGE_COUNT, pageStep]);
       const goPrev = useCallback(() => setPage(p => Math.max(p - pageStep, 1)), [pageStep]);
 
