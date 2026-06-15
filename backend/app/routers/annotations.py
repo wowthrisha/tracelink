@@ -29,7 +29,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth import get_current_user
 from app.database import get_db
 from app.middleware.rate_limit import limiter
-from app.models.annotation import ViewerAnnotation, ViewerBookmark, VALID_ANNOTATION_TYPES
+from app.models.annotation import ViewerAnnotation, ViewerBookmark, VALID_ANNOTATION_TYPES, FEEDBACK_TYPES, ANNOTATION_TYPES
 from app.models.document import Document
 from app.models.link import ShareLink
 from app.services.policy import enforcer as policy_enforcer
@@ -263,6 +263,15 @@ async def create_annotation(
     db: AsyncSession = Depends(get_db),
 ):
     link_row, session_id = await _resolve_link_and_verify_session(token, request, db)
+
+    # Guard: visual annotations cannot have replies
+    if body.parent_id:
+        parent_annot = await db.get(ViewerAnnotation, body.parent_id)
+        if parent_annot is not None and parent_annot.annotation_type in ANNOTATION_TYPES:
+            raise HTTPException(
+                status_code=422,
+                detail="Visual annotations (highlight/draw/rectangle/arrow) cannot have replies",
+            )
 
     # Validate page number against document page count
     from app.models.document import Document
@@ -576,3 +585,259 @@ async def export_annotations(
         media_type="text/csv",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+# ── Viewer: get annotation thread ─────────────────────────────────────────────
+
+@router.get("/api/viewer/annotations/{token}/{annotation_id}/thread")
+@limiter.limit("60/minute")
+async def get_annotation_thread(
+    request: Request,
+    token: str,
+    annotation_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """Return an annotation and all its depth-1 replies.
+    Viewer auth only — requires active session (can_annotate not required)."""
+    link_row, session_id = await _resolve_link_and_verify_session(token, request, db, require_annotate=False)
+
+    root = await db.get(ViewerAnnotation, annotation_id)
+    if root is None or str(root.link_id) != str(link_row.id):
+        raise HTTPException(status_code=404, detail="Annotation not found")
+    if root.annotation_type not in FEEDBACK_TYPES:
+        raise HTTPException(status_code=422, detail="Thread is only available on feedback annotations (comment, sticky_note)")
+
+    replies = (await db.execute(
+        select(ViewerAnnotation)
+        .where(ViewerAnnotation.parent_id == str(root.id))
+        .order_by(ViewerAnnotation.created_at)
+    )).scalars().all()
+
+    return {
+        "root": _serialize_annotation(root),
+        "replies": [_serialize_annotation(r) for r in replies],
+        "own_session_prefix": session_id[:6],
+    }
+
+
+# ── Uploader: list feedback (comment + sticky_note) ───────────────────────────
+
+@router.get("/api/documents/{doc_id}/feedback")
+@limiter.limit("30/minute")
+async def list_document_feedback(
+    request: Request,
+    doc_id: str,
+    resolved: Optional[bool] = None,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """List only FEEDBACK_TYPES (comment, sticky_note) with nested replies.
+    Only the document owner can access this endpoint."""
+    doc = (await db.execute(select(Document).where(Document.id == doc_id))).scalar_one_or_none()
+    if doc is None:
+        raise HTTPException(status_code=404, detail="Document not found")
+    if str(doc.user_id) != str(current_user["user_id"]):
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    q = (
+        select(ViewerAnnotation, ShareLink.label.label("link_label"))
+        .join(ShareLink, ShareLink.id == ViewerAnnotation.link_id)
+        .where(
+            ShareLink.document_id == doc.id,
+            ViewerAnnotation.annotation_type.in_(list(FEEDBACK_TYPES)),
+        )
+    )
+    if resolved is True:
+        q = q.where(ViewerAnnotation.resolved_at.isnot(None))
+    elif resolved is False:
+        q = q.where(ViewerAnnotation.resolved_at.is_(None))
+
+    rows = (await db.execute(q.order_by(ViewerAnnotation.created_at))).all()
+
+    # Build top-level items with pre-fetched reply counts
+    tops = [row for row in rows if row[0].parent_id is None]
+    reply_rows = [row for row in rows if row[0].parent_id is not None]
+
+    # Count replies per parent
+    reply_counts: dict = {}
+    replies_by_parent: dict = {}
+    for row in reply_rows:
+        a = row[0]
+        pid = str(a.parent_id)
+        reply_counts[pid] = reply_counts.get(pid, 0) + 1
+        replies_by_parent.setdefault(pid, []).append(_serialize_annotation(a))
+
+    feedback = []
+    for row in tops:
+        a = row[0]
+        d = _serialize_annotation(a)
+        d["link_label"] = row.link_label or ""
+        d["reply_count"] = reply_counts.get(str(a.id), 0)
+        d["replies"] = replies_by_parent.get(str(a.id), [])
+        feedback.append(d)
+
+    return {"feedback": feedback, "total": len(feedback)}
+
+
+# ── Uploader: feedback CSV export ─────────────────────────────────────────────
+
+@router.get("/api/documents/{doc_id}/feedback/export")
+@limiter.limit("10/minute")
+async def export_feedback(
+    request: Request,
+    doc_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """Export feedback (comment/sticky_note) as CSV. Document owner only."""
+    doc = (await db.execute(select(Document).where(Document.id == doc_id))).scalar_one_or_none()
+    if doc is None:
+        raise HTTPException(status_code=404, detail="Document not found")
+    if str(doc.user_id) != str(current_user["user_id"]):
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    rows = (await db.execute(
+        select(
+            ViewerAnnotation.id,
+            ViewerAnnotation.viewer_email_masked,
+            ViewerAnnotation.page_number,
+            ViewerAnnotation.annotation_type,
+            ViewerAnnotation.comment_text,
+            ViewerAnnotation.resolved_at,
+            ViewerAnnotation.parent_id,
+            ViewerAnnotation.created_at,
+            ShareLink.label.label("link_label"),
+        )
+        .join(ShareLink, ShareLink.id == ViewerAnnotation.link_id)
+        .where(
+            ShareLink.document_id == doc.id,
+            ViewerAnnotation.annotation_type.in_(list(FEEDBACK_TYPES)),
+        )
+        .order_by(ViewerAnnotation.created_at)
+    )).all()
+
+    # Count replies per parent
+    reply_counts: dict = {}
+    for r in rows:
+        if r.parent_id:
+            pid = str(r.parent_id)
+            reply_counts[pid] = reply_counts.get(pid, 0) + 1
+
+    def _gen():
+        buf = io.StringIO()
+        writer = csv.writer(buf)
+        writer.writerow(["viewer_email", "page", "message", "reply_count", "status", "created_at"])
+        for r in rows:
+            if r.parent_id:
+                continue  # skip replies in top-level export
+            writer.writerow([
+                r.viewer_email_masked or "anonymous",
+                r.page_number,
+                r.comment_text or "",
+                reply_counts.get(str(r.id), 0),
+                "resolved" if r.resolved_at else "open",
+                r.created_at.isoformat() if r.created_at else "",
+            ])
+        yield buf.getvalue()
+
+    filename = f"feedback_{doc_id[:8]}.csv"
+    return StreamingResponse(_gen(), media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+
+
+# ── Uploader: list visual annotations only ────────────────────────────────────
+
+@router.get("/api/documents/{doc_id}/annotations-visual")
+@limiter.limit("30/minute")
+async def list_visual_annotations(
+    request: Request,
+    doc_id: str,
+    annotation_type: Optional[str] = None,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """List only ANNOTATION_TYPES (highlight/draw/rectangle/arrow). Document owner only."""
+    doc = (await db.execute(select(Document).where(Document.id == doc_id))).scalar_one_or_none()
+    if doc is None:
+        raise HTTPException(status_code=404, detail="Document not found")
+    if str(doc.user_id) != str(current_user["user_id"]):
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    valid_filter = set(ANNOTATION_TYPES)
+    if annotation_type:
+        if annotation_type not in valid_filter:
+            raise HTTPException(status_code=422, detail=f"annotation_type must be one of {sorted(valid_filter)}")
+        valid_filter = {annotation_type}
+
+    q = (
+        select(ViewerAnnotation, ShareLink.label.label("link_label"))
+        .join(ShareLink, ShareLink.id == ViewerAnnotation.link_id)
+        .where(
+            ShareLink.document_id == doc.id,
+            ViewerAnnotation.annotation_type.in_(list(valid_filter)),
+        )
+        .order_by(ViewerAnnotation.created_at)
+    )
+
+    rows = (await db.execute(q)).all()
+    annotations = []
+    for row in rows:
+        a = row[0]
+        d = _serialize_annotation(a)
+        d["link_label"] = row.link_label or ""
+        annotations.append(d)
+
+    return {"annotations": annotations, "total": len(annotations)}
+
+
+# ── Uploader: visual annotations CSV export ───────────────────────────────────
+
+@router.get("/api/documents/{doc_id}/annotations-visual/export")
+@limiter.limit("10/minute")
+async def export_visual_annotations(
+    request: Request,
+    doc_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """Export visual annotations (highlight/draw/rectangle/arrow) as CSV. Document owner only."""
+    doc = (await db.execute(select(Document).where(Document.id == doc_id))).scalar_one_or_none()
+    if doc is None:
+        raise HTTPException(status_code=404, detail="Document not found")
+    if str(doc.user_id) != str(current_user["user_id"]):
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    rows = (await db.execute(
+        select(
+            ViewerAnnotation.viewer_email_masked,
+            ViewerAnnotation.page_number,
+            ViewerAnnotation.annotation_type,
+            ViewerAnnotation.color,
+            ViewerAnnotation.created_at,
+            ShareLink.label.label("link_label"),
+        )
+        .join(ShareLink, ShareLink.id == ViewerAnnotation.link_id)
+        .where(
+            ShareLink.document_id == doc.id,
+            ViewerAnnotation.annotation_type.in_(list(ANNOTATION_TYPES)),
+        )
+        .order_by(ViewerAnnotation.created_at)
+    )).all()
+
+    def _gen():
+        buf = io.StringIO()
+        writer = csv.writer(buf)
+        writer.writerow(["viewer_email", "page", "annotation_type", "color", "created_at"])
+        for r in rows:
+            writer.writerow([
+                r.viewer_email_masked or "anonymous",
+                r.page_number,
+                r.annotation_type,
+                r.color or "",
+                r.created_at.isoformat() if r.created_at else "",
+            ])
+        yield buf.getvalue()
+
+    filename = f"annotations_{doc_id[:8]}.csv"
+    return StreamingResponse(_gen(), media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'})

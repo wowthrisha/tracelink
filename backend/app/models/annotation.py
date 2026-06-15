@@ -9,6 +9,9 @@ from app.database import Base
 
 VALID_ANNOTATION_TYPES = frozenset({"highlight", "comment", "bookmark", "rectangle", "arrow", "sticky_note", "draw"})
 
+FEEDBACK_TYPES = frozenset({"comment", "sticky_note"})
+ANNOTATION_TYPES = frozenset({"highlight", "draw", "rectangle", "arrow"})
+
 
 class ViewerAnnotation(Base):
     """Overlay annotation created by a viewer on a specific page of a shared document.

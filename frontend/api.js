@@ -671,4 +671,70 @@ window.SecureDocAPI = {
     if (!r.ok) throw await r.json().catch(() => ({ detail: 'Failed to post reply' }));
     return r.json();
   },
+
+  async getFeedback(docId, resolved = null) {
+    const params = new URLSearchParams();
+    if (resolved !== null) params.set('resolved', String(resolved));
+    const r = await fetch(`${API_BASE}/api/documents/${docId}/feedback?${params}`, {
+      headers: { ...authHeaders() },
+    });
+    if (r.status === 401) { _clearAndReload(); return; }
+    if (!r.ok) throw await r.json().catch(() => ({ detail: 'Failed to load feedback' }));
+    return r.json();
+  },
+
+  async exportFeedback(docId) {
+    const r = await fetch(`${API_BASE}/api/documents/${docId}/feedback/export`, {
+      headers: { ...authHeaders() },
+    });
+    if (r.status === 401) { _clearAndReload(); return; }
+    if (!r.ok) throw await r.json().catch(() => ({ detail: 'Export failed' }));
+    const blob = await r.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `feedback_${docId.slice(0, 8)}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  },
+
+  async getVisualAnnotations(docId, annotationType = null) {
+    const params = new URLSearchParams();
+    if (annotationType) params.set('annotation_type', annotationType);
+    const r = await fetch(`${API_BASE}/api/documents/${docId}/annotations-visual?${params}`, {
+      headers: { ...authHeaders() },
+    });
+    if (r.status === 401) { _clearAndReload(); return; }
+    if (!r.ok) throw await r.json().catch(() => ({ detail: 'Failed to load annotations' }));
+    return r.json();
+  },
+
+  async exportVisualAnnotations(docId) {
+    const r = await fetch(`${API_BASE}/api/documents/${docId}/annotations-visual/export`, {
+      headers: { ...authHeaders() },
+    });
+    if (r.status === 401) { _clearAndReload(); return; }
+    if (!r.ok) throw await r.json().catch(() => ({ detail: 'Export failed' }));
+    const blob = await r.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `annotations_${docId.slice(0, 8)}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  },
+
+  async getAnnotationThread(linkToken, annotationId, sessionId) {
+    const base = API_BASE.replace(/\/$/, '');
+    const r = await fetch(
+      `${base}/api/viewer/annotations/${encodeURIComponent(linkToken)}/${annotationId}/thread`,
+      { headers: this.sessionHeaders(sessionId) }
+    );
+    if (!r.ok) throw await r.json().catch(() => ({ detail: 'Failed to load thread' }));
+    return r.json();
+  },
 };
