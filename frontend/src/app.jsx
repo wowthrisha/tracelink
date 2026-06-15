@@ -1915,7 +1915,7 @@
             {/* Main canvas */}
             <div style={{
               flex: 1, overflow: 'auto', background: '#060809',
-              display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '16px 0', gap: 10,
+              display: 'flex', flexDirection: 'column', alignItems: 'safe center', padding: '16px 0', gap: 10,
               position: 'relative'
             }}
               onTouchStart={e => { touchRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY }; }}
@@ -1959,7 +1959,12 @@
                     return { width: '100%', maxWidth: '100%', height: undefined };
                   }
                   if (layoutMode === LAYOUT.FIT_HEIGHT) {
-                    return { width: 'auto', maxWidth: '100%', height: 'calc(100vh - 74px)' };
+                    // In 2-page mode don't clamp maxWidth — pages must size to their height
+                    // freely so both pages fill viewport height side-by-side. Canvas overflow:auto
+                    // handles horizontal scrolling when the spread is wider than the viewport.
+                    return isTwoPage
+                      ? { width: 'auto', height: 'calc(100vh - 74px)' }
+                      : { width: 'auto', maxWidth: '100%', height: 'calc(100vh - 74px)' };
                   }
                   // CUSTOM zoom: 100% = 590px (fits a letter-size PDF at typical DPI)
                   return { width: `${customZoom * 5.9}px`, maxWidth: '100%', height: undefined };
@@ -2145,8 +2150,14 @@
                 const _slotStyle = layoutMode === LAYOUT.FIT_WIDTH
                   ? { flex: 1, minWidth: 0, display: 'flex', alignItems: 'flex-start', justifyContent: 'center' }
                   : { flexShrink: 0, display: 'flex', alignItems: 'flex-start', justifyContent: 'center' };
+                // FIT_WIDTH needs width:100% so flex-1 slots split the canvas evenly.
+                // FIT_HEIGHT/CUSTOM: no explicit width — each page sizes to its natural height,
+                // canvas 'safe center' aligns left when spread overflows (enabling horizontal scroll).
+                const _wrapStyle = layoutMode === LAYOUT.FIT_WIDTH
+                  ? { display: 'flex', flexDirection: 'row', gap: 2, alignItems: 'flex-start', justifyContent: 'center', width: '100%' }
+                  : { display: 'flex', flexDirection: 'row', gap: 2, alignItems: 'flex-start' };
                 return (
-                  <div style={{ display: 'flex', flexDirection: 'row', gap: 8, alignItems: 'flex-start', justifyContent: 'center', width: '100%' }}>
+                  <div style={_wrapStyle}>
                     <div style={_slotStyle}>{_pageEl}</div>
                     {page + 1 <= PAGE_COUNT && (
                       <div style={_slotStyle}>
