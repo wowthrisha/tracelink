@@ -221,10 +221,17 @@ class LinkService:
         # Create or refresh the session row
         ip_hash = hash_value(ip) if ip else None
         email_masked = mask_email(viewer_email) if viewer_email else None
+        profile_id = None
+        if viewer_email:
+            from app.services.viewer_profile import get_or_create_viewer_profile
+            profile = await get_or_create_viewer_profile(db, viewer_email)
+            profile_id = str(profile.id) if profile else None
         await enforcer.upsert_session(
             db, session_id, link.id,
             ip_hash=ip_hash,
             viewer_email_masked=email_masked,
+            viewer_email=viewer_email.strip().lower() if viewer_email else None,
+            viewer_profile_id=profile_id,
         )
 
         # Atomic check-and-increment view_count.

@@ -187,6 +187,8 @@ class PolicyEnforcer:
         link_id,
         ip_hash: Optional[str] = None,
         viewer_email_masked: Optional[str] = None,
+        viewer_email: Optional[str] = None,
+        viewer_profile_id: Optional[str] = None,
     ) -> Optional[str]:
         """Create or refresh a viewer session record.
 
@@ -259,6 +261,8 @@ class PolicyEnforcer:
                     link_id=link_id,
                     ip_hash=ip_hash,
                     viewer_email_masked=viewer_email_masked,
+                    viewer_email=viewer_email,
+                    viewer_profile_id=viewer_profile_id,
                     created_at=now,
                     last_seen_at=now,
                 )

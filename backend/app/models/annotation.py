@@ -30,6 +30,7 @@ class ViewerAnnotation(Base):
     __table_args__ = (
         Index("ix_viewer_annotations_link_page", "link_id", "page_number"),
         Index("ix_viewer_annotations_session", "session_id"),
+        Index("ix_viewer_annotations_profile", "viewer_profile_id"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
@@ -38,6 +39,15 @@ class ViewerAnnotation(Base):
     )
     session_id: Mapped[str] = mapped_column(String(64), nullable=False)
     viewer_email_masked: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    # Plaintext email + resolved global profile, copied from the session at
+    # creation time. Never exposed outside document-owner-authenticated
+    # endpoints — see _serialize_annotation in routers/annotations.py.
+    viewer_email: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    viewer_profile_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        PGUUID(as_uuid=False),
+        ForeignKey("viewer_profiles.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     page_number: Mapped[int] = mapped_column(Integer, nullable=False)
     annotation_type: Mapped[str] = mapped_column(String(32), nullable=False)
     coords: Mapped[str] = mapped_column(Text, nullable=False)

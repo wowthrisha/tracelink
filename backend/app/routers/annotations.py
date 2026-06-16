@@ -279,15 +279,19 @@ async def create_annotation(
     if doc and doc.page_count and not (1 <= body.page_number <= doc.page_count):
         raise HTTPException(status_code=422, detail=f"page_number must be 1–{doc.page_count}")
 
-    # Resolve masked email from the active session row
+    # Resolve viewer identity from the active session row
     from app.models.session import ViewerSession
     sess_row = await db.get(ViewerSession, session_id)
     masked_email = sess_row.viewer_email_masked if sess_row else None
+    plain_email = sess_row.viewer_email if sess_row else None
+    profile_id = sess_row.viewer_profile_id if sess_row else None
 
     annot = ViewerAnnotation(
         link_id=str(link_row.id),
         session_id=session_id,
         viewer_email_masked=masked_email,
+        viewer_email=plain_email,
+        viewer_profile_id=profile_id,
         page_number=body.page_number,
         annotation_type=body.annotation_type,
         coords=json.dumps(body.coords),
