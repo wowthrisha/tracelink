@@ -318,7 +318,10 @@ class TestCsvColumns:
 
     @pytest.mark.asyncio
     async def test_feedback_csv_columns(self):
-        """Feedback CSV must have: Reviewer Name, Reviewer Email, Document, Page, Comment, Replies, Status, Created At"""
+        """Feedback thread export must flatten every message and have:
+        Document Name, Document ID, Root Comment ID, Thread ID, Parent Message ID,
+        Page Number, Viewer Name, Viewer Email, Author Role, Message Text,
+        Created At, Status, Reply Count"""
         import uuid
         from app.routers.annotations import export_feedback
 
@@ -328,7 +331,7 @@ class TestCsvColumns:
 
         exec_result = MagicMock()
         exec_result.scalar_one_or_none.return_value = doc_mock
-        exec_result.all.return_value = []
+        exec_result.scalars.return_value.all.return_value = []
 
         db = AsyncMock()
         db.execute = AsyncMock(return_value=exec_result)
@@ -345,8 +348,9 @@ class TestCsvColumns:
         header_line = content.decode().splitlines()[0]
         cols = [c.strip() for c in header_line.split(",")]
         assert cols == [
-            "Reviewer Name", "Reviewer Email", "Document", "Page",
-            "Comment", "Replies", "Status", "Created At",
+            "Document Name", "Document ID", "Root Comment ID", "Thread ID", "Parent Message ID",
+            "Page Number", "Viewer Name", "Viewer Email", "Author Role", "Message Text",
+            "Created At", "Status", "Reply Count",
         ]
 
     @pytest.mark.asyncio

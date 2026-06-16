@@ -4021,7 +4021,11 @@
       const [feedbackItems, setFeedbackItems] = useState([]);
       const [feedbackLoading, setFeedbackLoading] = useState(false);
       const [feedbackFilter, setFeedbackFilter] = useState('all'); // 'all'|'open'|'resolved'
-      const [feedbackViewerFilter, setFeedbackViewerFilter] = useState('');
+      const [feedbackViewerFilter, setFeedbackViewerFilter] = useState(''); // free-text search: root + replies
+      const [feedbackDateFrom, setFeedbackDateFrom] = useState('');
+      const [feedbackDateTo, setFeedbackDateTo] = useState('');
+      const [feedbackPage, setFeedbackPage] = useState('');
+      const [feedbackRoleFilter, setFeedbackRoleFilter] = useState('all'); // 'all'|'viewer'|'uploader'
       const [replyDraft, setReplyDraft] = useState(null);
       const [replyText, setReplyText] = useState('');
       // Annotations tab state (highlight + draw + rectangle + arrow)
@@ -4065,11 +4069,19 @@
         if (!docId) return;
         setFeedbackLoading(true);
         try {
-          const data = await window.SecureDocAPI.getFeedback(docId);
+          const filters = {
+            resolved: feedbackFilter === 'open' ? false : feedbackFilter === 'resolved' ? true : null,
+            search: feedbackViewerFilter || null,
+            date_from: feedbackDateFrom || null,
+            date_to: feedbackDateTo || null,
+            page_number: feedbackPage ? parseInt(feedbackPage, 10) : null,
+            author_role: feedbackRoleFilter === 'all' ? null : feedbackRoleFilter,
+          };
+          const data = await window.SecureDocAPI.getFeedback(docId, filters);
           setFeedbackItems(Array.isArray(data) ? data : (data?.feedback || []));
         } catch (e) { toast(_errMsg(e, 'Failed to load feedback'), 'error'); }
         finally { setFeedbackLoading(false); }
-      }, [docId]);
+      }, [docId, feedbackFilter, feedbackViewerFilter, feedbackDateFrom, feedbackDateTo, feedbackPage, feedbackRoleFilter]);
 
       const fetchVisualAnnotations = useCallback(async () => {
         if (!docId) return;
@@ -4082,7 +4094,13 @@
       }, [docId]);
 
       useEffect(() => { fetchLinks(); }, [fetchLinks]);
-      useEffect(() => { if (tab === 'feedback' && feedbackItems.length === 0 && !feedbackLoading) fetchFeedback(); }, [tab]);
+      // Re-run server-side filtering whenever a filter changes (debounced for the free-text search box).
+      // Also covers the initial fetch on first switch to the Feedback tab.
+      useEffect(() => {
+        if (tab !== 'feedback') return;
+        const t = setTimeout(() => fetchFeedback(), 350);
+        return () => clearTimeout(t);
+      }, [tab, feedbackFilter, feedbackViewerFilter, feedbackDateFrom, feedbackDateTo, feedbackPage, feedbackRoleFilter]);
       useEffect(() => { if (tab === 'annotations' && visualAnnotations.length === 0 && !visualLoading) fetchVisualAnnotations(); }, [tab]);
 
       const activeLinks = links.filter(l => !l.revoked_at && (!l.expires_at || new Date(l.expires_at) > new Date()));
@@ -4379,14 +4397,61 @@
                     <option value="open">Open only</option>
                     <option value="resolved">Resolved only</option>
                   </select>
+                  <select value={feedbackRoleFilter} onChange={e => setFeedbackRoleFilter(e.target.value)}
+                    title="Match if ANY message in the thread (root or reply) was authored by this role"
+                    style={{ fontSize: 11, background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 6, padding: '4px 8px', color: C.textSecondary }}>
+                    <option value="all">All authors</option>
+                    <option value="viewer">Viewer messages</option>
+                    <option value="uploader">Uploader messages</option>
+                  </select>
                   <input
-                    placeholder="Filter by viewer email…"
+                    type="number" min="1" placeholder="Page #"
+                    value={feedbackPage}
+                    onChange={e => setFeedbackPage(e.target.value)}
+                    style={{ fontSize: 11, background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 6, padding: '4px 8px', color: C.textSecondary, width: 70 }}
+                  />
+                  <input
+                    type="date" value={feedbackDateFrom}
+                    onChange={e => setFeedbackDateFrom(e.target.value)}
+                    title="From date"
+                    style={{ fontSize: 11, background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 6, padding: '4px 8px', color: C.textSecondary }}
+                  />
+                  <input
+                    type="date" value={feedbackDateTo}
+                    onChange={e => setFeedbackDateTo(e.target.value)}
+                    title="To date"
+                    style={{ fontSize: 11, background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 6, padding: '4px 8px', color: C.textSecondary }}
+                  />
+                  <input
+                    placeholder="Search comments & replies…"
                     value={feedbackViewerFilter}
                     onChange={e => setFeedbackViewerFilter(e.target.value)}
-                    style={{ fontSize: 11, background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 6, padding: '4px 8px', color: C.textSecondary, width: 180 }}
+                    title="Searches root comments, uploader replies, and viewer replies"
+                    style={{ fontSize: 11, background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 6, padding: '4px 8px', color: C.textSecondary, width: 200 }}
                   />
                   <Btn variant="ghost" size="sm" onClick={fetchFeedback}>↺ Refresh</Btn>
-                  <Btn variant="ghost" size="sm" onClick={() => window.SecureDocAPI.exportFeedback(docId)}>↓ Export CSV</Btn>
+                  <select
+                    value=""
+                    onChange={e => {
+                      const mode = e.target.value;
+                      const filters = {
+                        resolved: feedbackFilter === 'open' ? false : feedbackFilter === 'resolved' ? true : null,
+                        search: feedbackViewerFilter || null,
+                        date_from: feedbackDateFrom || null,
+                        date_to: feedbackDateTo || null,
+                        page_number: feedbackPage ? parseInt(feedbackPage, 10) : null,
+                        author_role: feedbackRoleFilter === 'all' ? null : feedbackRoleFilter,
+                      };
+                      if (mode === 'threads') window.SecureDocAPI.exportFeedback(docId, filters);
+                      else if (mode === 'reviewer_activity') window.SecureDocAPI.exportReviewerActivity(docId);
+                      e.target.value = '';
+                    }}
+                    style={{ fontSize: 11, background: C.teal1, border: `1px solid ${C.teal1}`, borderRadius: 6, padding: '4px 8px', color: '#fff', fontWeight: 600, cursor: 'pointer' }}
+                  >
+                    <option value="" disabled>↓ Export…</option>
+                    <option value="threads">Export Feedback Threads</option>
+                    <option value="reviewer_activity">Export Reviewer Activity</option>
+                  </select>
                   <span style={{ ...mono, fontSize: 10, color: C.textMuted, marginLeft: 'auto' }}>
                     {feedbackItems.length} thread{feedbackItems.length !== 1 ? 's' : ''}
                   </span>
@@ -4396,15 +4461,7 @@
                   {feedbackLoading ? (
                     <div style={{ padding: 32, textAlign: 'center', color: C.textMuted, fontSize: 13 }}>Loading feedback…</div>
                   ) : (() => {
-                    const shown = feedbackItems.filter(a => {
-                      if (feedbackFilter === 'open') return !a.resolved_at;
-                      if (feedbackFilter === 'resolved') return !!a.resolved_at;
-                      return true;
-                    }).filter(a => {
-                      if (!feedbackViewerFilter) return true;
-                      const viewer = (a.viewer_email || a.display_name || '').toLowerCase();
-                      return viewer.includes(feedbackViewerFilter.toLowerCase());
-                    });
+                    const shown = feedbackItems;
                     if (shown.length === 0) return (
                       <div style={{ padding: 32, textAlign: 'center', color: C.textMuted, fontSize: 13 }}>No feedback yet — viewers need can_annotate permission enabled</div>
                     );

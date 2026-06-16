@@ -672,9 +672,16 @@ window.SecureDocAPI = {
     return r.json();
   },
 
-  async getFeedback(docId, resolved = null) {
+  async getFeedback(docId, filters = null) {
     const params = new URLSearchParams();
-    if (resolved !== null) params.set('resolved', String(resolved));
+    // Back-compat: a bare boolean/null was the old signature (resolved-only).
+    const f = (filters !== null && typeof filters === 'object') ? filters : { resolved: filters };
+    if (f.resolved !== null && f.resolved !== undefined) params.set('resolved', String(f.resolved));
+    if (f.search) params.set('search', f.search);
+    if (f.date_from) params.set('date_from', f.date_from);
+    if (f.date_to) params.set('date_to', f.date_to);
+    if (f.page_number !== null && f.page_number !== undefined && !Number.isNaN(f.page_number)) params.set('page_number', String(f.page_number));
+    if (f.author_role) params.set('author_role', f.author_role);
     const r = await fetch(`${API_BASE}/api/documents/${docId}/feedback?${params}`, {
       headers: { ...authHeaders() },
     });
@@ -694,8 +701,16 @@ window.SecureDocAPI = {
     return r.json();
   },
 
-  async exportFeedback(docId) {
-    const r = await fetch(`${API_BASE}/api/documents/${docId}/feedback/export`, {
+  async exportFeedback(docId, filters = null) {
+    const params = new URLSearchParams();
+    const f = filters || {};
+    if (f.resolved !== null && f.resolved !== undefined) params.set('resolved', String(f.resolved));
+    if (f.search) params.set('search', f.search);
+    if (f.date_from) params.set('date_from', f.date_from);
+    if (f.date_to) params.set('date_to', f.date_to);
+    if (f.page_number !== null && f.page_number !== undefined && !Number.isNaN(f.page_number)) params.set('page_number', String(f.page_number));
+    if (f.author_role) params.set('author_role', f.author_role);
+    const r = await fetch(`${API_BASE}/api/documents/${docId}/feedback/export?${params}`, {
       headers: { ...authHeaders() },
     });
     if (r.status === 401) { _clearAndReload(); return; }
@@ -704,7 +719,24 @@ window.SecureDocAPI = {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `feedback_${docId.slice(0, 8)}.csv`;
+    a.download = `feedback_threads_${docId.slice(0, 8)}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  },
+
+  async exportReviewerActivity(docId) {
+    const r = await fetch(`${API_BASE}/api/documents/${docId}/feedback/export-reviewer-activity`, {
+      headers: { ...authHeaders() },
+    });
+    if (r.status === 401) { _clearAndReload(); return; }
+    if (!r.ok) throw await r.json().catch(() => ({ detail: 'Export failed' }));
+    const blob = await r.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `reviewer_activity_${docId.slice(0, 8)}.csv`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);

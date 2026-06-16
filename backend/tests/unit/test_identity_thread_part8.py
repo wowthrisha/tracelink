@@ -28,6 +28,7 @@ from app.routers.annotations import (
     get_annotation_thread,
     list_document_feedback,
     export_feedback,
+    export_reviewer_activity,
     AnnotationReplyCreate,
 )
 
@@ -416,15 +417,243 @@ class TestCsvExportContents:
         async for chunk in response.body_iterator:
             content += chunk.encode() if isinstance(chunk, str) else chunk
         lines = content.decode().splitlines()
-        assert lines[0] == "Reviewer Name,Reviewer Email,Document,Page,Comment,Replies,Status,Created At"
+        assert lines[0] == (
+            "Document Name,Document ID,Root Comment ID,Thread ID,Parent Message ID,"
+            "Page Number,Viewer Name,Viewer Email,Author Role,Message Text,"
+            "Created At,Status,Reply Count"
+        )
 
         data_rows = [l for l in lines[1:] if l.strip()]
-        assert len(data_rows) == 1  # one row per thread root, replies not flattened
+        assert len(data_rows) == 2  # one row per message: root + the uploader reply
+
+        root_row = next(r for r in data_rows if "Please clarify this clause" in r)
+        assert "jane.smith@example.com" in root_row
+        assert "report.pdf" in root_row
+        assert ",viewer," in root_row
+        assert root_row.endswith(",Open,1")  # status + reply count, shared across the thread
+        assert str(comment.id) in root_row  # root comment id == thread id
+
+        reply_row = next(r for r in data_rows if "uploader reply" in r)
+        assert ",uploader," in reply_row
+        assert str(comment.id) in reply_row  # parent message id points at the root
+        assert reply_row.endswith(",Open,1")
+
+        # no hashed/raw session ids anywhere in the export
+        assert comment.session_id not in root_row
+        assert comment.session_id not in reply_row
+
+
+# ─── Thread filtering (date range / page number / author role / search) ────
+
+async def _csv_lines(response):
+    content = b""
+    async for chunk in response.body_iterator:
+        content += chunk.encode() if isinstance(chunk, str) else chunk
+    return content.decode().splitlines()
+
+
+class TestThreadFiltering:
+
+    @pytest.mark.asyncio
+    async def test_page_number_filter_on_dashboard(self, setup):
+        db, doc, comment = setup["db"], setup["doc"], setup["comment"]
+        current_user = {"user_id": str(setup["owner_id"]), "email": "owner@acme.com"}
+        other = ViewerAnnotation(
+            link_id=comment.link_id, session_id=setup["session_id"],
+            viewer_email_masked=comment.viewer_email_masked, viewer_email=comment.viewer_email,
+            viewer_profile_id=comment.viewer_profile_id, page_number=5, annotation_type="comment",
+            coords="{}", comment_text="On page five", created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
+        )
+        db.add(other)
+        await db.commit()
+
+        result = await list_document_feedback(
+            request=_make_starlette_request(), doc_id=doc.id, page_number=2,
+            db=db, current_user=current_user,
+        )
+        ids = {f["id"] for f in result["feedback"]}
+        assert str(comment.id) in ids
+        assert str(other.id) not in ids
+
+        result5 = await list_document_feedback(
+            request=_make_starlette_request(), doc_id=doc.id, page_number=5,
+            db=db, current_user=current_user,
+        )
+        ids5 = {f["id"] for f in result5["feedback"]}
+        assert str(other.id) in ids5
+        assert str(comment.id) not in ids5
+
+    @pytest.mark.asyncio
+    async def test_date_range_filter_on_dashboard(self, setup):
+        db, doc, comment = setup["db"], setup["doc"], setup["comment"]
+        current_user = {"user_id": str(setup["owner_id"]), "email": "owner@acme.com"}
+        far_future = (datetime.now(timezone.utc) + timedelta(days=365)).date().isoformat()
+
+        future_only = await list_document_feedback(
+            request=_make_starlette_request(), doc_id=doc.id, date_from=far_future,
+            db=db, current_user=current_user,
+        )
+        assert all(f["id"] != str(comment.id) for f in future_only["feedback"])
+
+        far_past = (datetime.now(timezone.utc) - timedelta(days=365)).date().isoformat()
+        past_to_now = await list_document_feedback(
+            request=_make_starlette_request(), doc_id=doc.id, date_from=far_past,
+            db=db, current_user=current_user,
+        )
+        assert any(f["id"] == str(comment.id) for f in past_to_now["feedback"])
+
+    @pytest.mark.asyncio
+    async def test_author_role_filter_matches_any_message_in_thread(self, setup):
+        """A thread with a viewer root + uploader reply must surface for BOTH
+        author_role=viewer and author_role=uploader — filtering looks at every
+        message in the thread, not only the root."""
+        db, doc, comment = setup["db"], setup["doc"], setup["comment"]
+        current_user = {"user_id": str(setup["owner_id"]), "email": "owner@acme.com"}
+        await reply_to_feedback(
+            request=_make_starlette_request(), doc_id=doc.id, annotation_id=comment.id,
+            body=AnnotationReplyCreate(comment_text="uploader side"), db=db, current_user=current_user,
+        )
+
+        as_viewer = await list_document_feedback(
+            request=_make_starlette_request(), doc_id=doc.id, author_role="viewer",
+            db=db, current_user=current_user,
+        )
+        assert any(f["id"] == str(comment.id) for f in as_viewer["feedback"])
+
+        as_uploader = await list_document_feedback(
+            request=_make_starlette_request(), doc_id=doc.id, author_role="uploader",
+            db=db, current_user=current_user,
+        )
+        assert any(f["id"] == str(comment.id) for f in as_uploader["feedback"])
+
+    @pytest.mark.asyncio
+    async def test_author_role_filter_excludes_thread_with_no_matching_message(self, setup):
+        db, doc = setup["db"], setup["doc"]
+        current_user = {"user_id": str(setup["owner_id"]), "email": "owner@acme.com"}
+        # A thread whose root AND only message is uploader-authored, no viewer message at all.
+        uploader_only = ViewerAnnotation(
+            link_id=setup["comment"].link_id, session_id=f"uploader:{setup['owner_id']}",
+            viewer_email_masked=None, viewer_email="owner@acme.com", viewer_profile_id=None,
+            page_number=1, annotation_type="comment", coords="{}", comment_text="Uploader started this",
+            created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc),
+        )
+        db.add(uploader_only)
+        await db.commit()
+
+        as_viewer = await list_document_feedback(
+            request=_make_starlette_request(), doc_id=doc.id, author_role="viewer",
+            db=db, current_user=current_user,
+        )
+        assert all(f["id"] != str(uploader_only.id) for f in as_viewer["feedback"])
+
+    @pytest.mark.asyncio
+    async def test_search_matches_reply_text_not_just_root(self, setup):
+        """Searching for text that only appears in a reply must still surface
+        the thread (the whole thread, including the non-matching root)."""
+        db, doc, comment = setup["db"], setup["doc"], setup["comment"]
+        current_user = {"user_id": str(setup["owner_id"]), "email": "owner@acme.com"}
+        await reply_to_feedback(
+            request=_make_starlette_request(), doc_id=doc.id, annotation_id=comment.id,
+            body=AnnotationReplyCreate(comment_text="I will fix the typo"), db=db, current_user=current_user,
+        )
+
+        result = await list_document_feedback(
+            request=_make_starlette_request(), doc_id=doc.id, search="typo",
+            db=db, current_user=current_user,
+        )
+        top = next((f for f in result["feedback"] if f["id"] == str(comment.id)), None)
+        assert top is not None
+        assert "Please clarify this clause" not in str(comment.id)  # sanity: root text itself has no "typo"
+        assert top["comment_text"] == "Please clarify this clause"
+
+        no_match = await list_document_feedback(
+            request=_make_starlette_request(), doc_id=doc.id, search="nonexistentword",
+            db=db, current_user=current_user,
+        )
+        assert all(f["id"] != str(comment.id) for f in no_match["feedback"])
+
+    @pytest.mark.asyncio
+    async def test_export_page_filter_includes_whole_matching_thread_only(self, setup):
+        db, doc, comment = setup["db"], setup["doc"], setup["comment"]
+        current_user = {"user_id": str(setup["owner_id"]), "email": "owner@acme.com"}
+        await reply_to_feedback(
+            request=_make_starlette_request(), doc_id=doc.id, annotation_id=comment.id,
+            body=AnnotationReplyCreate(comment_text="uploader reply"), db=db, current_user=current_user,
+        )
+        other = ViewerAnnotation(
+            link_id=comment.link_id, session_id=setup["session_id"],
+            viewer_email_masked=comment.viewer_email_masked, viewer_email=comment.viewer_email,
+            viewer_profile_id=comment.viewer_profile_id, page_number=9, annotation_type="comment",
+            coords="{}", comment_text="Different page thread", created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
+        )
+        db.add(other)
+        await db.commit()
+
+        response = await export_feedback(
+            request=_make_starlette_request(), doc_id=_UUIDStr(doc.id), page_number=2,
+            db=db, current_user=current_user,
+        )
+        lines = await _csv_lines(response)
+        body = "\n".join(lines[1:])
+        assert "Please clarify this clause" in body
+        assert "uploader reply" in body  # whole thread exported, including the reply
+        assert "Different page thread" not in body
+
+    @pytest.mark.asyncio
+    async def test_export_author_role_filter_includes_whole_thread(self, setup):
+        db, doc, comment = setup["db"], setup["doc"], setup["comment"]
+        current_user = {"user_id": str(setup["owner_id"]), "email": "owner@acme.com"}
+        await reply_to_feedback(
+            request=_make_starlette_request(), doc_id=doc.id, annotation_id=comment.id,
+            body=AnnotationReplyCreate(comment_text="uploader reply"), db=db, current_user=current_user,
+        )
+
+        response = await export_feedback(
+            request=_make_starlette_request(), doc_id=_UUIDStr(doc.id), author_role="uploader",
+            db=db, current_user=current_user,
+        )
+        lines = await _csv_lines(response)
+        body = "\n".join(lines[1:])
+        # whole thread exported (root included) even though the filter matched only the reply
+        assert "Please clarify this clause" in body
+        assert "uploader reply" in body
+
+
+# ─── Reviewer activity export ───────────────────────────────────────────────
+
+class TestReviewerActivityExport:
+
+    @pytest.mark.asyncio
+    async def test_aggregates_comment_and_reply_counts_per_reviewer(self, setup):
+        db, doc, comment = setup["db"], setup["doc"], setup["comment"]
+        current_user = {"user_id": str(setup["owner_id"]), "email": "owner@acme.com"}
+        viewer_reply = ViewerAnnotation(
+            link_id=comment.link_id, session_id=setup["session_id"],
+            viewer_email_masked=comment.viewer_email_masked, viewer_email=comment.viewer_email,
+            viewer_profile_id=comment.viewer_profile_id, page_number=comment.page_number,
+            annotation_type="comment", coords="{}", comment_text="Looks good now",
+            parent_id=str(comment.id), created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc),
+        )
+        db.add(viewer_reply)
+        await db.commit()
+        await reply_to_feedback(
+            request=_make_starlette_request(), doc_id=doc.id, annotation_id=comment.id,
+            body=AnnotationReplyCreate(comment_text="uploader reply"), db=db, current_user=current_user,
+        )
+
+        response = await export_reviewer_activity(
+            request=_make_starlette_request(), doc_id=_UUIDStr(doc.id), db=db, current_user=current_user,
+        )
+        lines = await _csv_lines(response)
+        assert lines[0] == "Reviewer Name,Reviewer Email,Document,Comment Count,Reply Count,Last Activity"
+        data_rows = [l for l in lines[1:] if l.strip()]
+        assert len(data_rows) == 1  # one row for the single reviewer (jane.smith)
         row = data_rows[0]
         assert "jane.smith@example.com" in row
-        assert "report.pdf" in row
-        assert "Please clarify this clause" in row
-        assert ",1," in row  # reply count of 1 in the Replies column
-        assert "Open" in row
-        # no hashed/raw session ids anywhere in the export
-        assert comment.session_id not in row
+        assert row.split(",")[3] == "1"  # comment_count
+        assert row.split(",")[4] == "1"  # reply_count
+        # uploader's own reply must never appear as a reviewer row
+        assert "owner@acme.com" not in "\n".join(lines)
+

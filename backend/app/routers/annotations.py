@@ -254,6 +254,64 @@ async def _profile_display_names(db: AsyncSession, annotations) -> dict:
     return {str(r.id): r.display_name for r in rows}
 
 
+def _parse_filter_date(value: Optional[str], *, end_of_day: bool = False) -> Optional[datetime]:
+    """Parse a date_from/date_to query param into a tz-aware UTC datetime.
+
+    Accepts a bare date ("2026-06-01") or a full ISO timestamp. A bare date
+    passed as date_to is treated as the end of that day so "date_to=today"
+    includes everything created today.
+    """
+    if not value:
+        return None
+    try:
+        dt = datetime.fromisoformat(value)
+    except ValueError:
+        raise HTTPException(status_code=422, detail=f"Invalid date: {value!r}")
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    if end_of_day and len(value) <= 10:  # bare "YYYY-MM-DD", no time component
+        dt = dt.replace(hour=23, minute=59, second=59, microsecond=999999)
+    return dt
+
+
+def _as_aware_utc(dt: Optional[datetime]) -> Optional[datetime]:
+    """sqlite drops tzinfo on round-trip even for tz-aware columns; treat a
+    naive value as UTC so comparisons against parsed filter dates don't blow up."""
+    if dt is not None and dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
+def _message_matches_filters(
+    a: ViewerAnnotation,
+    *,
+    date_from: Optional[datetime],
+    date_to: Optional[datetime],
+    page_number: Optional[int],
+    author_role: Optional[str],
+) -> bool:
+    """True if a single message (root or reply) satisfies every active filter."""
+    if page_number is not None and a.page_number != page_number:
+        return False
+    if author_role is not None:
+        role = "uploader" if _is_uploader_row(a.session_id) else "viewer"
+        if role != author_role:
+            return False
+    created_at = _as_aware_utc(a.created_at)
+    if date_from is not None and (created_at is None or created_at < date_from):
+        return False
+    if date_to is not None and (created_at is None or created_at > date_to):
+        return False
+    return True
+
+
+def _thread_matches_filters(messages, **filters) -> bool:
+    """A thread (root + its replies) matches if ANY message in it satisfies
+    all active filters — filtering narrows which threads are shown, it never
+    trims an individual thread down to a subset of its own messages."""
+    return any(_message_matches_filters(m, **filters) for m in messages)
+
+
 def _serialize_annotation(
     a: ViewerAnnotation,
     profile_display_name: Optional[str] = None,
@@ -776,16 +834,33 @@ async def list_document_feedback(
     request: Request,
     doc_id: str,
     resolved: Optional[bool] = None,
+    search: Optional[str] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    page_number: Optional[int] = None,
+    author_role: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
     """List only FEEDBACK_TYPES (comment, sticky_note) with nested replies.
-    Only the document owner can access this endpoint."""
+    Only the document owner can access this endpoint.
+
+    `search`, `date_from`, `date_to`, `page_number` and `author_role` all
+    match against EVERY message in a thread (root and replies) — a thread is
+    included if any one of its messages satisfies all active filters. This
+    means a thread can surface because a reply (not the root) matches.
+    """
     doc = (await db.execute(select(Document).where(Document.id == doc_id))).scalar_one_or_none()
     if doc is None:
         raise HTTPException(status_code=404, detail="Document not found")
     if str(doc.user_id) != str(current_user["user_id"]):
         raise HTTPException(status_code=403, detail="Access denied")
+
+    if author_role is not None and author_role not in ("viewer", "uploader"):
+        raise HTTPException(status_code=422, detail="author_role must be 'viewer' or 'uploader'")
+
+    df = _parse_filter_date(date_from)
+    dt_ = _parse_filter_date(date_to, end_of_day=True)
 
     q = (
         select(ViewerAnnotation, ShareLink.label.label("link_label"))
@@ -811,6 +886,7 @@ async def list_document_feedback(
     # Count replies per parent
     reply_counts: dict = {}
     replies_by_parent: dict = {}
+    replies_raw_by_parent: dict = {}
     for row in reply_rows:
         a = row[0]
         pid = str(a.parent_id)
@@ -818,10 +894,27 @@ async def list_document_feedback(
         replies_by_parent.setdefault(pid, []).append(
             _serialize_annotation(a, profile_display_name=names.get(str(a.viewer_profile_id)), full_identity=True)
         )
+        replies_raw_by_parent.setdefault(pid, []).append(a)
+
+    search_l = search.strip().lower() if search else None
+
+    def _text_matches(a: ViewerAnnotation, name: str) -> bool:
+        if not search_l:
+            return True
+        haystack = " ".join(filter(None, [a.comment_text, name, a.viewer_email])).lower()
+        return search_l in haystack
 
     feedback = []
     for row in tops:
         a = row[0]
+        thread_msgs = [a, *replies_raw_by_parent.get(str(a.id), [])]
+        if not _thread_matches_filters(thread_msgs, date_from=df, date_to=dt_, page_number=page_number, author_role=author_role):
+            continue
+        if search_l:
+            names_for_thread = [names.get(str(m.viewer_profile_id)) or _resolve_display_name(m.session_id, m.viewer_email) for m in thread_msgs]
+            if not any(_text_matches(m, n) for m, n in zip(thread_msgs, names_for_thread)):
+                continue
+
         d = _serialize_annotation(a, profile_display_name=names.get(str(a.viewer_profile_id)), full_identity=True)
         d["link_label"] = row.link_label or ""
         d["reply_count"] = reply_counts.get(str(a.id), 0)
@@ -838,10 +931,126 @@ async def list_document_feedback(
 async def export_feedback(
     request: Request,
     doc_id: str,
+    resolved: Optional[bool] = None,
+    search: Optional[str] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    page_number: Optional[int] = None,
+    author_role: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    """Export feedback (comment/sticky_note) as CSV. Document owner only."""
+    """Export the FULL thread (root + every reply) as CSV — one row per
+    message, not one row per thread. Document owner only.
+
+    Filters (resolved/search/date_from/date_to/page_number/author_role) are
+    the same as GET .../feedback and use the same any-message-in-thread
+    semantics: if a filter is satisfied by anything in a thread, the WHOLE
+    thread (every message in it) is exported, so the conversation is never
+    truncated mid-way.
+    """
+    doc = (await db.execute(select(Document).where(Document.id == doc_id))).scalar_one_or_none()
+    if doc is None:
+        raise HTTPException(status_code=404, detail="Document not found")
+    if str(doc.user_id) != str(current_user["user_id"]):
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    if author_role is not None and author_role not in ("viewer", "uploader"):
+        raise HTTPException(status_code=422, detail="author_role must be 'viewer' or 'uploader'")
+
+    df = _parse_filter_date(date_from)
+    dt_ = _parse_filter_date(date_to, end_of_day=True)
+
+    q = (
+        select(ViewerAnnotation)
+        .join(ShareLink, ShareLink.id == ViewerAnnotation.link_id)
+        .where(
+            ShareLink.document_id == doc.id,
+            ViewerAnnotation.annotation_type.in_(list(FEEDBACK_TYPES)),
+        )
+    )
+    if resolved is True:
+        q = q.where(ViewerAnnotation.resolved_at.isnot(None))
+    elif resolved is False:
+        q = q.where(ViewerAnnotation.resolved_at.is_(None))
+
+    rows = (await db.execute(q.order_by(ViewerAnnotation.created_at))).scalars().all()
+    names = await _profile_display_names(db, rows)
+
+    tops = [a for a in rows if a.parent_id is None]
+    replies_by_parent: dict = {}
+    reply_counts: dict = {}
+    for a in rows:
+        if a.parent_id:
+            pid = str(a.parent_id)
+            replies_by_parent.setdefault(pid, []).append(a)
+            reply_counts[pid] = reply_counts.get(pid, 0) + 1
+
+    search_l = search.strip().lower() if search else None
+
+    def _text_matches(a: ViewerAnnotation, name: str) -> bool:
+        if not search_l:
+            return True
+        haystack = " ".join(filter(None, [a.comment_text, name, a.viewer_email])).lower()
+        return search_l in haystack
+
+    def _gen():
+        buf = io.StringIO()
+        writer = csv.writer(buf)
+        writer.writerow([
+            "Document Name", "Document ID", "Root Comment ID", "Thread ID", "Parent Message ID",
+            "Page Number", "Viewer Name", "Viewer Email", "Author Role", "Message Text",
+            "Created At", "Status", "Reply Count",
+        ])
+        for root in tops:
+            thread_msgs = [root, *replies_by_parent.get(str(root.id), [])]
+            if not _thread_matches_filters(thread_msgs, date_from=df, date_to=dt_, page_number=page_number, author_role=author_role):
+                continue
+            thread_names = {
+                str(m.id): names.get(str(m.viewer_profile_id)) or _resolve_display_name(m.session_id, m.viewer_email)
+                for m in thread_msgs
+            }
+            if search_l and not any(_text_matches(m, thread_names[str(m.id)]) for m in thread_msgs):
+                continue
+            status = "Resolved" if root.resolved_at else "Open"
+            reply_count = reply_counts.get(str(root.id), 0)
+            for m in thread_msgs:
+                writer.writerow([
+                    doc.filename,
+                    str(doc.id),
+                    str(root.id),
+                    str(root.id),
+                    str(m.parent_id) if m.parent_id else "",
+                    m.page_number,
+                    thread_names[str(m.id)],
+                    m.viewer_email or "",
+                    "uploader" if _is_uploader_row(m.session_id) else "viewer",
+                    m.comment_text or "",
+                    m.created_at.isoformat() if m.created_at else "",
+                    status,
+                    reply_count,
+                ])
+        yield buf.getvalue()
+
+    filename = f"feedback_threads_{doc_id[:8]}.csv"
+    return StreamingResponse(_gen(), media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+
+
+# ── Uploader: reviewer activity CSV export ────────────────────────────────────
+
+@router.get("/api/documents/{doc_id}/feedback/export-reviewer-activity")
+@limiter.limit("10/minute")
+async def export_reviewer_activity(
+    request: Request,
+    doc_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """Export one row per reviewer (viewer), aggregating their comment count,
+    reply count, and last activity timestamp on this document. Uploader
+    replies are excluded — this export is about reviewers, not the
+    document owner. Document owner only."""
     doc = (await db.execute(select(Document).where(Document.id == doc_id))).scalar_one_or_none()
     if doc is None:
         raise HTTPException(status_code=404, detail="Document not found")
@@ -849,58 +1058,52 @@ async def export_feedback(
         raise HTTPException(status_code=403, detail="Access denied")
 
     rows = (await db.execute(
-        select(
-            ViewerAnnotation.id,
-            ViewerAnnotation.session_id,
-            ViewerAnnotation.viewer_email,
-            ViewerProfile.display_name.label("profile_display_name"),
-            ViewerAnnotation.page_number,
-            ViewerAnnotation.annotation_type,
-            ViewerAnnotation.comment_text,
-            ViewerAnnotation.resolved_at,
-            ViewerAnnotation.parent_id,
-            ViewerAnnotation.created_at,
-            ShareLink.label.label("link_label"),
-        )
+        select(ViewerAnnotation)
         .join(ShareLink, ShareLink.id == ViewerAnnotation.link_id)
-        .outerjoin(ViewerProfile, ViewerProfile.id == ViewerAnnotation.viewer_profile_id)
         .where(
             ShareLink.document_id == doc.id,
             ViewerAnnotation.annotation_type.in_(list(FEEDBACK_TYPES)),
         )
         .order_by(ViewerAnnotation.created_at)
-    )).all()
+    )).scalars().all()
+    names = await _profile_display_names(db, rows)
 
-    # Count replies per parent
-    reply_counts: dict = {}
-    for r in rows:
-        if r.parent_id:
-            pid = str(r.parent_id)
-            reply_counts[pid] = reply_counts.get(pid, 0) + 1
+    reviewers: dict = {}
+    for a in rows:
+        if _is_uploader_row(a.session_id):
+            continue
+        key = a.viewer_email or f"anon:{a.session_id}"
+        name = names.get(str(a.viewer_profile_id)) or _resolve_display_name(a.session_id, a.viewer_email)
+        entry = reviewers.setdefault(key, {
+            "name": name, "email": a.viewer_email or "",
+            "comment_count": 0, "reply_count": 0, "last_activity": None,
+        })
+        if a.parent_id is None:
+            entry["comment_count"] += 1
+        else:
+            entry["reply_count"] += 1
+        created_at = _as_aware_utc(a.created_at)
+        if created_at and (entry["last_activity"] is None or created_at > entry["last_activity"]):
+            entry["last_activity"] = created_at
 
     def _gen():
         buf = io.StringIO()
         writer = csv.writer(buf)
         writer.writerow([
-            "Reviewer Name", "Reviewer Email", "Document", "Page",
-            "Comment", "Replies", "Status", "Created At",
+            "Reviewer Name", "Reviewer Email", "Document", "Comment Count", "Reply Count", "Last Activity",
         ])
-        for r in rows:
-            if r.parent_id:
-                continue  # skip replies in top-level export — one row per thread
+        for entry in sorted(reviewers.values(), key=lambda e: e["last_activity"] or datetime.min.replace(tzinfo=timezone.utc), reverse=True):
             writer.writerow([
-                _resolve_display_name(r.session_id, r.viewer_email, r.profile_display_name),
-                r.viewer_email or "",
+                entry["name"],
+                entry["email"],
                 doc.filename,
-                r.page_number,
-                r.comment_text or "",
-                reply_counts.get(str(r.id), 0),
-                "Resolved" if r.resolved_at else "Open",
-                r.created_at.isoformat() if r.created_at else "",
+                entry["comment_count"],
+                entry["reply_count"],
+                entry["last_activity"].isoformat() if entry["last_activity"] else "",
             ])
         yield buf.getvalue()
 
-    filename = f"feedback_{doc_id[:8]}.csv"
+    filename = f"reviewer_activity_{doc_id[:8]}.csv"
     return StreamingResponse(_gen(), media_type="text/csv",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'})
 
