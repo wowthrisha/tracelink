@@ -2484,48 +2484,53 @@
                   <span style={{ ...mono, fontSize: 10, color: C.textDim }}>Page {threadView.root?.page_number}</span>
                 </div>
 
-                <div style={{ maxHeight: 320, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 10 }}>
-                  {/* Original comment */}
-                  {threadView.root && (
-                    <div style={{ background: C.surfaceAlt, border: `1px solid ${C.border}`, borderRadius: 8, padding: '8px 10px' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                        <span style={{ fontSize: 12, fontWeight: 700, color: C.textPrimary }}>
-                          {threadView.root.display_name || 'Anonymous Viewer'}
-                        </span>
-                        <span style={{ ...mono, fontSize: 9, color: C.textDim }}>
-                          {threadView.root.created_at ? new Date(threadView.root.created_at).toLocaleString() : ''}
-                        </span>
-                      </div>
-                      <div style={{ fontSize: 12, color: C.textSecondary, lineHeight: 1.5, wordBreak: 'break-word' }}>
-                        {threadView.root.comment_text}
-                      </div>
+                {(() => {
+                  // Unified chronological timeline: root + replies, oldest first —
+                  // reads as one continuous conversation, not a "comment + nested replies" tree.
+                  const timeline = [
+                    ...(threadView.root ? [threadView.root] : []),
+                    ...(threadView.replies || []),
+                  ].slice().sort((a, b) => new Date(a.created_at || 0) - new Date(b.created_at || 0));
+                  const timeOnly = (iso) => iso ? new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '';
+                  return (
+                    <div style={{ maxHeight: 320, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 10 }}>
+                      {timeline.map((m, i) => {
+                        const isUploader = m.author_role === 'uploader';
+                        return (
+                          <div key={m.id || i} style={{
+                            background: isUploader ? 'rgba(90,200,208,0.08)' : C.surfaceAlt,
+                            border: `1px solid ${isUploader ? 'rgba(90,200,208,0.3)' : C.border}`,
+                            borderRadius: 8, padding: '8px 10px',
+                          }}>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4, gap: 8 }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+                                <span style={{ fontSize: 12, fontWeight: 700, color: isUploader ? C.teal2 : C.textPrimary, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                  {m.display_name || 'Anonymous Viewer'}
+                                </span>
+                                <span style={{
+                                  ...mono, fontSize: 9, fontWeight: 700, padding: '1px 6px', borderRadius: 3, whiteSpace: 'nowrap',
+                                  color: isUploader ? C.teal2 : C.textMuted,
+                                  background: isUploader ? 'rgba(90,200,208,0.15)' : 'rgba(110,140,144,0.15)',
+                                }}>
+                                  {isUploader ? 'Uploader' : 'Viewer'}
+                                </span>
+                              </div>
+                              <span style={{ ...mono, fontSize: 9, color: C.textDim, whiteSpace: 'nowrap' }}>
+                                {timeOnly(m.created_at)}
+                              </span>
+                            </div>
+                            <div style={{ fontSize: 12, color: C.textSecondary, lineHeight: 1.5, wordBreak: 'break-word' }}>
+                              {m.comment_text}
+                            </div>
+                          </div>
+                        );
+                      })}
+                      {timeline.length <= 1 && (
+                        <div style={{ ...mono, fontSize: 10, color: C.textDim, textAlign: 'center', padding: '4px 0' }}>No replies yet</div>
+                      )}
                     </div>
-                  )}
-
-                  {/* Replies, in order */}
-                  {(threadView.replies || []).map((r, i) => (
-                    <div key={r.id || i} style={{
-                      marginLeft: 16, background: r.author_role === 'uploader' ? 'rgba(90,200,208,0.08)' : C.surfaceAlt,
-                      border: `1px solid ${r.author_role === 'uploader' ? 'rgba(90,200,208,0.3)' : C.border}`,
-                      borderRadius: 8, padding: '8px 10px',
-                    }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                        <span style={{ fontSize: 12, fontWeight: 700, color: r.author_role === 'uploader' ? C.teal2 : C.textPrimary }}>
-                          {r.display_name || 'Anonymous Viewer'}{r.author_role === 'uploader' ? ' (uploader)' : ''}
-                        </span>
-                        <span style={{ ...mono, fontSize: 9, color: C.textDim }}>
-                          {r.created_at ? new Date(r.created_at).toLocaleString() : ''}
-                        </span>
-                      </div>
-                      <div style={{ fontSize: 12, color: C.textSecondary, lineHeight: 1.5, wordBreak: 'break-word' }}>
-                        {r.comment_text}
-                      </div>
-                    </div>
-                  ))}
-                  {threadView.replies && threadView.replies.length === 0 && (
-                    <div style={{ ...mono, fontSize: 10, color: C.textDim, textAlign: 'center', padding: '4px 0' }}>No replies yet</div>
-                  )}
-                </div>
+                  );
+                })()}
 
                 {/* Viewer reply composer */}
                 {session?.permissions?.can_annotate && (
@@ -2652,7 +2657,7 @@
           style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', zIndex: 8, pointerEvents: isInteractive ? 'all' : 'none', cursor: isInteractive ? (activeTool === 'comment' ? 'crosshair' : 'crosshair') : 'default', overflow: 'visible' }}
           onMouseDown={_onMouseDown} onMouseMove={_onMouseMove} onMouseUp={_onMouseUp}
         >
-          {annotations.map(a => {
+          {annotations.filter(a => !a.parent_id).map(a => {
             const isOwn = a.session_id === sessionPrefix + '…' || a.session_id?.startsWith(sessionPrefix);
             const coords = typeof a.coords === 'string' ? JSON.parse(a.coords) : a.coords;
             const col = a.color || '#FFE066';

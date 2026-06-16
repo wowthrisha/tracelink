@@ -255,6 +255,112 @@ class TestViewerThreadRetrieval:
         assert result["root"]["id"] == str(comment.id)
         assert result["replies"] == []
 
+    @pytest.mark.asyncio
+    async def test_thread_response_shape_sample(self, setup):
+        """Documents the exact JSON shape the frontend timeline renders from."""
+        db, doc, comment = setup["db"], setup["doc"], setup["comment"]
+        current_user = {"user_id": str(setup["owner_id"]), "email": "owner@acme.com"}
+        await reply_to_feedback(
+            request=_make_starlette_request(), doc_id=doc.id, annotation_id=comment.id,
+            body=AnnotationReplyCreate(comment_text="Thanks, fixed in v2"), db=db, current_user=current_user,
+        )
+        result = await get_annotation_thread(
+            request=_make_starlette_request({"X-Session-ID": setup["session_id"]}),
+            token=setup["link"].token, annotation_id=comment.id, db=db,
+        )
+        for key in ("id", "page_number", "annotation_type", "comment_text", "resolved_at",
+                    "parent_id", "display_name", "author_role", "created_at", "updated_at"):
+            assert key in result["root"]
+            assert key in result["replies"][0]
+        assert result["root"]["author_role"] == "viewer"
+        assert result["root"]["parent_id"] is None
+        assert result["replies"][0]["author_role"] == "uploader"
+        assert result["replies"][0]["parent_id"] == str(comment.id)
+        assert result["root"]["resolved_at"] is None  # Open until resolved
+
+    @pytest.mark.asyncio
+    async def test_viewer_reply_is_visible_in_thread(self, setup):
+        """A viewer-authored reply (not just uploader) must show up with author_role 'viewer'."""
+        db, comment = setup["db"], setup["comment"]
+        viewer_reply = ViewerAnnotation(
+            link_id=comment.link_id,
+            session_id=setup["session_id"],
+            viewer_email_masked=comment.viewer_email_masked,
+            viewer_email=comment.viewer_email,
+            viewer_profile_id=comment.viewer_profile_id,
+            page_number=comment.page_number,
+            annotation_type="comment",
+            coords="{}",
+            comment_text="Looks good now",
+            parent_id=str(comment.id),
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
+        )
+        db.add(viewer_reply)
+        await db.commit()
+
+        result = await get_annotation_thread(
+            request=_make_starlette_request({"X-Session-ID": setup["session_id"]}),
+            token=setup["link"].token, annotation_id=comment.id, db=db,
+        )
+        assert len(result["replies"]) == 1
+        assert result["replies"][0]["author_role"] == "viewer"
+        assert result["replies"][0]["comment_text"] == "Looks good now"
+
+    @pytest.mark.asyncio
+    async def test_replies_ordered_oldest_first(self, setup):
+        """Conversation must read chronologically — oldest message first."""
+        db, doc, comment = setup["db"], setup["doc"], setup["comment"]
+        current_user = {"user_id": str(setup["owner_id"]), "email": "owner@acme.com"}
+
+        first = await reply_to_feedback(
+            request=_make_starlette_request(), doc_id=doc.id, annotation_id=comment.id,
+            body=AnnotationReplyCreate(comment_text="first"), db=db, current_user=current_user,
+        )
+        row = await db.get(ViewerAnnotation, uuid.UUID(first["id"]))
+        row.created_at = datetime.now(timezone.utc) - timedelta(minutes=10)
+        await db.commit()
+
+        await reply_to_feedback(
+            request=_make_starlette_request(), doc_id=doc.id, annotation_id=comment.id,
+            body=AnnotationReplyCreate(comment_text="second"), db=db, current_user=current_user,
+        )
+
+        result = await get_annotation_thread(
+            request=_make_starlette_request({"X-Session-ID": setup["session_id"]}),
+            token=setup["link"].token, annotation_id=comment.id, db=db,
+        )
+        texts = [r["comment_text"] for r in result["replies"]]
+        assert texts == ["first", "second"]
+
+
+class TestEmptyStateLogic:
+    """Frontend shows 'No replies yet' iff the combined timeline (root + replies) has exactly one message."""
+
+    @pytest.mark.asyncio
+    async def test_no_replies_means_single_message_timeline(self, setup):
+        result = await get_annotation_thread(
+            request=_make_starlette_request({"X-Session-ID": setup["session_id"]}),
+            token=setup["link"].token, annotation_id=setup["comment"].id, db=setup["db"],
+        )
+        timeline_len = 1 + len(result["replies"])  # root + replies
+        assert timeline_len == 1
+
+    @pytest.mark.asyncio
+    async def test_any_reply_means_timeline_longer_than_one(self, setup):
+        db, doc, comment = setup["db"], setup["doc"], setup["comment"]
+        current_user = {"user_id": str(setup["owner_id"]), "email": "owner@acme.com"}
+        await reply_to_feedback(
+            request=_make_starlette_request(), doc_id=doc.id, annotation_id=comment.id,
+            body=AnnotationReplyCreate(comment_text="Thanks."), db=db, current_user=current_user,
+        )
+        result = await get_annotation_thread(
+            request=_make_starlette_request({"X-Session-ID": setup["session_id"]}),
+            token=setup["link"].token, annotation_id=comment.id, db=db,
+        )
+        timeline_len = 1 + len(result["replies"])
+        assert timeline_len > 1
+
 
 # ─── Reply count aggregation ────────────────────────────────────────────────
 
