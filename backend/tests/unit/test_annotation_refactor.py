@@ -318,7 +318,7 @@ class TestCsvColumns:
 
     @pytest.mark.asyncio
     async def test_feedback_csv_columns(self):
-        """Feedback CSV must have: viewer_email, page, message, reply_count, status, created_at"""
+        """Feedback CSV must have: Reviewer Name, Reviewer Email, Document, Page, Comment, Replies, Status, Created At"""
         import uuid
         from app.routers.annotations import export_feedback
 
@@ -344,11 +344,14 @@ class TestCsvColumns:
             content += chunk.encode() if isinstance(chunk, str) else chunk
         header_line = content.decode().splitlines()[0]
         cols = [c.strip() for c in header_line.split(",")]
-        assert cols == ["viewer_email", "page", "message", "reply_count", "status", "created_at"]
+        assert cols == [
+            "Reviewer Name", "Reviewer Email", "Document", "Page",
+            "Comment", "Replies", "Status", "Created At",
+        ]
 
     @pytest.mark.asyncio
     async def test_visual_annotations_csv_columns(self):
-        """Visual annotations CSV must have: viewer_email, page, annotation_type, color, created_at"""
+        """Visual annotations CSV must have: reviewer_name, reviewer_email, page, annotation_type, color, created_at"""
         import uuid
         from app.routers.annotations import export_visual_annotations
 
@@ -373,4 +376,4 @@ class TestCsvColumns:
             content += chunk.encode() if isinstance(chunk, str) else chunk
         header_line = content.decode().splitlines()[0]
         cols = [c.strip() for c in header_line.split(",")]
-        assert cols == ["viewer_email", "page", "annotation_type", "color", "created_at"]
+        assert cols == ["reviewer_name", "reviewer_email", "page", "annotation_type", "color", "created_at"]

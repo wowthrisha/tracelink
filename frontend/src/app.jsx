@@ -1286,6 +1286,9 @@
       const [annotUndoStack, setAnnotUndoStack] = useState([]); // [{annotId, page}] for undo
       const [pageAnnotations, setPageAnnotations] = useState([]); // annotations for current page
       const [commentDraft, setCommentDraft] = useState(null); // {x,y,coords,type} pending comment text
+      const [threadView, setThreadView] = useState(null); // {root, replies, loading} for open comment-thread modal
+      const [threadReplyText, setThreadReplyText] = useState('');
+      const [threadReplySending, setThreadReplySending] = useState(false);
       const annotCacheRef = useRef(new Map()); // page → annotation[]
       const [bookmarks, setBookmarks] = useState(new Set()); // bookmarked page numbers
       const [drawingState, setDrawingState] = useState(null); // {startX,startY} normalized 0-1
@@ -2290,6 +2293,17 @@
                           setAnnotUndoStack(s => s.filter(u => u.annotId !== annotId));
                         } catch (e) { toast(_errMsg(e, 'Failed to delete annotation'), 'error'); }
                       }}
+                      onOpenThread={async (a) => {
+                        setThreadReplyText('');
+                        setThreadView({ rootAnnot: a, root: null, replies: [], loading: true });
+                        try {
+                          const data = await window.SecureDocAPI.getAnnotationThread(session.link_token, a.id, session.session_id);
+                          setThreadView({ rootAnnot: a, root: data.root || data, replies: data.replies || [], loading: false });
+                        } catch (e) {
+                          setThreadView(null);
+                          toast(_errMsg(e, 'Failed to load thread'), 'error');
+                        }
+                      }}
                       C={C} mono={mono}
                     />
                   )}
@@ -2451,6 +2465,112 @@
               C={C} mono={mono}
             />
           )}
+
+          {/* Part 5: comment-thread modal — viewer sees the original comment + all replies, no dashboard needed */}
+          <Modal open={!!threadView} onClose={() => setThreadView(null)} title="Comment Thread" width={420}>
+            {threadView?.loading && (
+              <div style={{ ...mono, fontSize: 11, color: C.textMuted, textAlign: 'center', padding: '16px 0' }}>Loading thread…</div>
+            )}
+            {threadView && !threadView.loading && (
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                  <span style={{
+                    ...mono, fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 4,
+                    color: threadView.root?.resolved_at ? '#7CCB7C' : C.teal2,
+                    background: threadView.root?.resolved_at ? 'rgba(124,203,124,0.12)' : 'rgba(90,200,208,0.12)',
+                  }}>
+                    {threadView.root?.resolved_at ? 'RESOLVED' : 'OPEN'}
+                  </span>
+                  <span style={{ ...mono, fontSize: 10, color: C.textDim }}>Page {threadView.root?.page_number}</span>
+                </div>
+
+                <div style={{ maxHeight: 320, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  {/* Original comment */}
+                  {threadView.root && (
+                    <div style={{ background: C.surfaceAlt, border: `1px solid ${C.border}`, borderRadius: 8, padding: '8px 10px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                        <span style={{ fontSize: 12, fontWeight: 700, color: C.textPrimary }}>
+                          {threadView.root.display_name || 'Anonymous Viewer'}
+                        </span>
+                        <span style={{ ...mono, fontSize: 9, color: C.textDim }}>
+                          {threadView.root.created_at ? new Date(threadView.root.created_at).toLocaleString() : ''}
+                        </span>
+                      </div>
+                      <div style={{ fontSize: 12, color: C.textSecondary, lineHeight: 1.5, wordBreak: 'break-word' }}>
+                        {threadView.root.comment_text}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Replies, in order */}
+                  {(threadView.replies || []).map((r, i) => (
+                    <div key={r.id || i} style={{
+                      marginLeft: 16, background: r.author_role === 'uploader' ? 'rgba(90,200,208,0.08)' : C.surfaceAlt,
+                      border: `1px solid ${r.author_role === 'uploader' ? 'rgba(90,200,208,0.3)' : C.border}`,
+                      borderRadius: 8, padding: '8px 10px',
+                    }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                        <span style={{ fontSize: 12, fontWeight: 700, color: r.author_role === 'uploader' ? C.teal2 : C.textPrimary }}>
+                          {r.display_name || 'Anonymous Viewer'}{r.author_role === 'uploader' ? ' (uploader)' : ''}
+                        </span>
+                        <span style={{ ...mono, fontSize: 9, color: C.textDim }}>
+                          {r.created_at ? new Date(r.created_at).toLocaleString() : ''}
+                        </span>
+                      </div>
+                      <div style={{ fontSize: 12, color: C.textSecondary, lineHeight: 1.5, wordBreak: 'break-word' }}>
+                        {r.comment_text}
+                      </div>
+                    </div>
+                  ))}
+                  {threadView.replies && threadView.replies.length === 0 && (
+                    <div style={{ ...mono, fontSize: 10, color: C.textDim, textAlign: 'center', padding: '4px 0' }}>No replies yet</div>
+                  )}
+                </div>
+
+                {/* Viewer reply composer */}
+                {session?.permissions?.can_annotate && (
+                  <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
+                    <input
+                      type="text"
+                      value={threadReplyText}
+                      onChange={e => setThreadReplyText(e.target.value)}
+                      placeholder="Reply to this comment…"
+                      style={{
+                        flex: 1, background: C.surfaceAlt, border: `1px solid ${C.borderMed}`, borderRadius: 6,
+                        padding: '8px 10px', fontSize: 12, color: C.textPrimary, outline: 'none',
+                      }}
+                      onKeyDown={e => { if (e.key === 'Enter' && threadReplyText.trim() && !threadReplySending) e.currentTarget.nextSibling?.click(); }}
+                    />
+                    <button
+                      disabled={!threadReplyText.trim() || threadReplySending}
+                      onClick={async () => {
+                        const text = threadReplyText.trim();
+                        if (!text) return;
+                        setThreadReplySending(true);
+                        try {
+                          const rootId = threadView.root?.id || threadView.rootAnnot?.id;
+                          await window.SecureDocAPI.createAnnotation(
+                            session.link_token,
+                            { page_number: threadView.root?.page_number || page, annotation_type: 'comment', coords: { x: 0, y: 0 }, comment_text: text, parent_id: rootId },
+                            session.session_id
+                          );
+                          const data = await window.SecureDocAPI.getAnnotationThread(session.link_token, rootId, session.session_id);
+                          setThreadView({ rootAnnot: threadView.rootAnnot, root: data.root || data, replies: data.replies || [], loading: false });
+                          setThreadReplyText('');
+                        } catch (e) { toast(_errMsg(e, 'Failed to send reply'), 'error'); }
+                        finally { setThreadReplySending(false); }
+                      }}
+                      style={{
+                        background: C.teal2, color: '#06080A', border: 'none', borderRadius: 6,
+                        padding: '8px 14px', fontSize: 12, fontWeight: 700, cursor: threadReplyText.trim() ? 'pointer' : 'default',
+                        opacity: threadReplyText.trim() && !threadReplySending ? 1 : 0.5,
+                      }}
+                    >Send</button>
+                  </div>
+                )}
+              </div>
+            )}
+          </Modal>
         </div>
       );
     }
@@ -2458,7 +2578,7 @@
     // ── Annotation overlay layer ──────────────────────────────────────────────
     // Renders existing annotations as SVG shapes + handles draw gestures.
     // Positioned absolute over the page image — never touches the image data.
-    function AnnotationLayer({ annotations, activeTool, sessionPrefix, commentDraft, onDraw, onDelete, C, mono }) {
+    function AnnotationLayer({ annotations, activeTool, sessionPrefix, commentDraft, onDraw, onDelete, onOpenThread, C, mono }) {
       const svgRef = useRef(null);
       const [preview, setPreview] = useState(null); // shape being drawn
       const [drawPoints, setDrawPoints] = useState([]); // freehand path points
@@ -2554,10 +2674,16 @@
                 <line x1={`${coords.x1 * 100}%`} y1={`${coords.y1 * 100}%`} x2={`${coords.x2 * 100}%`} y2={`${coords.y2 * 100}%`} stroke={col} strokeWidth="1.8" opacity="0.9" markerEnd={`url(#ah-${a.id})`}/>
               </g>
             );
-            if (a.annotation_type === 'comment' || a.annotation_type === 'bookmark') return (
+            if (a.annotation_type === 'bookmark') return (
               <g key={a.id} style={{ pointerEvents: isOwn && !activeTool ? 'all' : 'none', cursor: 'pointer' }} onClick={() => !activeTool && isOwn && onDelete(a.id)}>
                 <circle cx={`${(coords.x || 0) * 100}%`} cy={`${(coords.y || 0) * 100}%`} r="8" fill={col} opacity="0.85"/>
-                <text x={`${(coords.x || 0) * 100}%`} y={`${(coords.y || 0) * 100}%`} textAnchor="middle" dominantBaseline="central" fontSize="9" fill="#060809" fontWeight="700">{a.annotation_type === 'comment' ? '💬' : '🔖'}</text>
+                <text x={`${(coords.x || 0) * 100}%`} y={`${(coords.y || 0) * 100}%`} textAnchor="middle" dominantBaseline="central" fontSize="9" fill="#060809" fontWeight="700">🔖</text>
+              </g>
+            );
+            if (a.annotation_type === 'comment') return (
+              <g key={a.id} style={{ pointerEvents: !activeTool ? 'all' : 'none', cursor: 'pointer' }} onClick={() => !activeTool && onOpenThread && onOpenThread(a)}>
+                <circle cx={`${(coords.x || 0) * 100}%`} cy={`${(coords.y || 0) * 100}%`} r="8" fill={col} opacity="0.85"/>
+                <text x={`${(coords.x || 0) * 100}%`} y={`${(coords.y || 0) * 100}%`} textAnchor="middle" dominantBaseline="central" fontSize="9" fill="#060809" fontWeight="700">💬</text>
                 {a.comment_text && (
                   <foreignObject x={`${Math.min((coords.x || 0) * 100 + 2, 60)}%`} y={`${(coords.y || 0) * 100}%`} width="160" height="60" style={{ pointerEvents: 'none' }}>
                     <div style={{ background: 'rgba(6,8,9,0.88)', border: `1px solid ${col}`, borderRadius: 5, padding: '4px 8px', fontSize: 10, color: '#F0F2F1', fontFamily: "'DM Sans',sans-serif", lineHeight: 1.4, maxWidth: 160, wordBreak: 'break-word' }}>
@@ -2568,7 +2694,7 @@
               </g>
             );
             if (a.annotation_type === 'sticky_note') return (
-              <g key={a.id} style={{ pointerEvents: isOwn && !activeTool ? 'all' : 'none', cursor: 'pointer' }} onClick={() => !activeTool && isOwn && onDelete(a.id)}>
+              <g key={a.id} style={{ pointerEvents: !activeTool ? 'all' : 'none', cursor: 'pointer' }} onClick={() => !activeTool && onOpenThread && onOpenThread(a)}>
                 <rect x={`${(coords.x || 0) * 100 - 1}%`} y={`${(coords.y || 0) * 100 - 1}%`} width="22" height="22" rx="3" fill="#FFE066" opacity="0.92"/>
                 <text x={`${(coords.x || 0) * 100}%`} y={`${(coords.y || 0) * 100}%`} textAnchor="middle" dominantBaseline="central" fontSize="11" style={{ transform: `translate(10px, 10px)` }}>📝</text>
                 {a.comment_text && (
@@ -4271,7 +4397,7 @@
                       return true;
                     }).filter(a => {
                       if (!feedbackViewerFilter) return true;
-                      const viewer = (a.viewer_email_masked || a.session_id || '').toLowerCase();
+                      const viewer = (a.viewer_email || a.display_name || '').toLowerCase();
                       return viewer.includes(feedbackViewerFilter.toLowerCase());
                     });
                     if (shown.length === 0) return (
@@ -4281,7 +4407,7 @@
                       <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                         <thead>
                           <tr style={{ borderBottom: `1px solid ${C.border}` }}>
-                            {['Viewer', 'Page', 'Message', 'Replies', 'Status', 'Created', ''].map(h => (
+                            {['Reviewer', 'Page', 'Comment', 'Replies', 'Status', 'Created At', ''].map(h => (
                               <th key={h} style={{ ...label(9), padding: '9px 14px', textAlign: 'left', fontWeight: 600, color: C.textDim }}>{h}</th>
                             ))}
                           </tr>
@@ -4291,8 +4417,20 @@
                             <React.Fragment key={a.id}>
                               {/* Top-level feedback row */}
                               <tr style={{ borderTop: `1px solid ${C.border}`, background: a.resolved_at ? C.successBg : 'transparent' }}>
-                                <td style={{ padding: '9px 14px', fontSize: 11, color: C.textMuted, ...mono }}>
-                                  {a.viewer_email_masked || (a.session_id?.slice(0, 8) + '…')}
+                                <td style={{ padding: '9px 14px', fontSize: 11, ...mono }}>
+                                  <span
+                                    onClick={() => a.viewer_email && setFeedbackViewerFilter(a.viewer_email)}
+                                    title={a.viewer_email ? 'Filter feedback by this reviewer (Reviewer Directory coming soon)' : undefined}
+                                    style={{
+                                      cursor: a.viewer_email ? 'pointer' : 'default',
+                                      color: a.viewer_email ? C.teal2 : C.textPrimary,
+                                      fontWeight: 600,
+                                      textDecoration: a.viewer_email ? 'underline' : 'none',
+                                    }}
+                                  >
+                                    {a.display_name || 'Anonymous Viewer'}
+                                  </span>
+                                  <div style={{ fontSize: 10, color: C.textMuted, marginTop: 2 }}>{a.viewer_email || '—'}</div>
                                   <div style={{ fontSize: 9, color: C.textDim, marginTop: 2 }}>{a.annotation_type}</div>
                                 </td>
                                 <td style={{ padding: '9px 14px', fontSize: 11, color: C.textSecondary, whiteSpace: 'nowrap' }}>p.{a.page_number}</td>
@@ -4321,9 +4459,12 @@
                               {/* Existing replies (indented) */}
                               {(a.replies || []).map(r => (
                                 <tr key={r.id} style={{ borderTop: `1px solid ${C.border}`, background: C.surfaceAlt }}>
-                                  <td style={{ padding: '7px 14px 7px 28px', fontSize: 11, color: C.textMuted, ...mono }}>
+                                  <td style={{ padding: '7px 14px 7px 28px', fontSize: 11, ...mono }}>
                                     <span style={{ color: C.teal3, marginRight: 6 }}>↳</span>
-                                    {r.viewer_email_masked || (r.session_id?.slice(0, 8) + '…')}
+                                    <span style={{ color: r.author_role === 'uploader' ? C.teal2 : C.textPrimary, fontWeight: 600 }}>
+                                      {r.display_name}{r.author_role === 'uploader' ? ' (you)' : ''}
+                                    </span>
+                                    {r.viewer_email && <span style={{ marginLeft: 6, color: C.textDim, fontSize: 10 }}>{r.viewer_email}</span>}
                                   </td>
                                   <td style={{ padding: '7px 14px', fontSize: 11, color: C.textSecondary }}>p.{r.page_number}</td>
                                   <td colSpan={3} style={{ padding: '7px 14px', fontSize: 11, color: C.textPrimary }}>
@@ -4358,9 +4499,7 @@
                                         <Btn variant="primary" size="sm" onClick={async () => {
                                           if (!replyText.trim()) return;
                                           try {
-                                            const linkToken = activeLinks[0]?.token;
-                                            if (!linkToken) { toast('No active share link — create one first', 'warning'); return; }
-                                            await window.SecureDocAPI.replyToAnnotation(linkToken, a.id, replyText.trim(), 'owner-reply', a.page_number);
+                                            await window.SecureDocAPI.replyToFeedback(docId, a.id, replyText.trim());
                                             setReplyDraft(null);
                                             setReplyText('');
                                             await fetchFeedback();

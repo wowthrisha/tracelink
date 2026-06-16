@@ -32,8 +32,10 @@ from app.middleware.rate_limit import limiter
 from app.models.annotation import ViewerAnnotation, ViewerBookmark, VALID_ANNOTATION_TYPES, FEEDBACK_TYPES, ANNOTATION_TYPES
 from app.models.document import Document
 from app.models.link import ShareLink
+from app.models.viewer_profile import ViewerProfile
 from app.services.policy import enforcer as policy_enforcer
 from app.services.viewer_cache import link_cache, LinkSnapshot
+from app.services.viewer_profile import derive_display_name
 
 logger = logging.getLogger(__name__)
 
@@ -135,6 +137,19 @@ class BookmarkCreate(BaseModel):
     label: Optional[str] = None
 
 
+class AnnotationReplyCreate(BaseModel):
+    comment_text: str
+
+    @field_validator("comment_text")
+    @classmethod
+    def check_comment(cls, v):
+        if not v or not v.strip():
+            raise ValueError("comment_text is required")
+        if len(v) > _MAX_COMMENT_LEN:
+            raise ValueError(f"comment_text must be ≤ {_MAX_COMMENT_LEN} characters")
+        return v
+
+
 # ── Shared auth helpers ───────────────────────────────────────────────────────
 
 def _get_session_id(request: Request) -> Optional[str]:
@@ -198,8 +213,53 @@ async def _resolve_link_and_verify_session(
     return link_row, session_id
 
 
-def _serialize_annotation(a: ViewerAnnotation) -> dict:
-    return {
+_UPLOADER_SESSION_PREFIX = "uploader:"
+
+
+def _is_uploader_row(session_id: Optional[str]) -> bool:
+    return bool(session_id and session_id.startswith(_UPLOADER_SESSION_PREFIX))
+
+
+def _resolve_display_name(
+    session_id: Optional[str],
+    viewer_email: Optional[str],
+    profile_display_name: Optional[str] = None,
+) -> str:
+    """Best-effort human name for an annotation/reply row.
+
+    Uploader replies (session_id prefixed "uploader:") have no ViewerProfile —
+    derive a name from the uploader's own email, or fall back to a generic
+    label. Viewer rows prefer the persisted ViewerProfile.display_name (lets
+    a future profile-edit feature override the heuristic) before falling back
+    to deriving one from the email, then to "Anonymous Viewer".
+    """
+    if _is_uploader_row(session_id):
+        return derive_display_name(viewer_email) if viewer_email else "Document Owner"
+    if profile_display_name:
+        return profile_display_name
+    if viewer_email:
+        return derive_display_name(viewer_email)
+    return "Anonymous Viewer"
+
+
+async def _profile_display_names(db: AsyncSession, annotations) -> dict:
+    """Batch-resolve ViewerProfile.display_name for a list of annotation rows,
+    avoiding one query per row."""
+    ids = {str(a.viewer_profile_id) for a in annotations if a.viewer_profile_id}
+    if not ids:
+        return {}
+    rows = (
+        await db.execute(select(ViewerProfile.id, ViewerProfile.display_name).where(ViewerProfile.id.in_(ids)))
+    ).all()
+    return {str(r.id): r.display_name for r in rows}
+
+
+def _serialize_annotation(
+    a: ViewerAnnotation,
+    profile_display_name: Optional[str] = None,
+    full_identity: bool = False,
+) -> dict:
+    d = {
         "id": str(a.id),
         "page_number": a.page_number,
         "annotation_type": a.annotation_type,
@@ -209,11 +269,20 @@ def _serialize_annotation(a: ViewerAnnotation) -> dict:
         "thickness": a.thickness,
         "resolved_at": a.resolved_at.isoformat() if a.resolved_at else None,
         "parent_id": str(a.parent_id) if a.parent_id else None,
-        "session_id": a.session_id[:6] + "…",  # only the prefix — never expose full session IDs
+        "session_id": (a.session_id[:6] + "…") if a.session_id else None,  # only the prefix — never expose full session IDs
         "viewer_email_masked": a.viewer_email_masked,
+        "display_name": _resolve_display_name(a.session_id, a.viewer_email, profile_display_name),
+        "author_role": "uploader" if _is_uploader_row(a.session_id) else "viewer",
         "created_at": a.created_at.isoformat() if a.created_at else None,
         "updated_at": a.updated_at.isoformat() if a.updated_at else None,
     }
+    # Full plaintext identity (viewer_email, viewer_profile_id) is only ever
+    # returned to document-owner/admin-authenticated endpoints — never to the
+    # public viewer-facing annotation/thread endpoints.
+    if full_identity:
+        d["viewer_profile_id"] = str(a.viewer_profile_id) if a.viewer_profile_id else None
+        d["viewer_email"] = a.viewer_email
+    return d
 
 
 # ── GET annotations for page ──────────────────────────────────────────────────
@@ -243,9 +312,10 @@ async def get_page_annotations(
         )
     ).scalars().all()
 
+    names = await _profile_display_names(db, rows)
     return {
         "page_number": page_number,
-        "annotations": [_serialize_annotation(a) for a in rows],
+        "annotations": [_serialize_annotation(a, profile_display_name=names.get(str(a.viewer_profile_id))) for a in rows],
         # Flag which annotations belong to the requesting viewer so the UI
         # can show edit/delete controls only for the owner's own annotations.
         "own_session_prefix": session_id[:6],
@@ -264,7 +334,9 @@ async def create_annotation(
 ):
     link_row, session_id = await _resolve_link_and_verify_session(token, request, db)
 
-    # Guard: visual annotations cannot have replies
+    # Guard: visual annotations cannot have replies. Also normalize parent_id
+    # to the thread root so replies never nest more than one level deep —
+    # matches get_annotation_thread, which only fetches depth-1 replies.
     if body.parent_id:
         parent_annot = await db.get(ViewerAnnotation, body.parent_id)
         if parent_annot is not None and parent_annot.annotation_type in ANNOTATION_TYPES:
@@ -272,6 +344,8 @@ async def create_annotation(
                 status_code=422,
                 detail="Visual annotations (highlight/draw/rectangle/arrow) cannot have replies",
             )
+        if parent_annot is not None and parent_annot.parent_id:
+            body.parent_id = str(parent_annot.parent_id)
 
     # Validate page number against document page count
     from app.models.document import Document
@@ -513,10 +587,11 @@ async def list_document_annotations(
 
     rows = (await db.execute(q.order_by(ViewerAnnotation.created_at))).all()
 
+    names = await _profile_display_names(db, [row[0] for row in rows])
     annotations = []
     for row in rows:
         a = row[0]
-        d = _serialize_annotation(a)
+        d = _serialize_annotation(a, profile_display_name=names.get(str(a.viewer_profile_id)), full_identity=True)
         d["link_label"] = row.link_label or ""
         d["link_token"] = row.link_token
         annotations.append(d)
@@ -543,13 +618,13 @@ async def export_annotations(
         raise HTTPException(status_code=403, detail="Access denied")
 
     # Collect all annotations across all links for this document
-    from sqlalchemy import text as _sql
     rows = (
         await db.execute(
             select(
                 ViewerAnnotation.id,
                 ViewerAnnotation.session_id,
-                ViewerAnnotation.viewer_email_masked,
+                ViewerAnnotation.viewer_email,
+                ViewerProfile.display_name.label("profile_display_name"),
                 ViewerAnnotation.page_number,
                 ViewerAnnotation.annotation_type,
                 ViewerAnnotation.comment_text,
@@ -557,6 +632,7 @@ async def export_annotations(
                 ShareLink.label.label("link_label"),
             )
             .join(ShareLink, ShareLink.id == ViewerAnnotation.link_id)
+            .outerjoin(ViewerProfile, ViewerProfile.id == ViewerAnnotation.viewer_profile_id)
             .where(ShareLink.document_id == doc.id)
             .order_by(ViewerAnnotation.created_at)
         )
@@ -566,16 +642,15 @@ async def export_annotations(
         buf = io.StringIO()
         writer = csv.writer(buf)
         writer.writerow([
-            "annotation_id", "link_label", "viewer_email_masked",
-            "session_prefix", "page_number", "annotation_type",
-            "comment_text", "created_at",
+            "annotation_id", "link_label", "reviewer_name", "reviewer_email",
+            "page_number", "annotation_type", "comment_text", "created_at",
         ])
         for r in rows:
             writer.writerow([
                 r.id,
                 r.link_label or "",
-                r.viewer_email_masked or "anonymous",
-                r.session_id[:6] if r.session_id else "",
+                _resolve_display_name(r.session_id, r.viewer_email, r.profile_display_name),
+                r.viewer_email or "",
                 r.page_number,
                 r.annotation_type,
                 r.comment_text or "",
@@ -617,11 +692,80 @@ async def get_annotation_thread(
         .order_by(ViewerAnnotation.created_at)
     )).scalars().all()
 
+    names = await _profile_display_names(db, [root, *replies])
     return {
-        "root": _serialize_annotation(root),
-        "replies": [_serialize_annotation(r) for r in replies],
+        "root": _serialize_annotation(root, profile_display_name=names.get(str(root.viewer_profile_id))),
+        "replies": [
+            _serialize_annotation(r, profile_display_name=names.get(str(r.viewer_profile_id))) for r in replies
+        ],
         "own_session_prefix": session_id[:6],
     }
+
+
+# ── Uploader: reply to a feedback thread (dashboard JWT, no viewer session) ──
+
+@router.post("/api/documents/{doc_id}/feedback/{annotation_id}/reply", status_code=201)
+@limiter.limit("30/minute")
+async def reply_to_feedback(
+    request: Request,
+    doc_id: str,
+    annotation_id: str,
+    body: AnnotationReplyCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """Uploader reply to a viewer's feedback thread.
+
+    Authenticated via the dashboard JWT only — deliberately independent of
+    any viewer share-link session. The uploader is not a link viewer, so
+    routing replies through the viewer session endpoint (as before) meant a
+    stale/expired viewer session produced a spurious "Session not recognized"
+    401 on every reply attempt.
+    """
+    doc = (await db.execute(select(Document).where(Document.id == doc_id))).scalar_one_or_none()
+    if doc is None:
+        raise HTTPException(status_code=404, detail="Document not found")
+    if str(doc.user_id) != str(current_user["user_id"]):
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    target = await db.get(ViewerAnnotation, annotation_id)
+    if target is None:
+        raise HTTPException(status_code=404, detail="Annotation not found")
+
+    link_row = (await db.execute(select(ShareLink).where(ShareLink.id == target.link_id))).scalar_one_or_none()
+    if link_row is None or str(link_row.document_id) != str(doc.id):
+        raise HTTPException(status_code=404, detail="Annotation not found")
+
+    if target.annotation_type not in FEEDBACK_TYPES:
+        raise HTTPException(status_code=422, detail="Replies are only allowed on feedback (comment/sticky_note) threads")
+
+    # Always attach the reply to the thread root, even if the uploader is
+    # replying to what is itself already a reply — keeps threads flat at one
+    # level, matching get_annotation_thread's depth-1 fetch.
+    root_id = str(target.parent_id) if target.parent_id else str(target.id)
+
+    uploader_email = (current_user.get("email") or "").strip().lower() or None
+    reply = ViewerAnnotation(
+        link_id=target.link_id,
+        session_id=f"{_UPLOADER_SESSION_PREFIX}{current_user['user_id']}",
+        viewer_email_masked=None,
+        viewer_email=uploader_email,
+        viewer_profile_id=None,
+        page_number=target.page_number,
+        annotation_type="comment",
+        coords=target.coords,
+        comment_text=body.comment_text,
+        thickness=2,
+        parent_id=root_id,
+        created_at=datetime.now(timezone.utc),
+        updated_at=datetime.now(timezone.utc),
+    )
+    db.add(reply)
+    await db.commit()
+    await db.refresh(reply)
+
+    logger.info("[feedback] uploader reply created doc=%s thread=%s", doc_id, root_id)
+    return _serialize_annotation(reply, full_identity=True)
 
 
 # ── Uploader: list feedback (comment + sticky_note) ───────────────────────────
@@ -662,6 +806,8 @@ async def list_document_feedback(
     tops = [row for row in rows if row[0].parent_id is None]
     reply_rows = [row for row in rows if row[0].parent_id is not None]
 
+    names = await _profile_display_names(db, [row[0] for row in rows])
+
     # Count replies per parent
     reply_counts: dict = {}
     replies_by_parent: dict = {}
@@ -669,12 +815,14 @@ async def list_document_feedback(
         a = row[0]
         pid = str(a.parent_id)
         reply_counts[pid] = reply_counts.get(pid, 0) + 1
-        replies_by_parent.setdefault(pid, []).append(_serialize_annotation(a))
+        replies_by_parent.setdefault(pid, []).append(
+            _serialize_annotation(a, profile_display_name=names.get(str(a.viewer_profile_id)), full_identity=True)
+        )
 
     feedback = []
     for row in tops:
         a = row[0]
-        d = _serialize_annotation(a)
+        d = _serialize_annotation(a, profile_display_name=names.get(str(a.viewer_profile_id)), full_identity=True)
         d["link_label"] = row.link_label or ""
         d["reply_count"] = reply_counts.get(str(a.id), 0)
         d["replies"] = replies_by_parent.get(str(a.id), [])
@@ -703,7 +851,9 @@ async def export_feedback(
     rows = (await db.execute(
         select(
             ViewerAnnotation.id,
-            ViewerAnnotation.viewer_email_masked,
+            ViewerAnnotation.session_id,
+            ViewerAnnotation.viewer_email,
+            ViewerProfile.display_name.label("profile_display_name"),
             ViewerAnnotation.page_number,
             ViewerAnnotation.annotation_type,
             ViewerAnnotation.comment_text,
@@ -713,6 +863,7 @@ async def export_feedback(
             ShareLink.label.label("link_label"),
         )
         .join(ShareLink, ShareLink.id == ViewerAnnotation.link_id)
+        .outerjoin(ViewerProfile, ViewerProfile.id == ViewerAnnotation.viewer_profile_id)
         .where(
             ShareLink.document_id == doc.id,
             ViewerAnnotation.annotation_type.in_(list(FEEDBACK_TYPES)),
@@ -730,16 +881,21 @@ async def export_feedback(
     def _gen():
         buf = io.StringIO()
         writer = csv.writer(buf)
-        writer.writerow(["viewer_email", "page", "message", "reply_count", "status", "created_at"])
+        writer.writerow([
+            "Reviewer Name", "Reviewer Email", "Document", "Page",
+            "Comment", "Replies", "Status", "Created At",
+        ])
         for r in rows:
             if r.parent_id:
-                continue  # skip replies in top-level export
+                continue  # skip replies in top-level export — one row per thread
             writer.writerow([
-                r.viewer_email_masked or "anonymous",
+                _resolve_display_name(r.session_id, r.viewer_email, r.profile_display_name),
+                r.viewer_email or "",
+                doc.filename,
                 r.page_number,
                 r.comment_text or "",
                 reply_counts.get(str(r.id), 0),
-                "resolved" if r.resolved_at else "open",
+                "Resolved" if r.resolved_at else "Open",
                 r.created_at.isoformat() if r.created_at else "",
             ])
         yield buf.getvalue()
@@ -784,10 +940,11 @@ async def list_visual_annotations(
     )
 
     rows = (await db.execute(q)).all()
+    names = await _profile_display_names(db, [row[0] for row in rows])
     annotations = []
     for row in rows:
         a = row[0]
-        d = _serialize_annotation(a)
+        d = _serialize_annotation(a, profile_display_name=names.get(str(a.viewer_profile_id)), full_identity=True)
         d["link_label"] = row.link_label or ""
         annotations.append(d)
 
@@ -813,7 +970,9 @@ async def export_visual_annotations(
 
     rows = (await db.execute(
         select(
-            ViewerAnnotation.viewer_email_masked,
+            ViewerAnnotation.session_id,
+            ViewerAnnotation.viewer_email,
+            ViewerProfile.display_name.label("profile_display_name"),
             ViewerAnnotation.page_number,
             ViewerAnnotation.annotation_type,
             ViewerAnnotation.color,
@@ -821,6 +980,7 @@ async def export_visual_annotations(
             ShareLink.label.label("link_label"),
         )
         .join(ShareLink, ShareLink.id == ViewerAnnotation.link_id)
+        .outerjoin(ViewerProfile, ViewerProfile.id == ViewerAnnotation.viewer_profile_id)
         .where(
             ShareLink.document_id == doc.id,
             ViewerAnnotation.annotation_type.in_(list(ANNOTATION_TYPES)),
@@ -831,10 +991,11 @@ async def export_visual_annotations(
     def _gen():
         buf = io.StringIO()
         writer = csv.writer(buf)
-        writer.writerow(["viewer_email", "page", "annotation_type", "color", "created_at"])
+        writer.writerow(["reviewer_name", "reviewer_email", "page", "annotation_type", "color", "created_at"])
         for r in rows:
             writer.writerow([
-                r.viewer_email_masked or "anonymous",
+                _resolve_display_name(r.session_id, r.viewer_email, r.profile_display_name),
+                r.viewer_email or "",
                 r.page_number,
                 r.annotation_type,
                 r.color or "",

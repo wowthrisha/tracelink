@@ -683,6 +683,17 @@ window.SecureDocAPI = {
     return r.json();
   },
 
+  async replyToFeedback(docId, annotationId, commentText) {
+    const r = await fetch(`${API_BASE}/api/documents/${docId}/feedback/${annotationId}/reply`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      body: JSON.stringify({ comment_text: commentText }),
+    });
+    if (r.status === 401) { _clearAndReload(); return; }
+    if (!r.ok) throw await r.json().catch(() => ({ detail: 'Failed to post reply' }));
+    return r.json();
+  },
+
   async exportFeedback(docId) {
     const r = await fetch(`${API_BASE}/api/documents/${docId}/feedback/export`, {
       headers: { ...authHeaders() },
