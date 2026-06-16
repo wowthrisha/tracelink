@@ -418,29 +418,25 @@ class TestCsvExportContents:
             content += chunk.encode() if isinstance(chunk, str) else chunk
         lines = content.decode().splitlines()
         assert lines[0] == (
-            "Document Name,Document ID,Root Comment ID,Thread ID,Parent Message ID,"
-            "Page Number,Viewer Name,Viewer Email,Author Role,Message Text,"
-            "Created At,Status,Reply Count"
+            "Document,Page,Reviewer,Reviewer Email,Conversation,"
+            "Status,First Comment,Last Activity"
         )
 
-        data_rows = [l for l in lines[1:] if l.strip()]
-        assert len(data_rows) == 2  # one row per message: root + the uploader reply
+        body = "\n".join(lines[1:])
+        # one row per THREAD — root and reply are flattened into one Conversation cell
+        assert "Please clarify this clause" in body
+        assert "uploader reply" in body
+        assert "[Viewer]" in body
+        assert "[Uploader]" in body
+        assert "jane.smith@example.com" in body
+        assert "report.pdf" in body
+        assert "Open" in body
 
-        root_row = next(r for r in data_rows if "Please clarify this clause" in r)
-        assert "jane.smith@example.com" in root_row
-        assert "report.pdf" in root_row
-        assert ",viewer," in root_row
-        assert root_row.endswith(",Open,1")  # status + reply count, shared across the thread
-        assert str(comment.id) in root_row  # root comment id == thread id
-
-        reply_row = next(r for r in data_rows if "uploader reply" in r)
-        assert ",uploader," in reply_row
-        assert str(comment.id) in reply_row  # parent message id points at the root
-        assert reply_row.endswith(",Open,1")
-
+        # no internal IDs (document/thread/comment/parent) anywhere in the export
+        assert str(comment.id) not in body
+        assert str(doc.id) not in body
         # no hashed/raw session ids anywhere in the export
-        assert comment.session_id not in root_row
-        assert comment.session_id not in reply_row
+        assert comment.session_id not in body
 
 
 # ─── Thread filtering (date range / page number / author role / search) ────

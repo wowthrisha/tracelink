@@ -682,12 +682,23 @@ window.SecureDocAPI = {
     if (f.date_to) params.set('date_to', f.date_to);
     if (f.page_number !== null && f.page_number !== undefined && !Number.isNaN(f.page_number)) params.set('page_number', String(f.page_number));
     if (f.author_role) params.set('author_role', f.author_role);
+    if (f.reviewer) params.set('reviewer', f.reviewer);
     const r = await fetch(`${API_BASE}/api/documents/${docId}/feedback?${params}`, {
       headers: { ...authHeaders() },
     });
     if (r.status === 401) { _clearAndReload(); return; }
     if (!r.ok) throw await r.json().catch(() => ({ detail: 'Failed to load feedback' }));
     return r.json();
+  },
+
+  async getFeedbackReviewers(docId) {
+    const r = await fetch(`${API_BASE}/api/documents/${docId}/feedback/reviewers`, {
+      headers: { ...authHeaders() },
+    });
+    if (r.status === 401) { _clearAndReload(); return; }
+    if (!r.ok) throw await r.json().catch(() => ({ detail: 'Failed to load reviewers' }));
+    const data = await r.json();
+    return data.reviewers || [];
   },
 
   async replyToFeedback(docId, annotationId, commentText) {
@@ -710,6 +721,7 @@ window.SecureDocAPI = {
     if (f.date_to) params.set('date_to', f.date_to);
     if (f.page_number !== null && f.page_number !== undefined && !Number.isNaN(f.page_number)) params.set('page_number', String(f.page_number));
     if (f.author_role) params.set('author_role', f.author_role);
+    if (f.reviewer) params.set('reviewer', f.reviewer);
     const r = await fetch(`${API_BASE}/api/documents/${docId}/feedback/export?${params}`, {
       headers: { ...authHeaders() },
     });
@@ -719,7 +731,9 @@ window.SecureDocAPI = {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `feedback_threads_${docId.slice(0, 8)}.csv`;
+    const disposition = r.headers.get('Content-Disposition') || '';
+    const match = disposition.match(/filename="([^"]+)"/);
+    a.download = match ? match[1] : `feedback_conversations_${docId.slice(0, 8)}.csv`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);

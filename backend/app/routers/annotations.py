@@ -290,6 +290,7 @@ def _message_matches_filters(
     date_to: Optional[datetime],
     page_number: Optional[int],
     author_role: Optional[str],
+    reviewer_email: Optional[str] = None,
 ) -> bool:
     """True if a single message (root or reply) satisfies every active filter."""
     if page_number is not None and a.page_number != page_number:
@@ -298,6 +299,8 @@ def _message_matches_filters(
         role = "uploader" if _is_uploader_row(a.session_id) else "viewer"
         if role != author_role:
             return False
+    if reviewer_email is not None and (a.viewer_email or "").lower() != reviewer_email.lower():
+        return False
     created_at = _as_aware_utc(a.created_at)
     if date_from is not None and (created_at is None or created_at < date_from):
         return False
@@ -840,16 +843,18 @@ async def list_document_feedback(
     date_to: Optional[str] = None,
     page_number: Optional[int] = None,
     author_role: Optional[str] = None,
+    reviewer: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
     """List only FEEDBACK_TYPES (comment, sticky_note) with nested replies.
     Only the document owner can access this endpoint.
 
-    `search`, `date_from`, `date_to`, `page_number` and `author_role` all
-    match against EVERY message in a thread (root and replies) — a thread is
-    included if any one of its messages satisfies all active filters. This
-    means a thread can surface because a reply (not the root) matches.
+    `search`, `date_from`, `date_to`, `page_number`, `author_role` and
+    `reviewer` (an exact viewer email, case-insensitive) all match against
+    EVERY message in a thread (root and replies) — a thread is included if
+    any one of its messages satisfies all active filters. This means a
+    thread can surface because a reply (not the root) matches.
     """
     try:
         doc_uuid = doc_id if isinstance(doc_id, uuid.UUID) else uuid.UUID(doc_id)
@@ -913,7 +918,7 @@ async def list_document_feedback(
     for row in tops:
         a = row[0]
         thread_msgs = [a, *replies_raw_by_parent.get(str(a.id), [])]
-        if not _thread_matches_filters(thread_msgs, date_from=df, date_to=dt_, page_number=page_number, author_role=author_role):
+        if not _thread_matches_filters(thread_msgs, date_from=df, date_to=dt_, page_number=page_number, author_role=author_role, reviewer_email=reviewer):
             continue
         if search_l:
             names_for_thread = [names.get(str(m.viewer_profile_id)) or _resolve_display_name(m.session_id, m.viewer_email) for m in thread_msgs]
@@ -929,6 +934,55 @@ async def list_document_feedback(
     return {"feedback": feedback, "total": len(feedback)}
 
 
+# ── Uploader: distinct reviewers for the Feedback filter dropdown ────────────
+
+@router.get("/api/documents/{doc_id}/feedback/reviewers")
+@limiter.limit("30/minute")
+async def list_feedback_reviewers(
+    request: Request,
+    doc_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """Distinct viewers who have left feedback (comment/sticky_note) on this
+    document — powers the Reviewer filter dropdown so a user picks from a
+    list instead of typing an exact email."""
+    try:
+        doc_uuid = doc_id if isinstance(doc_id, uuid.UUID) else uuid.UUID(doc_id)
+    except (ValueError, AttributeError, TypeError):
+        raise HTTPException(status_code=400, detail="Invalid document ID")
+    doc = (await db.execute(select(Document).where(Document.id == doc_uuid))).scalar_one_or_none()
+    if doc is None:
+        raise HTTPException(status_code=404, detail="Document not found")
+    if str(doc.user_id) != str(current_user["user_id"]):
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    rows = (
+        await db.execute(
+            select(ViewerAnnotation, ShareLink.label.label("link_label"))
+            .join(ShareLink, ShareLink.id == ViewerAnnotation.link_id)
+            .where(
+                ShareLink.document_id == doc.id,
+                ViewerAnnotation.annotation_type.in_(list(FEEDBACK_TYPES)),
+            )
+        )
+    ).all()
+    annots = [row[0] for row in rows if not _is_uploader_row(row[0].session_id)]
+    names = await _profile_display_names(db, annots)
+
+    seen: dict = {}
+    for a in annots:
+        if not a.viewer_email:
+            continue
+        key = a.viewer_email.lower()
+        if key not in seen:
+            seen[key] = names.get(str(a.viewer_profile_id)) or _resolve_display_name(a.session_id, a.viewer_email)
+
+    reviewers = [{"email": email, "name": name} for email, name in seen.items()]
+    reviewers.sort(key=lambda r: r["name"].lower())
+    return {"reviewers": reviewers}
+
+
 # ── Uploader: feedback CSV export ─────────────────────────────────────────────
 
 @router.get("/api/documents/{doc_id}/feedback/export")
@@ -942,16 +996,21 @@ async def export_feedback(
     date_to: Optional[str] = None,
     page_number: Optional[int] = None,
     author_role: Optional[str] = None,
+    reviewer: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    """Export the FULL thread (root + every reply) as CSV — one row per
-    message, not one row per thread. Document owner only.
+    """Export "Feedback Conversations" CSV — ONE ROW PER THREAD, written for
+    document owners/PMs/clients in Excel, not for re-importing into a
+    database. The entire back-and-forth (root + every reply, in chronological
+    order) is flattened into a single human-readable Conversation cell.
+    No internal IDs (document/thread/comment/parent) are exported — they are
+    meaningless outside this app.
 
-    Filters (resolved/search/date_from/date_to/page_number/author_role) are
-    the same as GET .../feedback and use the same any-message-in-thread
-    semantics: if a filter is satisfied by anything in a thread, the WHOLE
-    thread (every message in it) is exported, so the conversation is never
+    Filters (resolved/search/date_from/date_to/page_number/author_role/
+    reviewer) are the same as GET .../feedback and use the same
+    any-message-in-thread semantics: if a filter is satisfied by anything in
+    a thread, the WHOLE thread is exported, so the conversation is never
     truncated mid-way.
     """
     try:
@@ -1003,17 +1062,19 @@ async def export_feedback(
         haystack = " ".join(filter(None, [a.comment_text, name, a.viewer_email])).lower()
         return search_l in haystack
 
+    def _fmt_date(dt: Optional[datetime]) -> str:
+        return dt.strftime("%d %b %Y") if dt else ""
+
     def _gen():
         buf = io.StringIO()
         writer = csv.writer(buf)
         writer.writerow([
-            "Document Name", "Document ID", "Root Comment ID", "Thread ID", "Parent Message ID",
-            "Page Number", "Viewer Name", "Viewer Email", "Author Role", "Message Text",
-            "Created At", "Status", "Reply Count",
+            "Document", "Page", "Reviewer", "Reviewer Email", "Conversation",
+            "Status", "First Comment", "Last Activity",
         ])
         for root in tops:
             thread_msgs = [root, *replies_by_parent.get(str(root.id), [])]
-            if not _thread_matches_filters(thread_msgs, date_from=df, date_to=dt_, page_number=page_number, author_role=author_role):
+            if not _thread_matches_filters(thread_msgs, date_from=df, date_to=dt_, page_number=page_number, author_role=author_role, reviewer_email=reviewer):
                 continue
             thread_names = {
                 str(m.id): names.get(str(m.viewer_profile_id)) or _resolve_display_name(m.session_id, m.viewer_email)
@@ -1022,26 +1083,26 @@ async def export_feedback(
             if search_l and not any(_text_matches(m, thread_names[str(m.id)]) for m in thread_msgs):
                 continue
             status = "Resolved" if root.resolved_at else "Open"
-            reply_count = reply_counts.get(str(root.id), 0)
-            for m in thread_msgs:
-                writer.writerow([
-                    doc.filename,
-                    str(doc.id),
-                    str(root.id),
-                    str(root.id),
-                    str(m.parent_id) if m.parent_id else "",
-                    m.page_number,
-                    thread_names[str(m.id)],
-                    m.viewer_email or "",
-                    "uploader" if _is_uploader_row(m.session_id) else "viewer",
-                    m.comment_text or "",
-                    m.created_at.isoformat() if m.created_at else "",
-                    status,
-                    reply_count,
-                ])
+            conversation = "\n\n".join(
+                f"[{'Uploader' if _is_uploader_row(m.session_id) else 'Viewer'}]\n{m.comment_text or ''}"
+                for m in thread_msgs
+            )
+            first_comment = root.created_at
+            last_activity = max((m.created_at for m in thread_msgs if m.created_at), default=root.created_at)
+            writer.writerow([
+                doc.filename,
+                root.page_number,
+                thread_names[str(root.id)],
+                root.viewer_email or "",
+                conversation,
+                status,
+                _fmt_date(first_comment),
+                _fmt_date(last_activity),
+            ])
         yield buf.getvalue()
 
-    filename = f"feedback_threads_{doc_id[:8]}.csv"
+    safe_name = re.sub(r'[^A-Za-z0-9._-]+', '_', doc.filename.rsplit('.', 1)[0])[:60] or "document"
+    filename = f"feedback_conversations_{safe_name}.csv"
     return StreamingResponse(_gen(), media_type="text/csv",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'})
 
