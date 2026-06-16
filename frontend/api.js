@@ -632,7 +632,7 @@ window.SecureDocAPI = {
   async getDocumentAnnotations(docId, annotationType = null, resolved = null) {
     const params = new URLSearchParams();
     if (annotationType) params.set('annotation_type', annotationType);
-    if (resolved !== null) params.set('resolved', String(resolved));
+    if (typeof resolved === 'boolean') params.set('resolved', String(resolved));
     const r = await fetch(`${API_BASE}/api/documents/${docId}/annotations?${params}`, {
       headers: { ...authHeaders() },
     });
@@ -676,7 +676,7 @@ window.SecureDocAPI = {
     const params = new URLSearchParams();
     // Back-compat: a bare boolean/null was the old signature (resolved-only).
     const f = (filters !== null && typeof filters === 'object') ? filters : { resolved: filters };
-    if (f.resolved !== null && f.resolved !== undefined) params.set('resolved', String(f.resolved));
+    if (typeof f.resolved === 'boolean') params.set('resolved', String(f.resolved));
     if (f.search) params.set('search', f.search);
     if (f.date_from) params.set('date_from', f.date_from);
     if (f.date_to) params.set('date_to', f.date_to);
@@ -704,7 +704,7 @@ window.SecureDocAPI = {
   async exportFeedback(docId, filters = null) {
     const params = new URLSearchParams();
     const f = filters || {};
-    if (f.resolved !== null && f.resolved !== undefined) params.set('resolved', String(f.resolved));
+    if (typeof f.resolved === 'boolean') params.set('resolved', String(f.resolved));
     if (f.search) params.set('search', f.search);
     if (f.date_from) params.set('date_from', f.date_from);
     if (f.date_to) params.set('date_to', f.date_to);

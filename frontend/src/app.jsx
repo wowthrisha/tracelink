@@ -4026,6 +4026,7 @@
       const [feedbackDateTo, setFeedbackDateTo] = useState('');
       const [feedbackPage, setFeedbackPage] = useState('');
       const [feedbackRoleFilter, setFeedbackRoleFilter] = useState('all'); // 'all'|'viewer'|'uploader'
+      const [feedbackFiltersOpen, setFeedbackFiltersOpen] = useState(false); // collapsed by default
       const [replyDraft, setReplyDraft] = useState(null);
       const [replyText, setReplyText] = useState('');
       // Annotations tab state (highlight + draw + rectangle + arrow)
@@ -4391,44 +4392,6 @@
             {tab === 'feedback' && (
               <div className="fade-in" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                  <select value={feedbackFilter} onChange={e => setFeedbackFilter(e.target.value)}
-                    style={{ fontSize: 11, background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 6, padding: '4px 8px', color: C.textSecondary }}>
-                    <option value="all">All status</option>
-                    <option value="open">Open only</option>
-                    <option value="resolved">Resolved only</option>
-                  </select>
-                  <select value={feedbackRoleFilter} onChange={e => setFeedbackRoleFilter(e.target.value)}
-                    title="Match if ANY message in the thread (root or reply) was authored by this role"
-                    style={{ fontSize: 11, background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 6, padding: '4px 8px', color: C.textSecondary }}>
-                    <option value="all">All authors</option>
-                    <option value="viewer">Viewer messages</option>
-                    <option value="uploader">Uploader messages</option>
-                  </select>
-                  <input
-                    type="number" min="1" placeholder="Page #"
-                    value={feedbackPage}
-                    onChange={e => setFeedbackPage(e.target.value)}
-                    style={{ fontSize: 11, background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 6, padding: '4px 8px', color: C.textSecondary, width: 70 }}
-                  />
-                  <input
-                    type="date" value={feedbackDateFrom}
-                    onChange={e => setFeedbackDateFrom(e.target.value)}
-                    title="From date"
-                    style={{ fontSize: 11, background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 6, padding: '4px 8px', color: C.textSecondary }}
-                  />
-                  <input
-                    type="date" value={feedbackDateTo}
-                    onChange={e => setFeedbackDateTo(e.target.value)}
-                    title="To date"
-                    style={{ fontSize: 11, background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 6, padding: '4px 8px', color: C.textSecondary }}
-                  />
-                  <input
-                    placeholder="Search comments & replies…"
-                    value={feedbackViewerFilter}
-                    onChange={e => setFeedbackViewerFilter(e.target.value)}
-                    title="Searches root comments, uploader replies, and viewer replies"
-                    style={{ fontSize: 11, background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 6, padding: '4px 8px', color: C.textSecondary, width: 200 }}
-                  />
                   <Btn variant="ghost" size="sm" onClick={fetchFeedback}>↺ Refresh</Btn>
                   <select
                     value=""
@@ -4452,10 +4415,62 @@
                     <option value="threads">Export Feedback Threads</option>
                     <option value="reviewer_activity">Export Reviewer Activity</option>
                   </select>
+                  <Btn variant={feedbackFiltersOpen ? 'primary' : 'ghost'} size="sm" onClick={() => setFeedbackFiltersOpen(o => !o)}>
+                    ⚙ Filters {feedbackFiltersOpen ? '▲' : '▼'}
+                  </Btn>
                   <span style={{ ...mono, fontSize: 10, color: C.textMuted, marginLeft: 'auto' }}>
                     {feedbackItems.length} thread{feedbackItems.length !== 1 ? 's' : ''}
                   </span>
                 </div>
+
+                {feedbackFiltersOpen && (
+                  <Card noPad>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', padding: 12 }}>
+                      <select value={feedbackFilter} onChange={e => setFeedbackFilter(e.target.value)}
+                        style={{ fontSize: 11, background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 6, padding: '4px 8px', color: C.textSecondary }}>
+                        <option value="all">All status</option>
+                        <option value="open">Open only</option>
+                        <option value="resolved">Resolved only</option>
+                      </select>
+                      <select value={feedbackRoleFilter} onChange={e => setFeedbackRoleFilter(e.target.value)}
+                        title="Match if ANY message in the thread (root or reply) was authored by this role"
+                        style={{ fontSize: 11, background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 6, padding: '4px 8px', color: C.textSecondary }}>
+                        <option value="all">All authors</option>
+                        <option value="viewer">Viewer messages</option>
+                        <option value="uploader">Uploader messages</option>
+                      </select>
+                      <input
+                        type="number" min="1" placeholder="Page #"
+                        value={feedbackPage}
+                        onChange={e => setFeedbackPage(e.target.value)}
+                        style={{ fontSize: 11, background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 6, padding: '4px 8px', color: C.textSecondary, width: 70 }}
+                      />
+                      <input
+                        type="date" value={feedbackDateFrom}
+                        onChange={e => setFeedbackDateFrom(e.target.value)}
+                        title="From date"
+                        style={{ fontSize: 11, background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 6, padding: '4px 8px', color: C.textSecondary }}
+                      />
+                      <input
+                        type="date" value={feedbackDateTo}
+                        onChange={e => setFeedbackDateTo(e.target.value)}
+                        title="To date"
+                        style={{ fontSize: 11, background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 6, padding: '4px 8px', color: C.textSecondary }}
+                      />
+                      <input
+                        placeholder="Search comments & replies…"
+                        value={feedbackViewerFilter}
+                        onChange={e => setFeedbackViewerFilter(e.target.value)}
+                        title="Searches root comments, uploader replies, and viewer replies"
+                        style={{ fontSize: 11, background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 6, padding: '4px 8px', color: C.textSecondary, width: 200 }}
+                      />
+                      <Btn variant="ghost" size="sm" onClick={() => {
+                        setFeedbackFilter('all'); setFeedbackRoleFilter('all'); setFeedbackPage('');
+                        setFeedbackDateFrom(''); setFeedbackDateTo(''); setFeedbackViewerFilter('');
+                      }}>Clear filters</Btn>
+                    </div>
+                  </Card>
+                )}
 
                 <Card noPad>
                   {feedbackLoading ? (

@@ -17,6 +17,7 @@ import io
 import json
 import logging
 import re
+import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -850,7 +851,11 @@ async def list_document_feedback(
     included if any one of its messages satisfies all active filters. This
     means a thread can surface because a reply (not the root) matches.
     """
-    doc = (await db.execute(select(Document).where(Document.id == doc_id))).scalar_one_or_none()
+    try:
+        doc_uuid = doc_id if isinstance(doc_id, uuid.UUID) else uuid.UUID(doc_id)
+    except (ValueError, AttributeError, TypeError):
+        raise HTTPException(status_code=400, detail="Invalid document ID")
+    doc = (await db.execute(select(Document).where(Document.id == doc_uuid))).scalar_one_or_none()
     if doc is None:
         raise HTTPException(status_code=404, detail="Document not found")
     if str(doc.user_id) != str(current_user["user_id"]):
@@ -949,7 +954,11 @@ async def export_feedback(
     thread (every message in it) is exported, so the conversation is never
     truncated mid-way.
     """
-    doc = (await db.execute(select(Document).where(Document.id == doc_id))).scalar_one_or_none()
+    try:
+        doc_uuid = doc_id if isinstance(doc_id, uuid.UUID) else uuid.UUID(doc_id)
+    except (ValueError, AttributeError, TypeError):
+        raise HTTPException(status_code=400, detail="Invalid document ID")
+    doc = (await db.execute(select(Document).where(Document.id == doc_uuid))).scalar_one_or_none()
     if doc is None:
         raise HTTPException(status_code=404, detail="Document not found")
     if str(doc.user_id) != str(current_user["user_id"]):
@@ -1051,7 +1060,11 @@ async def export_reviewer_activity(
     reply count, and last activity timestamp on this document. Uploader
     replies are excluded — this export is about reviewers, not the
     document owner. Document owner only."""
-    doc = (await db.execute(select(Document).where(Document.id == doc_id))).scalar_one_or_none()
+    try:
+        doc_uuid = doc_id if isinstance(doc_id, uuid.UUID) else uuid.UUID(doc_id)
+    except (ValueError, AttributeError, TypeError):
+        raise HTTPException(status_code=400, detail="Invalid document ID")
+    doc = (await db.execute(select(Document).where(Document.id == doc_uuid))).scalar_one_or_none()
     if doc is None:
         raise HTTPException(status_code=404, detail="Document not found")
     if str(doc.user_id) != str(current_user["user_id"]):

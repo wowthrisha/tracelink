@@ -381,3 +381,66 @@ class TestCsvColumns:
         header_line = content.decode().splitlines()[0]
         cols = [c.strip() for c in header_line.split(",")]
         assert cols == ["reviewer_name", "reviewer_email", "page", "annotation_type", "color", "created_at"]
+
+
+# ─── Section 6: Feedback regression — boolean query param & doc lookup ───────
+
+class TestFeedbackEndpointRegression:
+    """Regression coverage for the Feedback tab UI bug report:
+
+    - A stale/mismatched frontend build can call getFeedback(docId, filtersObject)
+      against an old api.js signature of getFeedback(docId, resolvedBool). String()
+      on the object then yields the literal text "[object Object]", which is sent
+      as ?resolved=[object Object] and FastAPI/Pydantic rejects with exactly
+      "Input should be a valid boolean, unable to interpret input". Confirms the
+      endpoint's documented contract for that query param.
+    - GET/export endpoints previously compared a raw `str` path param directly
+      against the UUID-typed `Document.id` column, which crashes under any
+      non-native-UUID DB dialect (e.g. sqlite) — inconsistent with the
+      uuid.UUID(document_id) conversion pattern used in documents.py. Confirms
+      the endpoint now returns a valid payload instead of crashing.
+    """
+
+    @pytest.mark.asyncio
+    async def test_feedback_list_rejects_non_boolean_resolved(self, client, sample_document):
+        r = await client.get(
+            f"/api/documents/{sample_document.id}/feedback",
+            params={"resolved": "[object Object]"},
+        )
+        assert r.status_code == 422
+        detail = r.json()["detail"]
+        assert detail[0]["loc"] == ["query", "resolved"]
+        assert detail[0]["msg"] == "Input should be a valid boolean, unable to interpret input"
+
+    @pytest.mark.asyncio
+    async def test_feedback_list_accepts_valid_boolean_resolved(self, client, sample_document):
+        for value in ("true", "false"):
+            r = await client.get(
+                f"/api/documents/{sample_document.id}/feedback",
+                params={"resolved": value},
+            )
+            assert r.status_code == 200
+
+    @pytest.mark.asyncio
+    async def test_feedback_list_returns_valid_payload_with_real_db(self, client, sample_document):
+        """GET .../feedback must return 200 with a real ORM-backed document lookup,
+        not crash on the Document.id == doc_id comparison."""
+        r = await client.get(f"/api/documents/{sample_document.id}/feedback")
+        assert r.status_code == 200
+        body = r.json()
+        assert body == {"feedback": [], "total": 0}
+
+    @pytest.mark.asyncio
+    async def test_feedback_export_returns_valid_response_with_real_db(self, client, sample_document):
+        r = await client.get(f"/api/documents/{sample_document.id}/feedback/export")
+        assert r.status_code == 200
+
+    @pytest.mark.asyncio
+    async def test_reviewer_activity_export_returns_valid_response_with_real_db(self, client, sample_document):
+        r = await client.get(f"/api/documents/{sample_document.id}/feedback/export-reviewer-activity")
+        assert r.status_code == 200
+
+    @pytest.mark.asyncio
+    async def test_feedback_list_invalid_doc_id_format_returns_400_not_500(self, client):
+        r = await client.get("/api/documents/not-a-uuid/feedback")
+        assert r.status_code == 400
