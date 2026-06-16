@@ -2470,6 +2470,15 @@
         return { x: Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width)), y: Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height)) };
       };
 
+      // SVG path `d` cannot use "%" units (invalid path syntax — browsers drop the path).
+      // Convert normalized 0-1 points to real pixel coords using the live SVG box.
+      const _pathD = (pts) => {
+        const rect = svgRef.current?.getBoundingClientRect();
+        const w = rect?.width || 1;
+        const h = rect?.height || 1;
+        return pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${(p.x * w).toFixed(2)} ${(p.y * h).toFixed(2)}`).join(' ');
+      };
+
       const _onMouseDown = (e) => {
         if (!activeTool || e.button !== 0) return;
         e.preventDefault();
@@ -2574,7 +2583,7 @@
             if (a.annotation_type === 'draw') {
               const pts = Array.isArray(coords.points) ? coords.points : [];
               if (pts.length < 2) return null;
-              const d = pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x * 100}% ${p.y * 100}%`).join(' ');
+              const d = _pathD(pts);
               return (
                 <path key={a.id} d={d} stroke={col} strokeWidth={a.thickness || 2} fill="none" strokeLinecap="round" strokeLinejoin="round" opacity="0.9"
                   style={{ pointerEvents: isOwn && !activeTool ? 'all' : 'none', cursor: 'pointer' }}
@@ -2587,10 +2596,9 @@
           {preview && activeTool === 'highlight' && <rect x={`${preview.x * 100}%`} y={`${preview.y * 100}%`} width={`${preview.w * 100}%`} height={`${preview.h * 100}%`} fill="#FFE066" opacity="0.3" rx="2" style={{ pointerEvents: 'none' }}/>}
           {preview && activeTool === 'rectangle' && <rect x={`${preview.x * 100}%`} y={`${preview.y * 100}%`} width={`${preview.w * 100}%`} height={`${preview.h * 100}%`} fill="none" stroke="#5ac8d0" strokeWidth="1.5" rx="2" opacity="0.7" style={{ pointerEvents: 'none' }}/>}
           {preview && activeTool === 'arrow' && <line x1={`${preview.x1 * 100}%`} y1={`${preview.y1 * 100}%`} x2={`${preview.x2 * 100}%`} y2={`${preview.y2 * 100}%`} stroke="#5ac8d0" strokeWidth="1.8" opacity="0.7" style={{ pointerEvents: 'none' }}/>}
-          {preview && activeTool === 'draw' && drawPoints.length >= 2 && (() => {
-            const d = drawPoints.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x * 100}% ${p.y * 100}%`).join(' ');
-            return <path d={d} stroke="#5ac8d0" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" opacity="0.7" style={{ pointerEvents: 'none' }}/>;
-          })()}
+          {preview && activeTool === 'draw' && drawPoints.length >= 2 && (
+            <path d={_pathD(drawPoints)} stroke="#5ac8d0" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" opacity="0.7" style={{ pointerEvents: 'none' }}/>
+          )}
         </svg>
       );
     }
