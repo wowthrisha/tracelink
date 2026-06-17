@@ -1,8 +1,10 @@
-    import { LAYOUT, ZOOM_MIN, ZOOM_MAX, ZOOM_STEP, ZOOM_PRESETS, _saveLayoutPref, _loadLayoutPref } from './constants/viewer.js';
+    import { LAYOUT, ZOOM_MIN, ZOOM_MAX, ZOOM_STEP, ZOOM_PRESETS, _saveLayoutPref } from './constants/viewer.js';
     import { _errMsg } from './utils/viewer.js';
     import { useTextLoader } from './hooks/useTextLoader.js';
     import { useLinksSidecar } from './hooks/useLinksSidecar.js';
     import { useSearchHighlights } from './hooks/useSearchHighlights.js';
+    import { useAnnotations } from './hooks/useAnnotations.js';
+    import { useViewerLayout } from './hooks/useViewerLayout.js';
 
     const { useState, useEffect, useRef, useCallback, useContext, createContext } = React;
 
@@ -1211,15 +1213,6 @@
 
     function ViewerScreen({ doc, publicToken, onSelectDoc }) {
       const toast = useToast();
-      const [page, setPage] = useState(1);
-      // Layout system: fit-width, fit-height, custom zoom, or two-page
-      const _initPref = _loadLayoutPref();
-      const [layoutMode, setLayoutMode] = useState(_initPref.mode);
-      const [customZoom, setCustomZoom] = useState(_initPref.zoom);
-      // Legacy zoom alias (kept for sessionStorage restore compat)
-      const zoom = layoutMode === LAYOUT.CUSTOM ? customZoom : 100;
-      const [rotation, setRotation] = useState(0); // 0, 90, 180, 270
-      const [twoPageMode, setTwoPageMode] = useState(false);
       const [showInfo, setShowInfo] = useState(false);
       const [session, setSession] = useState(null);
       const [imgSrc, setImgSrc] = useState('');
@@ -1244,27 +1237,10 @@
       const [insightsData, setInsightsData] = useState(null);
       const [insightsLoading, setInsightsLoading] = useState(false);
       const [showLinks, setShowLinks] = useState(false);
-      const [isFullscreen, setIsFullscreen] = useState(false);
-      const [pageInputStr, setPageInputStr] = useState('');
       const [showPageList, setShowPageList] = useState(typeof window !== 'undefined' ? window.innerWidth > 640 : true);
       const [pageAspectRatio, setPageAspectRatio] = useState(null); // set from actual image dimensions
-      // Annotation state
-      const [annotTool, setAnnotTool] = useState(null); // null|'highlight'|'comment'|'rectangle'|'arrow'|'sticky_note'|'draw'
-      const [annotColor, setAnnotColor] = useState('#FFE066'); // active tool color
-      const [annotThickness, setAnnotThickness] = useState(2); // stroke thickness for draw/arrow/rect
-      const [annotUndoStack, setAnnotUndoStack] = useState([]); // [{annotId, page}] for undo
-      const [pageAnnotations, setPageAnnotations] = useState([]); // annotations for current page
-      const [commentDraft, setCommentDraft] = useState(null); // {x,y,coords,type} pending comment text
-      const [threadView, setThreadView] = useState(null); // {root, replies, loading} for open comment-thread modal
-      const [threadReplyText, setThreadReplyText] = useState('');
-      const [threadReplySending, setThreadReplySending] = useState(false);
-      const annotCacheRef = useRef(new Map()); // page → annotation[]
-      const [bookmarks, setBookmarks] = useState(new Set()); // bookmarked page numbers
-      const [drawingState, setDrawingState] = useState(null); // {startX,startY} normalized 0-1
       const pageImgRef = useRef(null);
       const pageContainerRef = useRef(null); // Feature 4: magnifier needs page container
-      // Phase 7: mobile/touch support — extended for pinch-to-zoom
-      const touchRef = useRef({ x: null, y: null, pinchDist: null });
       // Two-page view: second page image
       const [imgSrc2, setImgSrc2] = useState('');
       const [imgLoading2, setImgLoading2] = useState(false);
@@ -1412,6 +1388,22 @@
       const docId = doc?.id || '';
       const PAGE_COUNT = session?.page_count || 1;
       const isTextDoc = !!(session?.doc_type && ['txt', 'md', 'log'].includes(session.doc_type));
+
+      // Navigation, layout, and keyboard/session-persistence effects
+      const {
+        page, setPage,
+        pageInputStr, setPageInputStr,
+        twoPageMode, setTwoPageMode,
+        isFullscreen,
+        layoutMode, setLayoutMode,
+        customZoom, setCustomZoom,
+        rotation, setRotation,
+        goNext, goPrev,
+        _setLayout, _zoomBy, _zoomTo,
+        toggleFullscreen,
+        touchRef,
+      } = useViewerLayout(session, { onToggleSearch: () => setShowSearch(v => !v) });
+
       const { textContent, textLoading, textError } = useTextLoader(session, page, isTextDoc);
       const isTwoPage = twoPageMode;
       const pageStep = isTwoPage ? 2 : 1;
@@ -1578,63 +1570,6 @@
         if (pc >= 2) prefetchPage(session.link_token, 2, session.session_id, pc);
       }, [session?.link_token, session?.session_id, session?.doc_type]); // intentionally omit prefetchPage — stable ref
 
-      const goNext = useCallback(() => setPage(p => Math.min(p + pageStep, PAGE_COUNT)), [PAGE_COUNT, pageStep]);
-      const goPrev = useCallback(() => setPage(p => Math.max(p - pageStep, 1)), [pageStep]);
-
-      // Lazy-load annotations for the current page when annotations are enabled
-      useEffect(() => {
-        if (!session || !session.permissions?.can_annotate || isTextDoc) return;
-        if (annotCacheRef.current.has(page)) {
-          setPageAnnotations(annotCacheRef.current.get(page));
-          return;
-        }
-        window.SecureDocAPI.getAnnotations(session.link_token, page, session.session_id)
-          .then(data => {
-            const annots = data.annotations || [];
-            annotCacheRef.current.set(page, annots);
-            setPageAnnotations(annots);
-          })
-          .catch(() => {});
-      }, [session?.link_token, session?.session_id, page, session?.permissions?.can_annotate, isTextDoc]);
-
-      // Load bookmarks once on session start
-      useEffect(() => {
-        if (!session || !session.permissions?.can_annotate) return;
-        window.SecureDocAPI.getBookmarks(session.link_token, session.session_id)
-          .then(data => setBookmarks(new Set((data.bookmarks || []).map(b => b.page_number))))
-          .catch(() => {});
-      }, [session?.link_token, session?.session_id, session?.permissions?.can_annotate]);
-
-      // Layout helpers (stable identity — no setState in dep array needed)
-      const _setLayout = useCallback((mode, zoom) => {
-        setLayoutMode(mode);
-        if (zoom !== undefined) setCustomZoom(zoom);
-        _saveLayoutPref(mode, zoom !== undefined ? zoom : customZoom);
-      }, [customZoom]);
-
-      const _zoomBy = useCallback((delta) => {
-        setCustomZoom(z => {
-          const next = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, z + delta));
-          setLayoutMode(LAYOUT.CUSTOM);
-          _saveLayoutPref(LAYOUT.CUSTOM, next);
-          return next;
-        });
-      }, []);
-
-      const _zoomTo = useCallback((pct) => {
-        setCustomZoom(pct);
-        setLayoutMode(LAYOUT.CUSTOM);
-        _saveLayoutPref(LAYOUT.CUSTOM, pct);
-      }, []);
-
-      const toggleFullscreen = useCallback(() => {
-        if (!document.fullscreenElement) {
-          document.documentElement.requestFullscreen?.().catch(() => {});
-        } else {
-          document.exitFullscreen?.();
-        }
-      }, []);
-
       // Feature 2: search highlights — state, refs, word-position load effect
       const {
         searchHighlightQuery, setSearchHighlightQuery,
@@ -1657,53 +1592,21 @@
         },
       });
 
-      useEffect(() => {
-        const h = e => {
-          if (e.key === 'ArrowRight' || e.key === 'ArrowDown') goNext();
-          if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') goPrev();
-          // Ctrl+F / Cmd+F opens in-viewer search
-          if ((e.ctrlKey || e.metaKey) && e.key === 'f' && session) {
-            e.preventDefault();
-            setShowSearch(v => !v);
-          }
-        };
-        // Block browser native page-zoom from trackpad pinch (ctrlKey+wheel).
-        // Zoom is controlled ONLY by the toolbar +/− buttons.
-        const blockPinchZoom = e => { if (e.ctrlKey || e.metaKey) e.preventDefault(); };
-        window.addEventListener('keydown', h);
-        window.addEventListener('wheel', blockPinchZoom, { passive: false });
-        return () => {
-          window.removeEventListener('keydown', h);
-          window.removeEventListener('wheel', blockPinchZoom);
-        };
-      }, [goNext, goPrev, session, _zoomBy, _setLayout]);
-
-      // Phase 7: viewer state persistence — restore page/zoom from sessionStorage
-      useEffect(() => {
-        if (!session?.session_id) return;
-        try {
-          const saved = sessionStorage.getItem(`securedoc_vstate_${session.session_id}`);
-          if (saved) {
-            const { pg, zm } = JSON.parse(saved);
-            if (pg && pg >= 1 && pg <= (session.page_count || 1)) setPage(pg);
-            if (zm && zm >= ZOOM_MIN && zm <= ZOOM_MAX) {
-              setCustomZoom(zm);
-              setLayoutMode(LAYOUT.CUSTOM);
-            }
-          }
-        } catch {}
-      }, [session?.session_id]);
-
-      // Phase 7: save viewer state on change
-      useEffect(() => {
-        if (!session?.session_id) return;
-        try {
-          sessionStorage.setItem(
-            `securedoc_vstate_${session.session_id}`,
-            JSON.stringify({ pg: page, zm: customZoom })
-          );
-        } catch {}
-      }, [session?.session_id, page, customZoom]);
+      // Annotations, bookmarks, drawing, and comment-thread state + load effects
+      const {
+        annotTool, setAnnotTool,
+        annotColor, setAnnotColor,
+        annotThickness, setAnnotThickness,
+        annotUndoStack, setAnnotUndoStack,
+        pageAnnotations, setPageAnnotations,
+        commentDraft, setCommentDraft,
+        threadView, setThreadView,
+        threadReplyText, setThreadReplyText,
+        threadReplySending, setThreadReplySending,
+        bookmarks, setBookmarks,
+        drawingState, setDrawingState,
+        annotCacheRef,
+      } = useAnnotations(session, page, isTextDoc);
 
       // Phase 7: keep imgSrcRef in sync so loadPage (empty-deps callback) can
       // capture the current page URL for the crossfade background layer.
@@ -1718,12 +1621,6 @@
         document.addEventListener('visibilitychange', onVis);
         return () => document.removeEventListener('visibilitychange', onVis);
       }, [session]);
-
-      useEffect(() => {
-        const h = () => setIsFullscreen(!!document.fullscreenElement);
-        document.addEventListener('fullscreenchange', h);
-        return () => document.removeEventListener('fullscreenchange', h);
-      }, []);
 
       useEffect(() => {
         if (document.getElementById('sdoc-vx-styles')) return;
