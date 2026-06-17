@@ -2,6 +2,7 @@
     import { _errMsg } from './utils/viewer.js';
     import { useTextLoader } from './hooks/useTextLoader.js';
     import { useLinksSidecar } from './hooks/useLinksSidecar.js';
+    import { useSearchHighlights } from './hooks/useSearchHighlights.js';
 
     const { useState, useEffect, useRef, useCallback, useContext, createContext } = React;
 
@@ -1262,13 +1263,6 @@
       const [drawingState, setDrawingState] = useState(null); // {startX,startY} normalized 0-1
       const pageImgRef = useRef(null);
       const pageContainerRef = useRef(null); // Feature 4: magnifier needs page container
-      // Feature 2: search highlighting
-      const wordPositionsRef = useRef({}); // {pageNum: [{t,x,y,w,h}]}
-      const wordPositionsFetched = useRef(false); // avoid re-fetching after empty result
-      const [searchHighlightQuery, setSearchHighlightQuery] = useState('');
-      const [searchHighlights, setSearchHighlights] = useState([]);
-      const [searchResultPages, setSearchResultPages] = useState(new Set()); // pages with any match (for fallback glow)
-      const [activeHighlightIdx, setActiveHighlightIdx] = useState(0); // which match is orange
       // Phase 7: mobile/touch support — extended for pinch-to-zoom
       const touchRef = useRef({ x: null, y: null, pinchDist: null });
       // Two-page view: second page image
@@ -1641,6 +1635,15 @@
         }
       }, []);
 
+      // Feature 2: search highlights — state, refs, word-position load effect
+      const {
+        searchHighlightQuery, setSearchHighlightQuery,
+        searchHighlights,
+        searchResultPages, setSearchResultPages,
+        activeHighlightIdx, setActiveHighlightIdx,
+        wordPositionsRef, wordPositionsFetched,
+      } = useSearchHighlights(session, page);
+
       // Feature 1: hyperlink sidecar — state, refs, and load/auto-extract effects
       const {
         pageLinksRef,
@@ -1653,35 +1656,6 @@
           wordPositionsFetched.current = false;
         },
       });
-
-      // Feature 2: compute search highlights when page or query changes
-      const _computeHighlights = useCallback((pageNum, query) => {
-        if (!query) { setSearchHighlights([]); return; }
-        const words = wordPositionsRef.current[pageNum] || [];
-        const ql = query.toLowerCase();
-        setSearchHighlights(words.filter(w => w.t && w.t.toLowerCase().includes(ql)));
-      }, []);
-
-      useEffect(() => {
-        if (!searchHighlightQuery || !session?.link_token) {
-          setSearchHighlights([]);
-          return;
-        }
-        // If already fetched (even if empty), just recompute from what we have
-        if (wordPositionsFetched.current) {
-          _computeHighlights(page, searchHighlightQuery);
-          return;
-        }
-        wordPositionsFetched.current = true;
-        window.SecureDocAPI.getWordPositions(session.link_token, session.session_id)
-          .then(data => {
-            const map = {};
-            for (const p of (data.pages || [])) map[p.page] = p.words || [];
-            wordPositionsRef.current = map;
-            _computeHighlights(page, searchHighlightQuery);
-          })
-          .catch(() => {});
-      }, [searchHighlightQuery, page, session?.link_token, session?.session_id, _computeHighlights]);
 
       useEffect(() => {
         const h = e => {
