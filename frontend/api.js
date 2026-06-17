@@ -35,6 +35,17 @@ function _clearAndReload() {
   window.location.reload();
 }
 
+function _downloadBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
 window.SecureDocAPI = {
 
   // ── Auth ───────────────────────────────────────────────────────────────────
@@ -398,15 +409,7 @@ window.SecureDocAPI = {
       { headers: this.sessionHeaders(sessionId) }
     );
     if (!r.ok) throw await r.json().catch(() => ({ detail: 'Download failed' }));
-    const blob = await r.blob();
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename || 'document.pdf';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    _downloadBlob(await r.blob(), filename || 'document.pdf');
   },
 
   logEvent(token, sessionId, eventType, pageNumber = null, metadata = {}) {
@@ -618,15 +621,7 @@ window.SecureDocAPI = {
     });
     if (r.status === 401) { _clearAndReload(); return; }
     if (!r.ok) throw await r.json().catch(() => ({ detail: 'Export failed' }));
-    const blob = await r.blob();
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `annotations_${docId.slice(0, 8)}.csv`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    _downloadBlob(await r.blob(), `annotations_${docId.slice(0, 8)}.csv`);
   },
 
   async getDocumentAnnotations(docId, annotationType = null, resolved = null) {
@@ -727,17 +722,10 @@ window.SecureDocAPI = {
     });
     if (r.status === 401) { _clearAndReload(); return; }
     if (!r.ok) throw await r.json().catch(() => ({ detail: 'Export failed' }));
-    const blob = await r.blob();
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
     const disposition = r.headers.get('Content-Disposition') || '';
     const match = disposition.match(/filename="([^"]+)"/);
-    a.download = match ? match[1] : `feedback_conversations_${docId.slice(0, 8)}.csv`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    const filename = match ? match[1] : `feedback_conversations_${docId.slice(0, 8)}.csv`;
+    _downloadBlob(await r.blob(), filename);
   },
 
   async exportReviewerActivity(docId) {
@@ -746,15 +734,7 @@ window.SecureDocAPI = {
     });
     if (r.status === 401) { _clearAndReload(); return; }
     if (!r.ok) throw await r.json().catch(() => ({ detail: 'Export failed' }));
-    const blob = await r.blob();
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `reviewer_activity_${docId.slice(0, 8)}.csv`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    _downloadBlob(await r.blob(), `reviewer_activity_${docId.slice(0, 8)}.csv`);
   },
 
   async getVisualAnnotations(docId, annotationType = null) {
@@ -774,15 +754,7 @@ window.SecureDocAPI = {
     });
     if (r.status === 401) { _clearAndReload(); return; }
     if (!r.ok) throw await r.json().catch(() => ({ detail: 'Export failed' }));
-    const blob = await r.blob();
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `annotations_${docId.slice(0, 8)}.csv`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    _downloadBlob(await r.blob(), `annotations_${docId.slice(0, 8)}.csv`);
   },
 
   async getAnnotationThread(linkToken, annotationId, sessionId) {

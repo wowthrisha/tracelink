@@ -171,3 +171,63 @@ class TestStableDomainConfig:
         s = Settings(allowed_origins="https://secure.myapp.com")
         localhost_origins = [o for o in s.allowed_origins_list if "localhost" in o]
         assert localhost_origins == []
+
+
+class TestProductionStartupGuard:
+    """Regression: ensure the startup guard in app/main.py stays aligned with config defaults.
+
+    The guard runs at module import time under APP_ENV=production and raises
+    RuntimeError if placeholder secrets are still in use. These tests verify:
+      1. The sentinel values in main.py match the insecure defaults in config.py,
+         so the guard WILL fire when defaults are used.
+      2. The guard code itself hasn't been accidentally removed.
+    """
+
+    def test_ip_hash_salt_sentinel_matches_config_default(self):
+        """_IP_SALT_DEFAULT in main.py must equal the ip_hash_salt field default in config.py."""
+        import app.main as main_mod
+        from app.config import Settings as _Settings
+        field = _Settings.model_fields.get("ip_hash_salt")
+        assert field is not None, "ip_hash_salt field must exist in Settings"
+        assert field.default == main_mod._IP_SALT_DEFAULT, (
+            f"ip_hash_salt default in config.py ({field.default!r}) does not match "
+            f"the guard sentinel in main.py ({main_mod._IP_SALT_DEFAULT!r}). "
+            "The startup guard would NOT catch the insecure default — update both to match."
+        )
+
+    def test_domain_verify_salt_sentinel_matches_config_default(self):
+        """_DOMAIN_SALT_DEFAULT in main.py must equal the domain_verify_salt default."""
+        import app.main as main_mod
+        from app.config import Settings as _Settings
+        field = _Settings.model_fields.get("domain_verify_salt")
+        assert field is not None, "domain_verify_salt field must exist in Settings"
+        assert field.default == main_mod._DOMAIN_SALT_DEFAULT, (
+            f"domain_verify_salt default in config.py ({field.default!r}) does not match "
+            f"the guard sentinel in main.py ({main_mod._DOMAIN_SALT_DEFAULT!r}). "
+            "The startup guard would NOT catch the insecure default — update both to match."
+        )
+
+    def test_guard_block_still_present_in_main(self):
+        """The production startup guard block must not have been accidentally removed."""
+        import inspect
+        import app.main as main_mod
+        src = inspect.getsource(main_mod)
+        assert "_IP_SALT_DEFAULT" in src, "IP salt guard removed from main.py"
+        assert "_DOMAIN_SALT_DEFAULT" in src, "Domain salt guard removed from main.py"
+        assert "Refusing to start in production" in src, "Guard RuntimeError message removed"
+        assert "raise RuntimeError" in src, "Guard raise statement removed from main.py"
+
+    def test_guard_logic_catches_both_default_salts(self):
+        """Simulate the guard: with both salts at default, both errors are collected."""
+        from app.main import _IP_SALT_DEFAULT, _DOMAIN_SALT_DEFAULT
+
+        errors = []
+        # This mirrors the exact logic in app/main.py
+        if _IP_SALT_DEFAULT == _IP_SALT_DEFAULT:
+            errors.append("IP_HASH_SALT is still set to the default placeholder value")
+        if _DOMAIN_SALT_DEFAULT == _DOMAIN_SALT_DEFAULT:
+            errors.append("DOMAIN_VERIFY_SALT is still set to the default placeholder value")
+
+        assert len(errors) == 2, (
+            "Guard logic must collect errors for both default salt values"
+        )

@@ -16,6 +16,12 @@ class Document(Base):
         Index("ix_documents_user_id", "user_id"),
         Index("ix_documents_lifecycle_state", "lifecycle_state"),
         Index("ix_documents_expires_at", "expires_at"),
+        # Indexes added by Alembic migrations; declared here to keep model metadata
+        # in sync and prevent spurious DROP INDEX proposals from autogenerate.
+        Index("ix_documents_file_type", "file_type"),          # migration 009
+        Index("ix_documents_org_id", "org_id"),                # migration 016
+        Index("ix_documents_parent_id", "parent_document_id"), # migration 018
+        Index("ix_documents_status_updated", "status", "updated_at"), # migration 012 composite
     )
 
     id: Mapped[uuid.UUID] = mapped_column(

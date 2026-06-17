@@ -40,6 +40,9 @@ class AccessEvent(Base):
     __table_args__ = (
         Index("ix_access_events_created_at", "created_at"),
         Index("ix_access_events_link_id", "link_id"),
+        # Composite index added by migration 012; covers the analytics heatmap
+        # hot path (filter by link_id, order by created_at DESC).
+        Index("ix_access_events_link_id_created", "link_id", "created_at"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(

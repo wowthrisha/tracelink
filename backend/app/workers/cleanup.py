@@ -1,6 +1,12 @@
 """Daily storage cleanup worker.
 
-Three periodic tasks registered in Celery Beat (see celery_app.py):
+Four periodic tasks registered in Celery Beat (see celery_app.py):
+
+  securedoc.cleanup_orphaned_viewer_profiles — daily at 04:00 UTC
+    Deletes viewer_profiles rows that are no longer referenced by any
+    viewer_sessions or viewer_annotations row.  Closes the GDPR/CCPA
+    retention gap where a viewer's email persists indefinitely after every
+    document/link they accessed has been deleted.
 
   securedoc.cleanup_expired_documents  — daily at 03:00 UTC
     1. Marks docs past their retention date as 'expired'
@@ -25,6 +31,45 @@ from app.workers.celery_app import celery_app
 from app.workers.tasks import _run_async, _get_db_session_factory
 
 logger = logging.getLogger(__name__)
+
+
+# ── cleanup_orphaned_viewer_profiles ──────────────────────────────────────────
+
+@celery_app.task(name="securedoc.cleanup_orphaned_viewer_profiles")
+def cleanup_orphaned_viewer_profiles() -> dict:
+    """Daily job: delete viewer_profiles with no remaining session or annotation references."""
+    return _run_async(_cleanup_orphaned_viewer_profiles_async())
+
+
+async def _cleanup_orphaned_viewer_profiles_async() -> dict:
+    from sqlalchemy import delete, select, exists
+    from app.models.viewer_profile import ViewerProfile
+    from app.models.session import ViewerSession
+    from app.models.annotation import ViewerAnnotation
+
+    session_factory = _get_db_session_factory()
+    async with session_factory() as db:
+        stmt = (
+            delete(ViewerProfile)
+            .where(
+                ~exists(
+                    select(ViewerSession.viewer_profile_id).where(
+                        ViewerSession.viewer_profile_id == ViewerProfile.id
+                    )
+                ),
+                ~exists(
+                    select(ViewerAnnotation.viewer_profile_id).where(
+                        ViewerAnnotation.viewer_profile_id == ViewerProfile.id
+                    )
+                ),
+            )
+        )
+        result = await db.execute(stmt)
+        await db.commit()
+        deleted = result.rowcount
+
+    logger.info("cleanup_orphaned_viewer_profiles: deleted %d orphaned profile(s)", deleted)
+    return {"deleted": deleted}
 
 
 # ── cleanup_expired_documents ─────────────────────────────────────────────────

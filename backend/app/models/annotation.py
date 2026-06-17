@@ -31,6 +31,8 @@ class ViewerAnnotation(Base):
         Index("ix_viewer_annotations_link_page", "link_id", "page_number"),
         Index("ix_viewer_annotations_session", "session_id"),
         Index("ix_viewer_annotations_profile", "viewer_profile_id"),
+        # Added by migration 023; covers reply-thread lookup (WHERE parent_id = ?).
+        Index("ix_viewer_annotations_parent", "parent_id"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)

@@ -56,6 +56,12 @@ celery_app.conf.update(
             "task": "securedoc.cleanup_expired_documents",
             "schedule": 86400,
         },
+        # PII retention — runs after the document cleanup pass so any
+        # profile whose last document was just deleted is caught in the same day.
+        "cleanup-orphaned-viewer-profiles-daily": {
+            "task": "securedoc.cleanup_orphaned_viewer_profiles",
+            "schedule": 86400,
+        },
     },
 )
 

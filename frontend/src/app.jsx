@@ -4004,6 +4004,23 @@
       );
     }
 
+    /* ── Feedback filter helper ───────────────────────────────────────────────
+       Builds the filters object from AccessScreen feedback state variables.
+       Extracted to avoid duplicating the 7-field shape in fetchFeedback and
+       the export onChange handler.
+    ─────────────────────────────────────────────────────────────────────────── */
+    function buildFeedbackFilters({ feedbackFilter, feedbackViewerFilter, feedbackDateFrom, feedbackDateTo, feedbackPage, feedbackRoleFilter, feedbackReviewerFilter }) {
+      return {
+        resolved: feedbackFilter === 'open' ? false : feedbackFilter === 'resolved' ? true : null,
+        search: feedbackViewerFilter || null,
+        date_from: feedbackDateFrom || null,
+        date_to: feedbackDateTo || null,
+        page_number: feedbackPage ? parseInt(feedbackPage, 10) : null,
+        author_role: feedbackRoleFilter === 'all' ? null : feedbackRoleFilter,
+        reviewer: feedbackReviewerFilter || null,
+      };
+    }
+
     /* ══════════════════════════════════════════════════════════════
        SCREEN 3 — ACCESS CONTROL
     ══════════════════════════════════════════════════════════════ */
@@ -4073,15 +4090,7 @@
         if (!docId) return;
         setFeedbackLoading(true);
         try {
-          const filters = {
-            resolved: feedbackFilter === 'open' ? false : feedbackFilter === 'resolved' ? true : null,
-            search: feedbackViewerFilter || null,
-            date_from: feedbackDateFrom || null,
-            date_to: feedbackDateTo || null,
-            page_number: feedbackPage ? parseInt(feedbackPage, 10) : null,
-            author_role: feedbackRoleFilter === 'all' ? null : feedbackRoleFilter,
-            reviewer: feedbackReviewerFilter || null,
-          };
+          const filters = buildFeedbackFilters({ feedbackFilter, feedbackViewerFilter, feedbackDateFrom, feedbackDateTo, feedbackPage, feedbackRoleFilter, feedbackReviewerFilter });
           const data = await window.SecureDocAPI.getFeedback(docId, filters);
           setFeedbackItems(Array.isArray(data) ? data : (data?.feedback || []));
         } catch (e) { toast(_errMsg(e, 'Failed to load feedback'), 'error'); }
@@ -4410,15 +4419,7 @@
                     value=""
                     onChange={e => {
                       const mode = e.target.value;
-                      const filters = {
-                        resolved: feedbackFilter === 'open' ? false : feedbackFilter === 'resolved' ? true : null,
-                        search: feedbackViewerFilter || null,
-                        date_from: feedbackDateFrom || null,
-                        date_to: feedbackDateTo || null,
-                        page_number: feedbackPage ? parseInt(feedbackPage, 10) : null,
-                        author_role: feedbackRoleFilter === 'all' ? null : feedbackRoleFilter,
-                        reviewer: feedbackReviewerFilter || null,
-                      };
+                      const filters = buildFeedbackFilters({ feedbackFilter, feedbackViewerFilter, feedbackDateFrom, feedbackDateTo, feedbackPage, feedbackRoleFilter, feedbackReviewerFilter });
                       if (mode === 'conversations') window.SecureDocAPI.exportFeedback(docId, filters);
                       else if (mode === 'reviewer_activity') window.SecureDocAPI.exportReviewerActivity(docId);
                       e.target.value = '';

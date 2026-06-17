@@ -15,6 +15,9 @@ class ViewerSession(Base):
         Index("ix_viewer_sessions_link_id", "link_id"),
         Index("ix_viewer_sessions_last_seen", "last_seen_at"),
         Index("ix_viewer_sessions_profile", "viewer_profile_id"),
+        # Composite index added by migration 020; covers the per-request
+        # session-validation hot path (WHERE link_id = ? AND session_id = ?).
+        Index("ix_viewer_sessions_link_session", "link_id", "session_id"),
     )
 
     session_id: Mapped[str] = mapped_column(String(32), primary_key=True)

@@ -322,28 +322,31 @@ async def _requeue_orphaned_uploads_async() -> dict:
                 )
             )
         )
-        orphans = [(str(row[0]), row[1]) for row in result.all()]
+        # Keep raw row values; convert to str only when passing to Celery, not
+        # when using in a WHERE IN clause, since the UUID type processor for
+        # aiosqlite/SQLite requires UUID objects, not plain strings.
+        orphans = [(row[0], row[1]) for row in result.all()]
 
         # Reset stuck-processing docs back to uploaded before re-queuing
         if orphans:
-            stuck_processing_ids = [oid for oid, st in orphans if st == "processing"]
-            if stuck_processing_ids:
+            stuck_processing_uuids = [oid for oid, st in orphans if st == "processing"]
+            if stuck_processing_uuids:
                 await db.execute(
                     Document.__table__.update()
-                    .where(Document.id.in_(stuck_processing_ids))
+                    .where(Document.id.in_(stuck_processing_uuids))
                     .values(status="uploaded", error_message=None)
                 )
                 await db.commit()
 
     for doc_id, _ in orphans:
         try:
-            process_document.delay(doc_id)
-            logger.info("requeue_orphaned_uploads: re-queued doc_id=%s", doc_id)
+            process_document.delay(str(doc_id))
+            logger.info("requeue_orphaned_uploads: re-queued doc_id=%s", str(doc_id))
             requeued += 1
         except Exception as exc:
             logger.error(
                 "requeue_orphaned_uploads: failed to re-queue doc_id=%s: %s",
-                doc_id, exc,
+                str(doc_id), exc,
             )
 
     if requeued:

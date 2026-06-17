@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 from typing import Optional
-from sqlalchemy import String, DateTime, func
+from sqlalchemy import String, DateTime, Index, func
 from sqlalchemy.orm import Mapped, mapped_column
 from app.database import Base
 
@@ -17,6 +17,12 @@ STATUS_TRIALING = "trialing"
 
 class UserBilling(Base):
     __tablename__ = "user_billing"
+    __table_args__ = (
+        # Indexes added by migration 006; declared here to keep model metadata
+        # in sync with the actual schema.
+        Index("ix_user_billing_stripe_customer", "stripe_customer_id"),
+        Index("ix_user_billing_stripe_sub", "stripe_subscription_id"),
+    )
 
     user_id: Mapped[uuid.UUID] = mapped_column(primary_key=True)
     plan: Mapped[str] = mapped_column(String(20), nullable=False, default=PLAN_FREE)
