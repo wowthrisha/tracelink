@@ -6,6 +6,7 @@
     import { useAnnotations } from './hooks/useAnnotations.js';
     import { useViewerLayout } from './hooks/useViewerLayout.js';
     import { usePageLoader } from './hooks/usePageLoader.js';
+    import { useViewerSession } from './hooks/useViewerSession.js';
 
     const { useState, useEffect, useRef, useCallback, useContext, createContext } = React;
 
@@ -1215,12 +1216,6 @@
     function ViewerScreen({ doc, publicToken, onSelectDoc }) {
       const toast = useToast();
       const [showInfo, setShowInfo] = useState(false);
-      const [session, setSession] = useState(null);
-      const [blurred, setBlurred] = useState(false);
-      const [initializing, setInit] = useState(true);
-      const [gateInfo, setGateInfo] = useState(null);
-      const [gateError, setGateError] = useState(null);
-      const [pendingToken, setPendingToken] = useState(null);
       // Phase 7: in-viewer search
       const [showSearch, setShowSearch] = useState(false);
       // Pages panel open by default on desktop; TOC closed by default
@@ -1233,8 +1228,17 @@
       const [insightsLoading, setInsightsLoading] = useState(false);
       const [showLinks, setShowLinks] = useState(false);
       const [showPageList, setShowPageList] = useState(typeof window !== 'undefined' ? window.innerWidth > 640 : true);
-      // Ref for session auto-revalidation on 401
-      const reinitRef = useRef(null);
+
+      // Inject point for setPage(1) — breaks session↔layout circular dep
+      const _setPageRef = useRef(null);
+
+      // Session lifecycle, gate management, auth, and DRM protections
+      const {
+        session, blurred, initializing,
+        gateInfo, gateError, setGateError,
+        pendingToken,
+        reinitRef, doValidate,
+      } = useViewerSession(doc, publicToken, { onValidated: () => _setPageRef.current?.(), toast });
 
 
       const docName = doc?.filename || doc?.name || session?.document_filename || 'Document';
@@ -1257,6 +1261,9 @@
         touchRef,
       } = useViewerLayout(session, { onToggleSearch: () => setShowSearch(v => !v) });
 
+      // Inject setPage into the stable ref so useViewerSession.doValidate can reset to page 1
+      _setPageRef.current = () => setPage(1);
+
       const { textContent, textLoading, textError } = useTextLoader(session, page, isTextDoc);
 
       // Page image loading, caching, prefetch, and crossfade
@@ -1269,114 +1276,6 @@
       } = usePageLoader({ session, page, twoPageMode, isTextDoc, onAuth401: () => reinitRef.current?.() });
 
       const isTwoPage = twoPageMode;
-
-      const doValidate = async (token, email, password) => {
-        setInit(true);
-        setGateError(null);
-        try {
-          // Reuse existing session if available (prevents accumulating slots on refresh)
-          const storedSessionId = sessionStorage.getItem(`securedoc_sess_${token}`);
-          const res = await window.SecureDocAPI.validateLink(token, password, email, storedSessionId);
-          res.created_at = new Date().toISOString();
-          // Persist session so page refreshes reuse the same slot
-          sessionStorage.setItem(`securedoc_sess_${token}`, res.session_id);
-          setSession({ ...res, link_token: token });
-          setGateInfo(null);
-          setPage(1);
-        } catch (e) {
-          const status = e._status;
-          if (status === 401) {
-            // Password wrong or missing — keep gate visible, show error
-            setGateError(e.detail === 'Wrong password' ? 'Wrong password. Try again.' : null);
-          } else if (status === 403 || status === 429) {
-            // 403: domain/IP/email/concurrent denied — keep gate visible
-            setGateError(_errMsg(e, 'Access denied'));
-          } else if (status === 410 || status === 404) {
-            // Revoked/expired/gone — clear stored session, show terminal gate
-            sessionStorage.removeItem(`securedoc_sess_${token}`);
-            const detail = (typeof e.detail === 'string' ? e.detail : '').toLowerCase();
-            const terminalStatus = status === 404 ? 'not_found'
-              : detail.includes('revoked') ? 'revoked' : 'expired';
-            setGateInfo({ status: terminalStatus, requires_password: false, requires_email: false });
-          } else {
-            toast(_errMsg(e, 'Failed to open viewer'), 'error');
-          }
-        } finally { setInit(false); }
-      };
-
-      // Expose revalidation to loadPage (which has empty deps and can't close over doValidate directly)
-      reinitRef.current = async () => {
-        const token = session?.link_token || pendingToken;
-        if (!token) return;
-        sessionStorage.removeItem(`securedoc_sess_${token}`);
-        try {
-          const gate = await window.SecureDocAPI.getGateRequirements(token);
-          if (gate.status !== 'active' || gate.requires_password || gate.requires_email) {
-            setSession(null);
-            setGateInfo(gate);
-            setPendingToken(token);
-            setInit(false);
-          } else {
-            await doValidate(token, null, null);
-          }
-        } catch { toast('Session expired. Please reload the page.', 'error'); }
-      };
-
-      // Auto-create link + probe gate requirements, then validate if no restrictions
-      useEffect(() => {
-        if (!docId && !publicToken) { setInit(false); return; }
-        (async () => {
-          try {
-            let token = publicToken;
-            if (!token) {
-              try {
-                const data = await window.SecureDocAPI.getLinks(docId);
-                const active = (data.links || []).filter(l => !l.revoked_at && (!l.expires_at || new Date(l.expires_at) > new Date()));
-                if (active.length > 0) { token = active[0].token; }
-              } catch { }
-              if (!token) {
-                const nl = await window.SecureDocAPI.createLink({ document_id: docId, label: 'Admin Preview' });
-                token = nl.token;
-              }
-            }
-            setPendingToken(token);
-            const gate = await window.SecureDocAPI.getGateRequirements(token);
-            if (gate.status !== 'active' || gate.requires_password || gate.requires_email) {
-              setGateInfo(gate);
-              setInit(false);
-              return;
-            }
-            // No gate restrictions — auto-validate immediately
-            await doValidate(token, null, null);
-          } catch (e) {
-            toast(_errMsg(e, 'Failed to open viewer'), 'error');
-            setInit(false);
-          }
-        })();
-      }, [docId]);
-
-      // Security protections — must stay here so hook count is always the same
-      useEffect(() => {
-        if (!session) return;
-        const perms = session.permissions || {};
-
-        const blockRC = e => { if (!perms.can_right_click) { e.preventDefault(); window.SecureDocAPI?.logEvent(session.link_token, session.session_id, 'right_click_attempt'); toast('Right-click disabled in secure viewer.', 'warning'); } };
-        const blockKB = e => {
-          const k = e.key?.toLowerCase(), ctrl = e.ctrlKey || e.metaKey;
-          if (ctrl) {
-            if (k === 'p' && !perms.can_print) { e.preventDefault(); e.stopPropagation(); window.SecureDocAPI?.logEvent(session.link_token, session.session_id, 'print_attempt'); toast('Action disabled in secure viewer.', 'warning'); }
-            if (['a', 'c', 'x', 'u'].includes(k) && !perms.can_copy) { e.preventDefault(); e.stopPropagation(); window.SecureDocAPI?.logEvent(session.link_token, session.session_id, 'copy_attempt'); toast('Action disabled in secure viewer.', 'warning'); }
-            if (k === 's' && !perms.can_download) { e.preventDefault(); e.stopPropagation(); window.SecureDocAPI?.logEvent(session.link_token, session.session_id, 'download_attempt'); toast('Action disabled in secure viewer.', 'warning'); }
-          }
-        };
-        const onBP = () => { if (!perms.can_print) { document.querySelectorAll('.viewer-page').forEach(el => el.style.visibility = 'hidden'); window.SecureDocAPI?.logEvent(session.link_token, session.session_id, 'print_attempt'); } };
-        const onAP = () => document.querySelectorAll('.viewer-page').forEach(el => el.style.visibility = 'visible');
-        const onBlur = () => setBlurred(true), onFocus = () => setBlurred(false);
-        document.addEventListener('contextmenu', blockRC); document.addEventListener('keydown', blockKB);
-        window.addEventListener('beforeprint', onBP); window.addEventListener('afterprint', onAP);
-        window.addEventListener('blur', onBlur); window.addEventListener('focus', onFocus);
-        return () => { document.removeEventListener('contextmenu', blockRC); document.removeEventListener('keydown', blockKB); window.removeEventListener('beforeprint', onBP); window.removeEventListener('afterprint', onAP); window.removeEventListener('blur', onBlur); window.removeEventListener('focus', onFocus); };
-      }, [session]);
 
       // Feature 2: search highlights — state, refs, word-position load effect
       const {
@@ -1415,16 +1314,6 @@
         drawingState, setDrawingState,
         annotCacheRef,
       } = useAnnotations(session, page, isTextDoc);
-
-      // Phase 7: tab visibility — blur document when tab loses focus (already
-      // handled by blur/focus events), but also handle visibilitychange for
-      // more reliable mobile tab-switch detection
-      useEffect(() => {
-        if (!session) return;
-        const onVis = () => setBlurred(document.hidden);
-        document.addEventListener('visibilitychange', onVis);
-        return () => document.removeEventListener('visibilitychange', onVis);
-      }, [session]);
 
       useEffect(() => {
         if (document.getElementById('sdoc-vx-styles')) return;
