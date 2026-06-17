@@ -1,6 +1,7 @@
     import { LAYOUT, ZOOM_MIN, ZOOM_MAX, ZOOM_STEP, ZOOM_PRESETS, _saveLayoutPref, _loadLayoutPref } from './constants/viewer.js';
     import { _errMsg } from './utils/viewer.js';
     import { useTextLoader } from './hooks/useTextLoader.js';
+    import { useLinksSidecar } from './hooks/useLinksSidecar.js';
 
     const { useState, useEffect, useRef, useCallback, useContext, createContext } = React;
 
@@ -1242,12 +1243,10 @@
       const [insightsData, setInsightsData] = useState(null);
       const [insightsLoading, setInsightsLoading] = useState(false);
       const [showLinks, setShowLinks] = useState(false);
-      const [visitedLinks, setVisitedLinks] = useState(new Set()); // URLs the viewer has opened
       const [isFullscreen, setIsFullscreen] = useState(false);
       const [pageInputStr, setPageInputStr] = useState('');
       const [showPageList, setShowPageList] = useState(typeof window !== 'undefined' ? window.innerWidth > 640 : true);
       const [pageAspectRatio, setPageAspectRatio] = useState(null); // set from actual image dimensions
-      const [sidecarExtracted, setSidecarExtracted] = useState(false); // toast-once flag
       // Annotation state
       const [annotTool, setAnnotTool] = useState(null); // null|'highlight'|'comment'|'rectangle'|'arrow'|'sticky_note'|'draw'
       const [annotColor, setAnnotColor] = useState('#FFE066'); // active tool color
@@ -1263,10 +1262,6 @@
       const [drawingState, setDrawingState] = useState(null); // {startX,startY} normalized 0-1
       const pageImgRef = useRef(null);
       const pageContainerRef = useRef(null); // Feature 4: magnifier needs page container
-      // Feature 1: hyperlink overlay
-      const pageLinksRef = useRef({});   // {pageNum: [{x,y,w,h,url}]}
-      const [linksLoaded, setLinksLoaded] = useState(false);
-      const autoExtractAttempted = useRef(false); // fire-once auto-sidecar extraction
       // Feature 2: search highlighting
       const wordPositionsRef = useRef({}); // {pageNum: [{t,x,y,w,h}]}
       const wordPositionsFetched = useRef(false); // avoid re-fetching after empty result
@@ -1646,36 +1641,18 @@
         }
       }, []);
 
-      // Feature 1: load hyperlink sidecar once when session activates
-      useEffect(() => {
-        if (!session?.link_token || !session?.session_id || isTextDoc) return;
-        window.SecureDocAPI.getDocumentLinks(session.link_token, session.session_id)
-          .then(data => {
-            const map = {};
-            for (const p of (data.pages || [])) map[p.page] = p.links || [];
-            pageLinksRef.current = map;
-            // If backend signals extraction was already done, skip auto-extract
-            if (data.extracted) autoExtractAttempted.current = true;
-            setLinksLoaded(true);
-          })
-          .catch(() => { setLinksLoaded(true); });
-      }, [session?.link_token, session?.session_id, isTextDoc]);
-
-      // Auto-extract sidecars when authenticated owner's doc has no extraction yet.
-      // `autoExtractAttempted` is set when sidecar has `extracted:true` flag, so this
-      // only fires for documents uploaded before the feature was added.
-      useEffect(() => {
-        if (!linksLoaded || !doc?.id || autoExtractAttempted.current) return;
-        autoExtractAttempted.current = true;
-        window.SecureDocAPI.extractSidecars(doc.id).catch(() => {});
-        const t = setTimeout(() => {
-          pageLinksRef.current = {};
-          setLinksLoaded(false);
+      // Feature 1: hyperlink sidecar — state, refs, and load/auto-extract effects
+      const {
+        pageLinksRef,
+        linksLoaded, setLinksLoaded,
+        visitedLinks, setVisitedLinks,
+        sidecarExtracted, setSidecarExtracted,
+      } = useLinksSidecar(session, doc?.id, isTextDoc, {
+        onAutoExtractReset: () => {
           wordPositionsRef.current = {};
           wordPositionsFetched.current = false;
-        }, 15000);
-        return () => clearTimeout(t);
-      }, [linksLoaded, doc?.id]);
+        },
+      });
 
       // Feature 2: compute search highlights when page or query changes
       const _computeHighlights = useCallback((pageNum, query) => {
