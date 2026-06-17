@@ -208,3 +208,50 @@ npm run build — PASS (199.2 KB)
 PASS ✅
 
 ---
+
+## Sprint 2 — Architecture Refactor Sprint 2 (2026-06-17)
+
+### Session
+Backend service-layer extraction: routers → dedicated service modules.
+
+### Goals
+1. Extract `annotations.py` (1285 lines) business logic into 4 service files.
+2. Extract `viewer.py` (1203 lines) business logic into 4 service files.
+3. Routers become thin orchestrators only.
+
+### Changes
+
+**New service files:**
+- `app/services/annotation_service.py` — 137 lines (auth helpers, display-name resolution, serialization)
+- `app/services/annotation_thread_service.py` — 215 lines (thread fetch, feedback list/reviewers, uploader reply)
+- `app/services/annotation_filter_service.py` — 65 lines (pure filter utilities, no HTTP/DB deps)
+- `app/services/annotation_export_service.py` — 270 lines (CSV export generators)
+- `app/services/viewer_service.py` — 86 lines (link/doc validation, cache utilities)
+- `app/services/viewer_session_service.py` — 147 lines (full validate_link response builder)
+- `app/services/viewer_bookmark_service.py` — 74 lines (bookmark CRUD)
+- `app/services/viewer_annotation_service.py` — 244 lines (viewer annotation CRUD)
+
+**Modified routers:**
+- `app/routers/annotations.py` — 1285 → 527 lines (-758)
+- `app/routers/viewer.py` — 1203 → 965 lines (-238)
+
+**Constraints maintained:**
+- ZERO API changes — all 16 annotation routes + all viewer routes identical
+- ZERO database changes — no migrations, no schema changes
+- ZERO security regressions — auth/permission logic preserved verbatim
+- Test patch compatibility — `_session_watermark_angle`, `_load_toc_sidecar`, `_get_cached_link_and_doc` kept in viewer.py to preserve `app.routers.viewer.*` patch targets
+
+**Key design decisions:**
+- Re-export pattern for test compatibility: `from service import func` in router makes it accessible as `app.routers.router.func`
+- `_session_watermark_angle` defined locally in viewer.py (test_phase7.py patches `app.routers.viewer.settings`)
+- `_load_toc_sidecar` defined locally in viewer.py (test_toc_engine.py patches `app.routers.viewer.get_storage_service`)
+- `_get_cached_link_and_doc` kept in viewer.py (test_phase8.py patches `app.routers.viewer.policy_enforcer`)
+
+### Tests
+547 unit tests — PASS ✅
+1077 integration tests, 1 skipped — PASS ✅
+
+### Result
+PASS ✅
+
+---

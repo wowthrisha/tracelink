@@ -1,10 +1,10 @@
 import asyncio
-import hashlib
 import json
 import logging
 import time
 from datetime import datetime, timezone
 from typing import Optional
+
 from fastapi import APIRouter, Depends, HTTPException, Request, Query
 from fastapi.responses import Response as FastAPIResponse, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -28,17 +28,22 @@ from app.services.viewer_cache import (
 from app.services.page_cache import (
     fetch_page_bytes, store_page_bytes,
     fetch_thumb_bytes, store_thumb_bytes,
-    clear_local_page_cache, clear_local_thumb_cache,
 )
 from app.utils.crypto import hash_value
 from app.middleware.rate_limit import limiter
 
-router = APIRouter(prefix="/api/viewer", tags=["viewer"])
-link_svc = LinkService()
-watermark_svc = WatermarkService()
-analytics_svc = AnalyticsService()
+# Service-layer helpers — imported here so tests that patch
+# `app.routers.viewer.*` names continue to work without modification.
+from app.services.viewer_service import (
+    _check_link_active,
+    _check_doc_ready,
+    _get_session_id,
+    clear_page_cache,
+    clear_thumb_cache,
+    clear_metadata_caches,
+)
 
-logger = logging.getLogger(__name__)
+import hashlib as _hashlib
 
 
 def _session_watermark_angle(session_id: str, base: float = -32.0) -> float:
@@ -49,75 +54,34 @@ def _session_watermark_angle(session_id: str, base: float = -32.0) -> float:
     of the base.  This makes composite-removal attacks harder — an attacker
     would need to align multiple differently-angled watermark layers.
     """
-    h = int(hashlib.sha256(session_id.encode()).hexdigest()[:8], 16)
+    h = int(_hashlib.sha256(session_id.encode()).hexdigest()[:8], 16)
     norm = (h % 10000) / 10000.0           # 0.0 – 1.0, uniform
     jitter = settings.watermark_angle_jitter_deg
     return base + (norm - 0.5) * 2.0 * jitter  # base ± jitter_deg
 
 
-# ── Cache helpers (backward-compatible wrappers used in tests) ────────────────
-
-def clear_page_cache() -> None:
-    """Flush the process-local page byte cache.  Called in tests."""
-    clear_local_page_cache()
-
-
-def clear_thumb_cache() -> None:
-    """Flush the process-local thumbnail byte cache.  Called in tests."""
-    clear_local_thumb_cache()
-
-
-def clear_metadata_caches() -> None:
-    """Flush the link/doc/page TTL metadata caches.  Called in tests."""
-    from app.services.viewer_cache import clear_all_caches
-    clear_all_caches()
+async def _load_toc_sidecar(sidecar_key: str):
+    """Load a JSON TOC sidecar from storage. Returns list or None if absent."""
+    import json as _json
+    try:
+        storage = get_storage_service()  # uses viewer.py's get_storage_service (patchable by tests)
+        raw = await storage.download_bytes(sidecar_key)
+        return _json.loads(raw.decode("utf-8"))
+    except Exception:
+        return None
 
 
-# ── Shared helpers ─────────────────────────────────────────────────────────────
+from app.services.viewer_session_service import build_validate_response
 
-def _check_link_active(link: ShareLink, now: datetime) -> None:
-    """Raise 410 if the link is revoked or expired.  Extracted to avoid duplication."""
-    if link.revoked_at is not None:
-        raise HTTPException(status_code=410, detail="Link revoked")
-    if link.expires_at is not None:
-        expires = link.expires_at
-        if expires.tzinfo is None:
-            expires = expires.replace(tzinfo=timezone.utc)
-        if expires < now:
-            raise HTTPException(status_code=410, detail="Link expired")
+router = APIRouter(prefix="/api/viewer", tags=["viewer"])
+link_svc = LinkService()
+watermark_svc = WatermarkService()
+analytics_svc = AnalyticsService()
+
+logger = logging.getLogger(__name__)
 
 
-def _check_doc_ready(doc) -> None:
-    """Raise 503 with a descriptive message if the document is not yet ready."""
-    if doc.status == "uploaded":
-        logger.warning("doc_not_ready status=uploaded doc_id=%s", getattr(doc, 'id', '?'))
-        raise HTTPException(status_code=503, detail="Document is queued for processing")
-    if doc.status == "processing":
-        logger.warning("doc_not_ready status=processing doc_id=%s", getattr(doc, 'id', '?'))
-        raise HTTPException(
-            status_code=503, detail="Document is still processing, please try again shortly"
-        )
-    if doc.status == "error":
-        logger.warning("doc_not_ready status=error doc_id=%s", getattr(doc, 'id', '?'))
-        raise HTTPException(status_code=503, detail="Document processing failed")
-
-
-def _get_session_id(request: Request) -> Optional[str]:
-    """
-    Resolve session_id from header or cookie only — never from query parameters.
-
-    Priority:
-      1. X-Session-ID request header  (never logged by CDN/proxy)
-      2. sdoc_session cookie           (HttpOnly Secure SameSite=Strict)
-
-    Query parameter support has been removed to prevent session IDs from
-    appearing in server access logs, CDN logs, and browser history.
-    """
-    sid = request.headers.get("X-Session-ID", "").strip()
-    if sid:
-        return sid
-    return request.cookies.get("sdoc_session", "").strip() or None
-
+# ── Shared cache helper (kept in router so test patches of policy_enforcer work) ─
 
 async def _get_cached_link_and_doc(
     link_token: str,
@@ -212,143 +176,9 @@ async def validate_link(
     body: dict,
     db: AsyncSession = Depends(get_db),
 ):
-    token = body.get("token", "")
-    password = body.get("password")
-    viewer_email = body.get("email")
-    existing_session_id = body.get("session_id") or None  # reuse existing session if supplied
-
     ip = getattr(request.state, "client_ip", None) or (request.client.host if request.client else None)
     user_agent = request.headers.get("user-agent")
-
-    # validate_link stages the session upsert without committing (commit=False).
-    # increment_view_count stages the view count update without committing.
-    # log_event issues the single final commit that flushes all three writes atomically,
-    # reducing the validate happy path from 3 DB round-trips to 1.
-    validation = await link_svc.validate_link(
-        db=db,
-        token=token,
-        password=password,
-        viewer_email=viewer_email,
-        analytics_svc=analytics_svc,
-        ip=ip,
-        user_agent=user_agent,
-        existing_session_id=existing_session_id,
-        commit=False,
-    )
-
-    link = validation.link
-    session_id = validation.session_id
-
-    # View count was already atomically incremented inside validate_link().
-    # Log opened event — commit=True (default) flushes session + event atomically
-    await analytics_svc.log_event(
-        db,
-        link_id=link.id,
-        event_type="opened",
-        viewer_email=viewer_email,
-        ip=ip,
-        user_agent=user_agent,
-        session_id=session_id,
-        commit=True,
-    )
-
-    # concurrency detection — log a warning when concurrent sessions exceed
-    # the configured threshold.  Detection-only: never blocks legitimate access.
-    try:
-        from app.config import settings as _settings
-        if _settings.max_concurrent_sessions_per_link > 0:
-            _count = await policy_enforcer.active_session_count(db, link.id)
-            if _count > _settings.max_concurrent_sessions_per_link:
-                logger.warning(
-                    "high_concurrent_sessions link_id=%s count=%d threshold=%d",
-                    link.id, _count, _settings.max_concurrent_sessions_per_link,
-                )
-    except Exception:
-        pass  # concurrency check must never block the validate response
-
-    # Fetch document
-    doc_result = await db.execute(
-        select(Document).where(Document.id == link.document_id)
-    )
-    doc = doc_result.scalar_one_or_none()
-    if not doc:
-        raise HTTPException(status_code=404, detail="Document not found")
-
-    # Fetch page dimensions — returned to the frontend so it can pre-size
-    # placeholder slots without additional API calls.  Only populated when
-    # the document is ready; empty list otherwise.
-    pages_meta: list[dict] = []
-    if doc.status == "ready":
-        pages_result = await db.execute(
-            select(DocumentPage)
-            .where(DocumentPage.document_id == doc.id)
-            .order_by(DocumentPage.page_number)
-        )
-        pages_meta = [
-            {
-                "page_number": p.page_number,
-                "width_px": p.width_px,
-                "height_px": p.height_px,
-            }
-            for p in pages_result.scalars().all()
-        ]
-
-    # Build watermark text
-    now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    watermark_text = f"{viewer_email or 'anonymous'} · {now_str} · sess:{session_id[:6]}"
-
-    permissions_dict = {
-        "can_download": False,
-        "can_print": False,
-        "can_copy": False,
-        "can_right_click": False,
-        "watermark_enabled": True,
-        "can_annotate": False,
-        "enable_info": True,   # info panel visible by default; uploader can hide it
-    }
-    if link.permissions:
-        try:
-            stored_perms = json.loads(link.permissions)
-            for k, v in stored_perms.items():
-                if k in permissions_dict:
-                    permissions_dict[k] = bool(v)
-        except Exception:
-            pass
-
-    # Trigger link.viewed webhook (fire-and-forget, never blocks the response)
-    _link_viewed_data = {
-        "document_id": str(doc.id),
-        "filename": doc.filename,
-        "link_id": str(link.id),
-        "link_label": link.label,
-        "session_id_prefix": session_id[:8] if session_id else None,
-    }
-    try:
-        from app.services.webhook_service import dispatch_webhook_event as _dispatch_wh
-        await _dispatch_wh(db, user_id=str(doc.user_id), event_type="link.viewed", data=_link_viewed_data)
-    except Exception as _wh_exc:
-        logger.warning("link.viewed webhook trigger failed: %s", _wh_exc)
-
-    # Publish SSE notification to document owner
-    try:
-        from app.services.notification_service import publish_notification as _pub_notif
-        await _pub_notif(str(doc.user_id), "link.viewed", _link_viewed_data)
-    except Exception as _notif_exc:
-        logger.debug("link.viewed SSE notification failed: %s", _notif_exc)
-
-    return {
-        "session_id": session_id,
-        "document_id": str(doc.id),
-        "document_filename": doc.filename,
-        "page_count": doc.page_count or 0,
-        "doc_status": doc.status,  # lets the viewer show meaningful state when not yet ready
-        "doc_type": getattr(doc, "file_type", "pdf") or "pdf",  # pdf | txt | md | log
-        "watermark_text": watermark_text if permissions_dict.get("watermark_enabled", True) else None,
-        "link_id": str(link.id),
-        "expires_at": link.expires_at.isoformat() if link.expires_at else None,
-        "permissions": permissions_dict,
-        "pages": pages_meta,
-    }
+    return await build_validate_response(db, body, ip, user_agent, link_svc, analytics_svc)
 
 
 @router.get("/page/{link_token}/{page_number}")
@@ -394,8 +224,6 @@ async def get_page(
         page_cache.put(_page_key, page_snap)
 
     # ── Session heartbeat + email retrieval ───────────────────────────────────
-    # Moved BEFORE watermarking so the viewer's masked email can be burned into
-    # the page image instead of the generic "anonymous" placeholder.
     viewer_email_masked = None
     if session_id:
         ip_hash = hash_value(ip) if ip else None
@@ -404,16 +232,12 @@ async def get_page(
         )
 
     # ── Page bytes: L1 (local) → L2 (Redis) → Storage ────────────────────────
-    # Security: all auth checks above are complete before any cache access.
-    # Only raw bytes (pre-watermark) are cached; the session-specific visible
-    # watermark is applied below, after the cache hit.
     storage = get_storage_service()
     t0 = time.perf_counter()
 
     image_bytes, cache_source = await fetch_page_bytes(page_snap.storage_key)
 
     if image_bytes is None:
-        # Both L1 and L2 missed — fetch from storage, then populate both.
         try:
             image_bytes = await storage.download_bytes(page_snap.storage_key)
             await store_page_bytes(page_snap.storage_key, image_bytes)
@@ -427,11 +251,6 @@ async def get_page(
     t1 = time.perf_counter()
 
     # Apply visible watermark + viewer forensic stamp in a single executor call.
-    # Both are CPU-bound PIL operations; batching them avoids two thread hand-offs.
-    # Visible watermark: tiled diagonal text with viewer email, date, session prefix.
-    # Viewer forensic stamp: near-invisible lower-left corner mark with session hash
-    #   (1.5% opacity) — encodes VS:{sha256(session)[:8]}:{page}.  Allows session
-    #   attribution even if visible watermark is cropped or removed.
     now_str = now.strftime("%Y-%m-%d")
     watermark_text = f"{viewer_email_masked or 'anonymous'} · {now_str} · sess:{session_id[:6]}"
     _wm_angle = _session_watermark_angle(session_id)
@@ -443,7 +262,6 @@ async def get_page(
 
     watermarked = await asyncio.get_running_loop().run_in_executor(None, _apply_all_watermarks, image_bytes)
     t2 = time.perf_counter()
-    # structured log with doc_id, cache source, and latency breakdown
     logger.info(
         "page_served doc=%s page=%d cache=%s fetch_ms=%.1f watermark_ms=%.1f req_id=%s",
         link_snap.document_id, page_number, cache_source,
@@ -451,7 +269,6 @@ async def get_page(
         getattr(request.state, "request_id", "-"),
     )
 
-    # Log page_viewed event and commit both heartbeat + event in a single round-trip
     await analytics_svc.log_event(
         db,
         link_id=link_snap.id,
@@ -460,11 +277,9 @@ async def get_page(
         session_id=session_id,
         ip=ip,
         user_agent=request.headers.get("user-agent"),
-        commit=True,  # single commit covers session heartbeat + analytics event
+        commit=True,
     )
 
-    # X-Cache-Status header lets CDN operators see hit/miss without
-    # parsing logs.  "HIT" = served from L1/L2 cache; "MISS" = fetched from storage.
     cache_status = "HIT" if cache_source in ("local", "redis") else "MISS"
 
     return FastAPIResponse(
@@ -530,9 +345,6 @@ async def get_thumb(
         page_cache.put(_page_key, page_snap)
 
     # ── CDN offload: redirect to presigned R2 URL when enabled ───────────────
-    # Thumbnails are pre-rendered (same for all viewers) so they can be served
-    # directly from R2/CDN after session validation. Full page bytes are NEVER
-    # redirected — they carry the session-specific forensic stamp.
     thumb_key = f"thumbs/{link_snap.document_id}/{page_number:04d}.webp"
     storage = get_storage_service()
 
@@ -555,7 +367,6 @@ async def get_thumb(
             await store_thumb_bytes(thumb_key, thumb_bytes)
             thumb_source = "storage"
         except Exception:
-            # Thumbnail absent (pre-thumbnail document) — fall back to full-res page bytes.
             logger.debug(
                 "thumb_missing doc=%s page=%d — serving full-res fallback",
                 link_snap.document_id, page_number,
@@ -581,7 +392,6 @@ async def get_thumb(
         getattr(request.state, "request_id", "-"),
     )
 
-    # X-Cache-Status for CDN/ops visibility
     thumb_cache_status = "HIT" if thumb_source in ("local", "redis") else "MISS"
 
     return FastAPIResponse(
@@ -629,14 +439,12 @@ async def get_toc(
 
     link_snap, doc_snap, ip, now = await _get_cached_link_and_doc(link_token, db, request)
 
-    # ── Session validation (SEC-01) ───────────────────────────────────────────
     if not await policy_enforcer.is_active_session(db, link_snap.id, session_id):
         raise HTTPException(status_code=401, detail="Session not recognized. Please re-validate.")
 
     file_type = doc_snap.file_type
     doc_id_str = str(link_snap.document_id)
 
-    # ── TOC cache (L1 → L2 Redis) ─────────────────────────────────────────────
     cached_toc = await get_cached_toc_async(doc_id_str)
     if cached_toc is not None:
         return _JSONResponse(
@@ -647,7 +455,6 @@ async def get_toc(
     toc_entries = []
     supported = True
 
-    # ── PDF and DOCX/DOC: try TOC sidecar first ───────────────────────────────
     from app.services.adapters import get_adapter as _get_adapter
     _toc_adapter = _get_adapter(file_type)
     if _toc_adapter.supports_toc_sidecar():
@@ -661,15 +468,12 @@ async def get_toc(
                 headers={"Cache-Control": "no-store"},
             )
         if not _toc_adapter.toc_fallback_to_text():
-            # No sidecar and no text fallback (PDF) = no bookmarks
             await store_toc_async(doc_id_str, [])
             return _JSONResponse(
                 content={"toc": [], "doc_type": file_type, "supported": False},
                 headers={"Cache-Control": "no-store"},
             )
-        # DOC without sidecar: fall through to text extraction
 
-    # ── Text-based extraction (TXT, MD, LOG, and DOC without sidecar) ───
     storage_key = doc_snap.storage_key
     cached_text: Optional[str] = text_content_cache.get(storage_key)
     if cached_text is None:
@@ -696,17 +500,6 @@ async def get_toc(
         content={"toc": toc_entries, "doc_type": file_type, "supported": bool(toc_entries)},
         headers={"Cache-Control": "no-store"},
     )
-
-
-async def _load_toc_sidecar(sidecar_key: str):
-    """Load a JSON TOC sidecar from storage. Returns list or None if absent."""
-    import json as _json
-    try:
-        storage = get_storage_service()
-        raw = await storage.download_bytes(sidecar_key)
-        return _json.loads(raw.decode("utf-8"))
-    except Exception:
-        return None
 
 
 @router.get("/download/{link_token}")
@@ -745,25 +538,18 @@ async def download_document(
         if expires < now:
             raise HTTPException(status_code=410, detail="Link expired")
 
-    # IP allowlist — must be enforced consistently on ALL viewer endpoints.
-    # Without this check, a viewer whose IP changed after session creation
-    # (e.g., moved networks or switched VPN) could still download the document.
     ip = getattr(request.state, "client_ip", None) or (request.client.host if request.client else None)
     if link.ip_allowlist:
         if not policy_enforcer.ip_is_allowed(ip, link.ip_allowlist):
             raise HTTPException(status_code=403, detail="Access denied from this IP")
 
-    # Validate active session BEFORE permission check to avoid leaking whether
-    # download is enabled on links the caller hasn't authenticated against.
     if not await policy_enforcer.is_active_session(db, link.id, session_id):
         raise HTTPException(status_code=401, detail="Session expired or invalid")
 
-    # Check download permission
     perms = json.loads(link.permissions) if link.permissions else {}
     if not perms.get("can_download", False):
         raise HTTPException(status_code=403, detail="Download not permitted on this link")
 
-    # Fetch document
     _doc_row = await db.execute(select(Document).where(Document.id == link.document_id))
     doc = _doc_row.scalar_one_or_none()
     if doc is None or doc.status != "ready":
@@ -779,11 +565,9 @@ async def download_document(
         user_agent=request.headers.get("user-agent"), commit=True,
     )
 
-    # ── Text document ──────────────────────────────────────────────────────────
     from app.services.adapters import get_adapter as _get_adapter
     if _get_adapter(doc.file_type).viewer_mode == "text":
         raw = await storage.download_bytes(doc.storage_key)
-        # DOC is stored as converted text after processing; DOCX is image-mode after D2
         filename = doc.filename or f"document.{doc.file_type}"
         return FastAPIResponse(
             content=raw,
@@ -794,7 +578,6 @@ async def download_document(
             },
         )
 
-    # ── PDF document: stream pages one-at-a-time through pypdf ────────────────
     if not doc.page_count:
         raise HTTPException(status_code=404, detail="Document has no pages")
 
@@ -818,15 +601,6 @@ async def download_document(
     if not page_rows:
         raise HTTPException(status_code=404, detail="Pages not found")
 
-    # True streaming PDF assembly:
-    # 1. Process each page one-at-a-time (O(1) PIL RAM per page)
-    # 2. Write the assembled PDF to a temp file (not a BytesIO in-process buffer)
-    # 3. Stream from the temp file in 64 KB chunks
-    # 4. Clean up the temp file in the finally block
-    #
-    # This eliminates the prior triple-copy: pypdf internal + BytesIO + bytes object.
-    # Peak RSS = max(one PIL page image, pypdf's internal XRef table) rather than
-    # (N pages * page_size) + (2 * total_pdf_size).
     from pypdf import PdfWriter, PdfReader
     loop = asyncio.get_running_loop()
     writer = PdfWriter()
@@ -836,8 +610,6 @@ async def download_document(
         if raw_bytes is None:
             raw_bytes = await storage.download_bytes(page_row.storage_key)
 
-        # Watermark + convert to single-page PDF in thread-pool executor.
-        # The PIL Image and watermarked bytes are discarded after add_page().
         def _wm_and_encode(b: bytes) -> bytes:
             wm = watermark_svc.apply_visible_watermark(b, watermark_text)
             img = _Image.open(_io.BytesIO(wm)).convert("RGB")
@@ -848,16 +620,15 @@ async def download_document(
         page_pdf_bytes = await loop.run_in_executor(None, _wm_and_encode, raw_bytes)
         reader = PdfReader(_io.BytesIO(page_pdf_bytes))
         writer.add_page(reader.pages[0])
-        del page_pdf_bytes, reader  # release page memory before next page
+        del page_pdf_bytes, reader
 
     filename = (doc.filename or "document").rsplit(".", 1)[0] + "_watermarked.pdf"
 
-    # Write to a temp file so the bytes object (3rd copy) is never allocated
     tmp_fd, tmp_path = _tempfile.mkstemp(suffix=".pdf", prefix="sdoc_dl_")
     try:
         with _os.fdopen(tmp_fd, "wb") as tmp_f:
             writer.write(tmp_f)
-        del writer  # free pypdf internal structures now that we've written to disk
+        del writer
         total_size = _os.path.getsize(tmp_path)
     except Exception:
         _os.unlink(tmp_path)
@@ -929,11 +700,9 @@ async def get_text_chunk(
 
     link_snap, doc_snap, ip, now = await _get_cached_link_and_doc(link_token, db, request)
 
-    # ── Session validation (SEC-03) ───────────────────────────────────────────
     if not await policy_enforcer.is_active_session(db, link_snap.id, session_id):
         raise HTTPException(status_code=401, detail="Session not recognized. Please re-validate.")
 
-    # ── Verify this is a text document (uses cached DocSnapshot — no extra DB read) ──
     file_type = doc_snap.file_type
     from app.services.adapters import get_adapter as _get_adapter
     if _get_adapter(file_type).viewer_mode != "text":
@@ -948,7 +717,6 @@ async def get_text_chunk(
 
     storage_key = doc_snap.storage_key
 
-    # ── Session heartbeat + email retrieval (before analytics) ───────────────
     viewer_email_masked = None
     if session_id:
         ip_hash = hash_value(ip) if ip else None
@@ -956,9 +724,6 @@ async def get_text_chunk(
             db, session_id, link_snap.id, ip_hash=ip_hash
         )
 
-    # ── Text content: process-local cache → storage ───────────────────────────
-    # Only raw decoded text is cached — the session-specific watermark_text is
-    # added to the response after the cache hit (same pattern as page images).
     cached_text: Optional[str] = text_content_cache.get(storage_key)
     if cached_text is None:
         storage = get_storage_service()
@@ -971,11 +736,9 @@ async def get_text_chunk(
             )
             raise HTTPException(status_code=503, detail="Text content temporarily unavailable")
         cached_text = decode_text_safe(raw_bytes)
-        # Only cache files within the configured size limit to protect memory
         if len(cached_text) <= TEXT_CONTENT_MAX_BYTES:
             text_content_cache.put(storage_key, cached_text)
 
-    # ── Chunk the text (cached to avoid O(n) re-split on every request) ──────
     _chunk_cache_key = f"{storage_key}:{settings.text_lines_per_chunk}"
     chunks: Optional[list] = chunk_array_cache.get(_chunk_cache_key)
     if chunks is None:
@@ -988,7 +751,6 @@ async def get_text_chunk(
 
     chunk_content = chunks[chunk_number - 1]
 
-    # ── Analytics event ───────────────────────────────────────────────────────
     now_str = now.strftime("%Y-%m-%d")
     watermark_text = f"{viewer_email_masked or 'anonymous'} · {now_str} · sess:{session_id[:6]}"
 
