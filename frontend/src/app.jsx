@@ -1,5 +1,6 @@
     import { LAYOUT, ZOOM_MIN, ZOOM_MAX, ZOOM_STEP, ZOOM_PRESETS, _saveLayoutPref, _loadLayoutPref } from './constants/viewer.js';
     import { _errMsg } from './utils/viewer.js';
+    import { useTextLoader } from './hooks/useTextLoader.js';
 
     const { useState, useEffect, useRef, useCallback, useContext, createContext } = React;
 
@@ -1227,9 +1228,6 @@
       const [gateInfo, setGateInfo] = useState(null);
       const [gateError, setGateError] = useState(null);
       const [pendingToken, setPendingToken] = useState(null);
-      const [textContent, setTextContent] = useState('');
-      const [textLoading, setTextLoading] = useState(false);
-      const [textError, setTextError] = useState(null);
       // Phase 7: smooth transitions — keep prev image visible while next loads
       const [prevImgSrc, setPrevImgSrc] = useState('');
       const [imgReady, setImgReady] = useState(false);
@@ -1421,24 +1419,11 @@
         finally { setImgLoading2(false); }
       }, []);
 
-      const loadTextChunk = useCallback(async (token, chunkNum, sessionId) => {
-        if (!token || !sessionId) return;
-        setTextLoading(true);
-        setTextError(null);
-        try {
-          const data = await window.SecureDocAPI.getTextChunk(token, chunkNum, sessionId);
-          setTextContent(data.content);
-        } catch (e) {
-          setTextError(_errMsg(e, 'Unable to load content'));
-        } finally {
-          setTextLoading(false);
-        }
-      }, []);
-
       const docName = doc?.filename || doc?.name || session?.document_filename || 'Document';
       const docId = doc?.id || '';
       const PAGE_COUNT = session?.page_count || 1;
       const isTextDoc = !!(session?.doc_type && ['txt', 'md', 'log'].includes(session.doc_type));
+      const { textContent, textLoading, textError } = useTextLoader(session, page, isTextDoc);
       const isTwoPage = twoPageMode;
       const pageStep = isTwoPage ? 2 : 1;
 
@@ -1603,25 +1588,6 @@
         const pc = session.page_count || 1;
         if (pc >= 2) prefetchPage(session.link_token, 2, session.session_id, pc);
       }, [session?.link_token, session?.session_id, session?.doc_type]); // intentionally omit prefetchPage — stable ref
-
-      // Load text chunk — only runs for text documents (txt/md/log)
-      useEffect(() => {
-        if (!session || !isTextDoc) return;
-        if (session.doc_status && session.doc_status !== 'ready') {
-          const msgs = {
-            uploaded: 'Document is queued for processing — please wait and refresh.',
-            processing: 'Document is still processing — please wait a moment and refresh.',
-            error: 'Document processing failed. Please contact the document owner.',
-          };
-          setTextError(msgs[session.doc_status] || `Document not available (${session.doc_status})`);
-          return;
-        }
-        setTextError(null);
-        loadTextChunk(session.link_token, page, session.session_id);
-        if (page === session.page_count) {
-          window.SecureDocAPI?.logEvent(session.link_token, session.session_id, 'completed');
-        }
-      }, [session?.link_token, session?.session_id, page, session?.doc_status, session?.doc_type, loadTextChunk]);
 
       const goNext = useCallback(() => setPage(p => Math.min(p + pageStep, PAGE_COUNT)), [PAGE_COUNT, pageStep]);
       const goPrev = useCallback(() => setPage(p => Math.max(p - pageStep, 1)), [pageStep]);
