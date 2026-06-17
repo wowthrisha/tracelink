@@ -1,3 +1,6 @@
+    import { LAYOUT, ZOOM_MIN, ZOOM_MAX, ZOOM_STEP, ZOOM_PRESETS, _saveLayoutPref, _loadLayoutPref } from './constants/viewer.js';
+    import { _errMsg } from './utils/viewer.js';
+
     const { useState, useEffect, useRef, useCallback, useContext, createContext } = React;
 
     /* ─── DESIGN TOKENS ───────────────────────────────────────── */
@@ -45,19 +48,6 @@
     };
 
     const mono = { fontFamily: "'DM Mono', monospace" };
-
-    /* ─── ERROR MESSAGE HELPER ────────────────────────────────── */
-    function _errMsg(e, fallback) {
-      if (!e) return fallback || 'An error occurred';
-      if (typeof e === 'string') return e;
-      if (e.detail) {
-        if (typeof e.detail === 'string') return e.detail;
-        if (Array.isArray(e.detail) && e.detail[0]?.msg) return e.detail[0].msg;
-        return JSON.stringify(e.detail);
-      }
-      if (e.message) return e.message;
-      return fallback || 'An error occurred';
-    }
 
     /* ─── TOAST CONTEXT ───────────────────────────────────────── */
     const ToastCtx = createContext(null);
@@ -1214,25 +1204,6 @@
           </div>
         </div>
       );
-    }
-
-    // ── Viewer Layout System constants ─────────────────────────────────────────
-    const LAYOUT = { AUTO: 'auto', FIT_WIDTH: 'fit-width', FIT_HEIGHT: 'fit-height', ACTUAL: 'actual', CUSTOM: 'custom' };
-    const ZOOM_PRESETS = [25, 50, 75, 100, 125, 150, 200, 300, 400];
-    const ZOOM_MIN = 10;
-    const ZOOM_MAX = 400;
-    const ZOOM_STEP = 10;
-
-    // Persist layout preferences across sessions
-    function _saveLayoutPref(mode, zoom) {
-      try { localStorage.setItem('sdoc-layout-mode', mode); } catch {}
-      try { localStorage.setItem('sdoc-layout-zoom', String(zoom)); } catch {}
-    }
-    function _loadLayoutPref() {
-      let mode = LAYOUT.AUTO, zoom = 100;
-      try { const m = localStorage.getItem('sdoc-layout-mode'); if (m) mode = m; } catch {}
-      try { const z = parseInt(localStorage.getItem('sdoc-layout-zoom') || '100', 10); if (z >= ZOOM_MIN && z <= ZOOM_MAX) zoom = z; } catch {}
-      return { mode, zoom };
     }
 
     function ViewerScreen({ doc, publicToken, onSelectDoc }) {
