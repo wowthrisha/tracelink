@@ -287,6 +287,27 @@ window.SecureDocAPI = {
     return r.json();
   },
 
+  async updateLink(linkId, patch) {
+    const r = await fetch(`${API_BASE}/api/links/${linkId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      body: JSON.stringify(patch),
+    });
+    if (r.status === 401) { _clearAndReload(); return; }
+    if (!r.ok) throw await r.json();
+    return r.json();
+  },
+
+  async resolveFeedback(docId, annotationId) {
+    const r = await fetch(`${API_BASE}/api/documents/${docId}/feedback/${annotationId}/resolve`, {
+      method: 'PATCH',
+      headers: { ...authHeaders() },
+    });
+    if (r.status === 401) { _clearAndReload(); return; }
+    if (!r.ok) throw await r.json();
+    return r.json();
+  },
+
   // ── Viewer (public — no auth) ───────────────────────────────────────────────
 
   async getGateRequirements(token) {
