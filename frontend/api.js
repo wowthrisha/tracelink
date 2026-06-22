@@ -765,4 +765,165 @@ window.SecureDocAPI = {
     if (!r.ok) throw await r.json().catch(() => ({ detail: 'Failed to load thread' }));
     return r.json();
   },
+
+  // ── API Keys ──────────────────────────────────────────────────────────────
+  async listApiKeys() {
+    const r = await fetch(`${API_BASE}/api/api-keys`, { headers: { ...authHeaders() } });
+    if (r.status === 401) { _clearAndReload(); return; }
+    if (!r.ok) throw await r.json().catch(() => ({ detail: 'Failed to load API keys' }));
+    return r.json();
+  },
+
+  async createApiKey(name, scopes = [], expiresAt = null) {
+    const body = { name, scopes };
+    if (expiresAt) body.expires_at = expiresAt;
+    const r = await fetch(`${API_BASE}/api/api-keys`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      body: JSON.stringify(body),
+    });
+    if (r.status === 401) { _clearAndReload(); return; }
+    if (!r.ok) throw await r.json().catch(() => ({ detail: 'Failed to create API key' }));
+    return r.json();
+  },
+
+  async revokeApiKey(keyId) {
+    const r = await fetch(`${API_BASE}/api/api-keys/${keyId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      body: JSON.stringify({ is_active: false }),
+    });
+    if (r.status === 401) { _clearAndReload(); return; }
+    if (!r.ok) throw await r.json().catch(() => ({ detail: 'Failed to revoke API key' }));
+    return r.json();
+  },
+
+  async deleteApiKey(keyId) {
+    const r = await fetch(`${API_BASE}/api/api-keys/${keyId}`, {
+      method: 'DELETE',
+      headers: { ...authHeaders() },
+    });
+    if (r.status === 401) { _clearAndReload(); return; }
+    if (!r.ok) throw await r.json().catch(() => ({ detail: 'Failed to delete API key' }));
+  },
+
+  // ── Webhooks ──────────────────────────────────────────────────────────────
+  async listWebhooks() {
+    const r = await fetch(`${API_BASE}/api/webhooks`, { headers: { ...authHeaders() } });
+    if (r.status === 401) { _clearAndReload(); return; }
+    if (!r.ok) throw await r.json().catch(() => ({ detail: 'Failed to load webhooks' }));
+    return r.json();
+  },
+
+  async createWebhook(url, events, description = '') {
+    const body = { url, events };
+    if (description) body.description = description;
+    const r = await fetch(`${API_BASE}/api/webhooks`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      body: JSON.stringify(body),
+    });
+    if (r.status === 401) { _clearAndReload(); return; }
+    if (!r.ok) throw await r.json().catch(() => ({ detail: 'Failed to create webhook' }));
+    return r.json();
+  },
+
+  async updateWebhook(webhookId, patch) {
+    const r = await fetch(`${API_BASE}/api/webhooks/${webhookId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      body: JSON.stringify(patch),
+    });
+    if (r.status === 401) { _clearAndReload(); return; }
+    if (!r.ok) throw await r.json().catch(() => ({ detail: 'Failed to update webhook' }));
+    return r.json();
+  },
+
+  async deleteWebhook(webhookId) {
+    const r = await fetch(`${API_BASE}/api/webhooks/${webhookId}`, {
+      method: 'DELETE',
+      headers: { ...authHeaders() },
+    });
+    if (r.status === 401) { _clearAndReload(); return; }
+    if (!r.ok) throw await r.json().catch(() => ({ detail: 'Failed to delete webhook' }));
+  },
+
+  async testWebhook(webhookId) {
+    const r = await fetch(`${API_BASE}/api/webhooks/${webhookId}/test`, {
+      method: 'POST',
+      headers: { ...authHeaders() },
+    });
+    if (r.status === 401) { _clearAndReload(); return; }
+    if (!r.ok) throw await r.json().catch(() => ({ detail: 'Test ping failed' }));
+    return r.json();
+  },
+
+  async getWebhookDeliveries(webhookId, limit = 50) {
+    const r = await fetch(`${API_BASE}/api/webhooks/${webhookId}/deliveries?limit=${limit}`, {
+      headers: { ...authHeaders() },
+    });
+    if (r.status === 401) { _clearAndReload(); return; }
+    if (!r.ok) throw await r.json().catch(() => ({ detail: 'Failed to load deliveries' }));
+    return r.json();
+  },
+
+  // ── Audit Log ─────────────────────────────────────────────────────────────
+  async getAuditLog(orgId = null, limit = 50, offset = 0) {
+    const qs = new URLSearchParams({ limit, offset });
+    if (orgId) qs.set('org_id', orgId);
+    const r = await fetch(`${API_BASE}/api/admin/audit-log?${qs}`, {
+      headers: { ...authHeaders() },
+    });
+    if (r.status === 401) { _clearAndReload(); return; }
+    if (!r.ok) throw await r.json().catch(() => ({ detail: 'Failed to load audit log' }));
+    return r.json();
+  },
+
+  // ── Organizations ─────────────────────────────────────────────────────────
+  async listOrgs() {
+    const r = await fetch(`${API_BASE}/api/orgs`, { headers: { ...authHeaders() } });
+    if (r.status === 401) { _clearAndReload(); return; }
+    if (!r.ok) throw await r.json().catch(() => ({ detail: 'Failed to load organizations' }));
+    return r.json();
+  },
+
+  async createOrg(name) {
+    const r = await fetch(`${API_BASE}/api/orgs`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      body: JSON.stringify({ name }),
+    });
+    if (r.status === 401) { _clearAndReload(); return; }
+    if (!r.ok) throw await r.json().catch(() => ({ detail: 'Failed to create organization' }));
+    return r.json();
+  },
+
+  async updateOrg(orgId, patch) {
+    const r = await fetch(`${API_BASE}/api/orgs/${orgId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      body: JSON.stringify(patch),
+    });
+    if (r.status === 401) { _clearAndReload(); return; }
+    if (!r.ok) throw await r.json().catch(() => ({ detail: 'Failed to update organization' }));
+    return r.json();
+  },
+
+  async deleteOrg(orgId) {
+    const r = await fetch(`${API_BASE}/api/orgs/${orgId}`, {
+      method: 'DELETE',
+      headers: { ...authHeaders() },
+    });
+    if (r.status === 401) { _clearAndReload(); return; }
+    if (!r.ok) throw await r.json().catch(() => ({ detail: 'Failed to delete organization' }));
+  },
+
+  async listOrgMembers(orgId) {
+    const r = await fetch(`${API_BASE}/api/orgs/${orgId}/members`, {
+      headers: { ...authHeaders() },
+    });
+    if (r.status === 401) { _clearAndReload(); return; }
+    if (!r.ok) throw await r.json().catch(() => ({ detail: 'Failed to load members' }));
+    return r.json();
+  },
 };
