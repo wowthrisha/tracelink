@@ -3,7 +3,6 @@ import { _errMsg } from '../utils/viewer.js';
 import { useToast } from '../contexts/toast.jsx';
 import { label, SectionLabel, Chip, Btn, Card, Divider, Header, RiskBadge } from '../components/atoms.jsx';
 import { KpiCard } from '../components/analytics/KpiCard.jsx';
-import { RangeBtn } from '../components/analytics/RangeBtn.jsx';
 import { SparkChart } from '../components/analytics/SparkChart.jsx';
 import { DonutChart } from '../components/analytics/DonutChart.jsx';
 import { DocAnalyticsRow } from '../components/analytics/DocAnalyticsRow.jsx';
@@ -11,7 +10,6 @@ const { useState, useEffect } = React;
 
 export function AnalyticsScreen() {
   const toast = useToast();
-  const [range, setRange] = useState('7d');
   const [analyticsTab, setAnalyticsTab] = useState('overview'); // 'overview' | 'documents' | 'groups'
 
   const [overview, setOverview] = useState(null);
@@ -71,11 +69,6 @@ export function AnalyticsScreen() {
                 fontFamily: "'DM Sans',sans-serif", fontWeight: analyticsTab === id ? 600 : 400,
                 transition: 'all .12s'
               }}>{lbl}</button>
-          ))}
-        </div>
-        <div style={{ display: 'flex', gap: 3 }}>
-          {analyticsTab === 'overview' && ['24h', '7d', '30d', '90d'].map(r => (
-            <RangeBtn key={r} r={r} active={range === r} onClick={() => setRange(r)} />
           ))}
         </div>
         <Btn variant="secondary" size="sm" onClick={() => {
@@ -341,12 +334,12 @@ export function AnalyticsScreen() {
                 <div>
                   <SectionLabel>Views Over Time</SectionLabel>
                   <div style={{ ...mono, fontSize: 9, color: C.textDim, marginTop: 3 }}>
-                    Daily view count · {range}
+                    Daily view count · last 7 days
                   </div>
                 </div>
                 <div style={{ ...mono, fontSize: 22, fontWeight: 700, letterSpacing: '-1.5px', color: C.teal1 }}>{(overview?.views_last_7_days || []).reduce((a, d) => a + d.count, 0).toLocaleString()}</div>
               </div>
-              <SparkChart range={range} sparkData={overview?.views_last_7_days} />
+              <SparkChart range="7d" sparkData={overview?.views_last_7_days} />
             </Card>
             <Card>
               <SectionLabel style={{ marginBottom: 14 }}>Access Outcomes</SectionLabel>
