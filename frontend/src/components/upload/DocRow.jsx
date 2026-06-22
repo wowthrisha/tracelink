@@ -12,7 +12,7 @@ export function DocRow({ doc, isLast, onView, onAccess, onDelete, onReprocess, o
   const canShare = doc.status === 'ready';
   return (
     <tr onMouseEnter={() => setHov(true)} onMouseLeave={() => setHov(false)}
-      onClick={onAccess}
+      onClick={onView}
       style={{
         borderBottom: isLast ? 'none' : `1px solid ${C.border}`,
         background: hov ? 'rgba(90,200,208,0.03)' : 'transparent', transition: 'background .1s',
