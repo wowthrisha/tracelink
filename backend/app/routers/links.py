@@ -58,6 +58,14 @@ def _link_to_summary(link: ShareLink, base_url: str = "") -> LinkSummary:
         except Exception:
             pass
 
+    def _parse_json_list(val) -> list | None:
+        if val is None:
+            return None
+        try:
+            return json.loads(val) if isinstance(val, str) else val
+        except Exception:
+            return None
+
     url_base = base_url or settings.app_public_base_url
     return LinkSummary(
         id=link.id,
@@ -72,6 +80,9 @@ def _link_to_summary(link: ShareLink, base_url: str = "") -> LinkSummary:
         is_active=is_active,
         has_password=link.password_hash is not None,
         permissions=permissions,
+        allowed_emails=_parse_json_list(link.allowed_emails),
+        allowed_domains=_parse_json_list(link.allowed_domains),
+        ip_allowlist=_parse_json_list(link.ip_allowlist),
     )
 
 

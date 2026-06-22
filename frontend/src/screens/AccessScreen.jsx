@@ -17,6 +17,8 @@ export function AccessScreen({ doc, onSelectDoc }) {
   const [creating, setCreating] = useState(false);
   const [revokeModal, setRevokeModal] = useState(false);
   const [revoking, setRevoking] = useState(null);
+  const [editLinkModal, setEditLinkModal] = useState(null); // link object being edited, or null
+  const [editSaving, setEditSaving] = useState(false);
   const [linkCopied, setLinkCopied] = useState(null);
   const [saved, setSaved] = useState(false);
   // Feedback tab state (comment + sticky_note)
@@ -302,7 +304,7 @@ export function AccessScreen({ doc, onSelectDoc }) {
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginLeft: 20, flexShrink: 0 }}>
                   <Btn variant="primary" onClick={handleSave} style={{ minWidth: 130 }}>
-                    {saved ? '✓ Saved' : 'Save Policy'}
+                    {saved ? '✓ Created' : 'Create New Link'}
                   </Btn>
                   <Btn variant="secondary" disabled={creating || !docId} onClick={async () => {
                     setCreating(true);
@@ -338,7 +340,10 @@ export function AccessScreen({ doc, onSelectDoc }) {
                     {link.revoked_at && <Chip color={C.error} bg={C.errorBg} border={C.errorBdr}>REVOKED</Chip>}
                   </div>
                   {!link.revoked_at && (
-                    <Btn variant="outline-danger" size="sm" onClick={async () => { try { await window.SecureDocAPI.revokeLink(link.id); toast('Link revoked', 'info'); await fetchLinks(); } catch (e) { toast(_errMsg(e, 'Failed'), 'error'); } }}>Revoke</Btn>
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      <Btn variant="ghost" size="sm" onClick={() => setEditLinkModal(link)}>Edit</Btn>
+                      <Btn variant="outline-danger" size="sm" onClick={async () => { try { await window.SecureDocAPI.revokeLink(link.id); toast('Link revoked', 'info'); await fetchLinks(); } catch (e) { toast(_errMsg(e, 'Failed'), 'error'); } }}>Revoke</Btn>
+                    </div>
                   )}
                 </div>
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 10 }}>
@@ -695,6 +700,25 @@ export function AccessScreen({ doc, onSelectDoc }) {
         )}
       </div>
 
+      {/* Edit Link modal */}
+      {editLinkModal && (
+        <EditLinkModal
+          link={editLinkModal}
+          saving={editSaving}
+          onClose={() => setEditLinkModal(null)}
+          onSave={async (patch) => {
+            setEditSaving(true);
+            try {
+              await window.SecureDocAPI.updateLink(editLinkModal.id, patch);
+              setEditLinkModal(null);
+              await fetchLinks();
+              toast('Link updated', 'success');
+            } catch (e) { toast(_errMsg(e, 'Failed to update link'), 'error'); }
+            finally { setEditSaving(false); }
+          }}
+        />
+      )}
+
       {/* Revoke confirmation modal */}
       <Modal open={revokeModal} onClose={() => setRevokeModal(false)} title="Revoke All Access" width={420}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -719,5 +743,93 @@ export function AccessScreen({ doc, onSelectDoc }) {
         </div>
       </Modal>
     </div>
+  );
+}
+
+function EditLinkModal({ link, saving, onClose, onSave }) {
+  const [label_txt, setLabel] = useState(link.label || '');
+  const [password, setPassword] = useState('');
+  const [expiry, setExpiry] = useState(link.expires_at ? link.expires_at.slice(0, 10) : '');
+  const [maxViews, setMaxViews] = useState(link.max_views != null ? String(link.max_views) : '');
+  const [maxConcurrentSessions, setMaxConcurrentSessions] = useState(
+    link.max_concurrent_sessions != null ? String(link.max_concurrent_sessions) : ''
+  );
+  const [allowedEmails, setAllowedEmails] = useState((link.allowed_emails || []).join('\n'));
+  const [allowedDomains, setAllowedDomains] = useState((link.allowed_domains || []).join(', '));
+  const [ipAllowlist, setIpAllowlist] = useState((link.ip_allowlist || []).join(', '));
+  const [permissions, setPermissions] = useState(link.permissions || {
+    can_download: false, can_print: false, can_copy: false, can_right_click: false,
+    watermark_enabled: true, can_annotate: false, enable_info: true,
+  });
+
+  const handleSubmit = () => {
+    const patch = {};
+    patch.label = label_txt || null;
+    if (password) patch.password = password;
+    patch.expires_at = expiry ? new Date(expiry + 'T23:59:59').toISOString() : null;
+    patch.max_views = maxViews ? parseInt(maxViews) : null;
+    patch.max_concurrent_sessions = maxConcurrentSessions ? parseInt(maxConcurrentSessions) : null;
+    patch.allowed_emails = allowedEmails ? allowedEmails.split('\n').map(e => e.trim()).filter(Boolean) : null;
+    patch.allowed_domains = allowedDomains ? allowedDomains.split(',').map(d => d.trim()).filter(Boolean) : null;
+    patch.ip_allowlist = ipAllowlist ? ipAllowlist.split(',').map(i => i.trim()).filter(Boolean) : null;
+    patch.permissions = permissions;
+    onSave(patch);
+  };
+
+  return (
+    <Modal open={true} onClose={onClose} title={`Edit Link — ${link.label || 'Untitled'}`} width={520}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <Field label="Label">
+            <input value={label_txt} onChange={e => setLabel(e.target.value)} placeholder="Untitled Link" />
+          </Field>
+          <Field label="New Password" hint="Leave blank to keep existing">
+            <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="unchanged" />
+          </Field>
+          <Field label="Expiry Date">
+            <input type="date" value={expiry} onChange={e => setExpiry(e.target.value)} />
+          </Field>
+          <Field label="Max Views">
+            <input type="number" value={maxViews} onChange={e => setMaxViews(e.target.value)} placeholder="Unlimited" />
+          </Field>
+          <Field label="Max Concurrent Sessions">
+            <input type="number" value={maxConcurrentSessions} onChange={e => setMaxConcurrentSessions(e.target.value)} placeholder="Unlimited" min="1" />
+          </Field>
+          <Field label="Allowed Domains" hint="Comma-separated">
+            <input value={allowedDomains} onChange={e => setAllowedDomains(e.target.value)} placeholder="@acme.io, @partner.com" />
+          </Field>
+        </div>
+        <Field label="Allowed Emails" hint="One per line">
+          <textarea value={allowedEmails} onChange={e => setAllowedEmails(e.target.value)}
+            rows={3} style={{ fontFamily: "'DM Mono',monospace", fontSize: 11, resize: 'vertical' }} />
+        </Field>
+        <Field label="IP Allowlist" hint="CIDR or exact, comma-separated">
+          <input value={ipAllowlist} onChange={e => setIpAllowlist(e.target.value)} placeholder="10.0.0.0/24, 192.168.1.1" />
+        </Field>
+        <div>
+          <SectionLabel style={{ marginBottom: 8 }}>Permissions</SectionLabel>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 6 }}>
+            {Object.entries({
+              can_download: 'Download', can_print: 'Print', can_copy: 'Copy Text',
+              can_right_click: 'Right Click', watermark_enabled: 'Watermark',
+              can_annotate: 'Annotations', enable_info: 'Info Panel',
+            }).map(([key, labelText]) => (
+              <div key={key} style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                padding: '6px 10px', background: 'rgba(90,200,208,0.03)',
+                border: `1px solid ${C.border}`, borderRadius: 7
+              }}>
+                <span style={{ fontSize: 11, color: permissions[key] ? C.textPrimary : C.textMuted }}>{labelText}</span>
+                <Toggle enabled={permissions[key]} onChange={() => setPermissions(p => ({ ...p, [key]: !p[key] }))} />
+              </div>
+            ))}
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 4 }}>
+          <Btn variant="secondary" onClick={onClose}>Cancel</Btn>
+          <Btn variant="primary" onClick={handleSubmit} disabled={saving}>{saving ? 'Saving…' : 'Save Changes'}</Btn>
+        </div>
+      </div>
+    </Modal>
   );
 }

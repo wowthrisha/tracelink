@@ -55,6 +55,9 @@ class LinkSummary(BaseModel):
     is_active: bool
     has_password: bool
     permissions: Optional[Dict[str, bool]] = None
+    allowed_emails: Optional[List[str]] = None
+    allowed_domains: Optional[List[str]] = None
+    ip_allowlist: Optional[List[str]] = None
 
     model_config = {"from_attributes": True}
 
