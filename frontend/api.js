@@ -179,9 +179,8 @@ window.SecureDocAPI = {
   },
 
   async getStorageDashboard(orgId = null) {
-    const url = new URL(`${API_BASE}/api/storage/dashboard`);
-    if (orgId) url.searchParams.set('org_id', orgId);
-    const r = await fetch(url, { headers: { ...authHeaders() } });
+    const qs = orgId ? `?org_id=${encodeURIComponent(orgId)}` : '';
+    const r = await fetch(`${API_BASE}/api/storage/dashboard${qs}`, { headers: { ...authHeaders() } });
     if (r.status === 401) { _clearAndReload(); return; }
     if (!r.ok) throw await r.json();
     return r.json();
