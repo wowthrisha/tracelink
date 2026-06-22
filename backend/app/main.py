@@ -465,6 +465,22 @@ async def serve_app(token: Optional[str] = None):
         f'src="/static/dist/app.bundle.js?v={bundle_mtime}"',
     )
 
+    # Cache-bust api.js with the same mtime strategy.
+    # api.js is served as a separate static file (not bundled) and receives
+    # Cache-Control: public, max-age=3600 from SecurityHeadersMiddleware.
+    # Without a versioned URL, browsers serve stale api.js for up to 3600s
+    # after a deploy — causing the fixed code to never reach users until
+    # their cache expires. The bundle already has this fix; api.js did not.
+    api_js_path = os.path.join(frontend_dir, "api.js")
+    try:
+        api_js_mtime = int(os.path.getmtime(api_js_path))
+    except OSError:
+        api_js_mtime = 0
+    content = content.replace(
+        'src="/static/api.js"',
+        f'src="/static/api.js?v={api_js_mtime}"',
+    )
+
     return HTMLResponse(
         content=content,
         headers={"Cache-Control": "no-cache, must-revalidate"},
