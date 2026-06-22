@@ -59,6 +59,16 @@ async def storage_dashboard(
 
     docs = (await db.execute(base_q)).scalars().all()
 
+    # Bulk-load groups for all documents that have a group_id
+    group_ids = {d.group_id for d in docs if d.group_id}
+    groups_by_id: dict = {}
+    if group_ids:
+        from app.models.group import DocumentGroup
+        group_rows = (
+            await db.execute(select(DocumentGroup).where(DocumentGroup.id.in_(group_ids)))
+        ).scalars().all()
+        groups_by_id = {g.id: g for g in group_rows}
+
     total_bytes = sum(_effective_bytes(d) for d in docs)
     active_count = sum(1 for d in docs if d.lifecycle_state == "active")
     archived_count = sum(1 for d in docs if d.lifecycle_state == "archived")
@@ -78,6 +88,9 @@ async def storage_dashboard(
             "file_size_bytes": d.file_size_bytes,
             "storage_bytes_computed": d.storage_bytes_computed,
             "created_at": d.created_at.isoformat() if d.created_at else None,
+            "group_id": str(d.group_id) if d.group_id else None,
+            "group_name": groups_by_id[d.group_id].name if d.group_id and d.group_id in groups_by_id else None,
+            "group_color": groups_by_id[d.group_id].color if d.group_id and d.group_id in groups_by_id else None,
         }
         for d in sorted(docs, key=lambda d: _effective_bytes(d), reverse=True)
     ]

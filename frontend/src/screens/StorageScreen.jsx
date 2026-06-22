@@ -111,7 +111,7 @@ export function StorageScreen() {
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
                 <tr style={{ background: C.surface2 }}>
-                  {['Document', 'State', 'Size', 'Usage', 'Expires', 'Delete after'].map(h => (
+                  {['Document', 'Group', 'State', 'Size', 'Usage', 'Expires', 'Delete after'].map(h => (
                     <th key={h} style={{ ...mono, fontSize: 9, color: C.textMuted, padding: '6px 14px', textAlign: 'left', fontWeight: 600, letterSpacing: '.5px', textTransform: 'uppercase' }}>{h}</th>
                   ))}
                 </tr>
@@ -122,6 +122,11 @@ export function StorageScreen() {
                     <td style={{ padding: '8px 14px', maxWidth: 220 }}>
                       <div style={{ fontSize: 12, color: C.textSecondary, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{doc.filename}</div>
                       <div style={{ ...mono, fontSize: 9, color: C.textMuted }}>{doc.id.slice(0, 8)}…</div>
+                    </td>
+                    <td style={{ padding: '8px 14px', whiteSpace: 'nowrap' }}>
+                      {doc.group_name
+                        ? <span style={{ fontSize: 10, padding: '2px 7px', borderRadius: 10, background: doc.group_color ? `${doc.group_color}22` : 'rgba(90,200,208,0.1)', color: doc.group_color || C.teal2, border: `1px solid ${doc.group_color || C.teal2}44` }}>{doc.group_name}</span>
+                        : <span style={{ ...mono, fontSize: 9, color: C.textDim }}>—</span>}
                     </td>
                     <td style={{ padding: '8px 14px' }}>{lifecycleBadge(doc.lifecycle_state)}</td>
                     <td style={{ ...mono, padding: '8px 14px', fontSize: 11, color: C.textSecondary }}>{fmtBytes(doc.storage_bytes)}</td>
