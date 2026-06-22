@@ -370,6 +370,39 @@ async def reply_to_feedback(
     return await create_uploader_reply(db, target, doc, body.comment_text, current_user)
 
 
+# ── Uploader: resolve / unresolve a feedback thread ─────────────────────────
+
+@router.patch("/api/documents/{doc_id}/feedback/{annotation_id}/resolve")
+@limiter.limit("30/minute")
+async def resolve_feedback(
+    request: Request,
+    doc_id: str,
+    annotation_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    from app.models.annotation import ViewerAnnotation
+    from app.models.link import ShareLink
+    from datetime import datetime, timezone
+    doc = (await db.execute(select(Document).where(Document.id == doc_id))).scalar_one_or_none()
+    if doc is None:
+        raise HTTPException(status_code=404, detail="Document not found")
+    if str(doc.user_id) != str(current_user["user_id"]):
+        raise HTTPException(status_code=403, detail="Access denied")
+    annot = await db.get(ViewerAnnotation, annotation_id)
+    if annot is None:
+        raise HTTPException(status_code=404, detail="Annotation not found")
+    link = await db.get(ShareLink, annot.link_id)
+    if link is None or str(link.document_id) != str(doc.id):
+        raise HTTPException(status_code=404, detail="Annotation not found")
+    annot.resolved_at = None if annot.resolved_at is not None else datetime.now(timezone.utc)
+    annot.updated_at = datetime.now(timezone.utc)
+    await db.commit()
+    await db.refresh(annot)
+    from app.services.annotation_service import _serialize_annotation
+    return _serialize_annotation(annot)
+
+
 # ── Uploader: list feedback (comment + sticky_note) ───────────────────────────
 
 @router.get("/api/documents/{doc_id}/feedback")

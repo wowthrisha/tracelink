@@ -561,9 +561,19 @@ export function AccessScreen({ doc, onSelectDoc }) {
                               {new Date(a.created_at).toLocaleString()}
                             </td>
                             <td style={{ padding: '9px 14px', whiteSpace: 'nowrap' }}>
-                              <Btn variant="ghost" size="sm" onClick={() => setReplyDraft(replyDraft === a.id ? null : a.id)}>
-                                {replyDraft === a.id ? '✕' : '↩ Reply'}
-                              </Btn>
+                              <div style={{ display: 'flex', gap: 4 }}>
+                                <Btn variant="ghost" size="sm" onClick={() => setReplyDraft(replyDraft === a.id ? null : a.id)}>
+                                  {replyDraft === a.id ? '✕' : '↩ Reply'}
+                                </Btn>
+                                <Btn variant={a.resolved_at ? 'secondary' : 'ghost'} size="sm" onClick={async () => {
+                                  try {
+                                    await window.SecureDocAPI.resolveFeedback(docId, a.id);
+                                    await fetchFeedback();
+                                  } catch (err) { toast(_errMsg(err, 'Failed to update'), 'error'); }
+                                }}>
+                                  {a.resolved_at ? '↺ Reopen' : '✓ Resolve'}
+                                </Btn>
+                              </div>
                             </td>
                           </tr>
                           {/* Existing replies (indented) */}
