@@ -105,7 +105,7 @@ export function AppShell() {
           userEmail={userEmail} onLogout={handleLogout} plan={plan} />
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
           {screen === 'upload' && <UploadScreen onViewDoc={handleViewDoc} onAccessDoc={handleAccessDoc} />}
-          {screen === 'viewer' && <ViewerErrorBoundary><ViewerScreen doc={activeDoc} onSelectDoc={handleViewDoc} /></ViewerErrorBoundary>}
+          {screen === 'viewer' && <ViewerErrorBoundary><ViewerScreen doc={activeDoc} onSelectDoc={handleViewDoc} onBack={() => setScreen('upload')} /></ViewerErrorBoundary>}
           {screen === 'access' && <AccessScreen doc={activeDoc} onSelectDoc={handleAccessDoc} />}
           {screen === 'analytics' && <AnalyticsScreen />}
           {screen === 'storage' && <StorageScreen />}
