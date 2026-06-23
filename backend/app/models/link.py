@@ -10,6 +10,9 @@ class ShareLink(Base):
     __tablename__ = "share_links"
     __table_args__ = (
         Index("ix_share_links_document_id", "document_id"),
+        # Composite index added by migration 025; covers active-link queries
+        # that filter on document_id AND revoked_at IS NULL.
+        Index("ix_share_links_doc_revoked", "document_id", "revoked_at"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(

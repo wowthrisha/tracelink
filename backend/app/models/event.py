@@ -43,6 +43,9 @@ class AccessEvent(Base):
         # Composite index added by migration 012; covers the analytics heatmap
         # hot path (filter by link_id, order by created_at DESC).
         Index("ix_access_events_link_id_created", "link_id", "created_at"),
+        # Composite index added by migration 025; covers all analytics aggregate
+        # queries that filter on both link_id and event_type.
+        Index("ix_access_events_link_event", "link_id", "event_type"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(

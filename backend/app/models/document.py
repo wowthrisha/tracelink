@@ -22,6 +22,7 @@ class Document(Base):
         Index("ix_documents_org_id", "org_id"),                # migration 016
         Index("ix_documents_parent_id", "parent_document_id"), # migration 018
         Index("ix_documents_status_updated", "status", "updated_at"), # migration 012 composite
+        Index("ix_documents_group_id", "group_id"),                   # migration 025
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
