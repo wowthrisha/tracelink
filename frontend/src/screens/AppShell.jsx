@@ -71,6 +71,30 @@ export function AppShell() {
       .catch(() => setFeedbackBadge(null));
   }, [activeDoc?.id]);
 
+  // Block unsupported small-screen layouts — desktop-only beta
+  if (typeof window !== 'undefined' && window.innerWidth < 768) {
+    return (
+      <div style={{
+        height: '100vh', width: '100vw', background: '#080B0C',
+        display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+        padding: 32, textAlign: 'center', gap: 20,
+      }}>
+        <div style={{ fontSize: 36 }}>◫</div>
+        <div style={{ fontSize: 20, fontWeight: 700, color: '#e2e8f0', letterSpacing: '-0.4px' }}>SecureDoc</div>
+        <div style={{ fontSize: 14, color: '#5ac8d0', fontWeight: 600, maxWidth: 280, lineHeight: 1.6 }}>
+          SecureDoc beta requires a desktop browser.
+        </div>
+        <div style={{ fontSize: 12, color: '#64748b', maxWidth: 280, lineHeight: 1.7 }}>
+          Please open this link on a laptop or desktop computer running Chrome, Firefox, or Safari.
+          Mobile support is planned for a future release.
+        </div>
+        <div style={{ fontSize: 10, color: '#334155', marginTop: 8, fontFamily: 'monospace' }}>
+          min-width: 768px required
+        </div>
+      </div>
+    );
+  }
+
   if (!window.SecureDocAPI) {
     return (
       <ToastProvider>
