@@ -20,6 +20,8 @@ export function AccessScreen({ doc, onSelectDoc, defaultTab }) {
   const [editLinkModal, setEditLinkModal] = useState(null); // link object being edited, or null
   const [editSaving, setEditSaving] = useState(false);
   const [linkCopied, setLinkCopied] = useState(null);
+  const [renamingLinkId, setRenamingLinkId] = useState(null);
+  const [renameValue, setRenameValue] = useState('');
   const [saved, setSaved] = useState(false);
   // Feedback tab state (comment + sticky_note)
   const [feedbackItems, setFeedbackItems] = useState([]);
@@ -148,6 +150,16 @@ export function AccessScreen({ doc, onSelectDoc, defaultTab }) {
     setLinkCopied(text);
     setTimeout(() => setLinkCopied(null), 2200);
     toast(`${lbl} copied to clipboard`, 'success');
+  };
+
+  const handleRename = async (linkId) => {
+    const trimmed = renameValue.trim();
+    setRenamingLinkId(null);
+    try {
+      await window.SecureDocAPI.updateLink(linkId, { label: trimmed || null });
+      await fetchLinks();
+      toast('Link renamed', 'success');
+    } catch (e) { toast(_errMsg(e, 'Failed to rename'), 'error'); }
   };
 
   const TABS = [
@@ -335,7 +347,34 @@ export function AccessScreen({ doc, onSelectDoc, defaultTab }) {
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <StatusDot status={link.revoked_at ? 'error' : 'active'} />
-                    <span style={{ fontSize: 12, fontWeight: 600, color: C.textPrimary }}>{link.label || 'Untitled Link'}</span>
+                    {renamingLinkId === link.id ? (
+                      <input
+                        autoFocus
+                        value={renameValue}
+                        onChange={e => setRenameValue(e.target.value)}
+                        onBlur={() => handleRename(link.id)}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter') handleRename(link.id);
+                          if (e.key === 'Escape') setRenamingLinkId(null);
+                        }}
+                        style={{
+                          fontSize: 12, fontWeight: 600, background: C.surface2,
+                          border: `1px solid ${C.teal1}`, borderRadius: 5,
+                          padding: '2px 7px', color: C.textPrimary, minWidth: 140,
+                        }}
+                      />
+                    ) : (
+                      <span style={{ fontSize: 12, fontWeight: 600, color: C.textPrimary }}>
+                        {link.label || 'Untitled Link'}
+                      </span>
+                    )}
+                    {!link.revoked_at && renamingLinkId !== link.id && (
+                      <button
+                        onClick={() => { setRenamingLinkId(link.id); setRenameValue(link.label || ''); }}
+                        title="Rename"
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.textDim, fontSize: 11, padding: '0 2px', lineHeight: 1 }}
+                      >✎</button>
+                    )}
                     {link.has_password && <Chip color={C.warning} bg={C.warningBg} border={C.warningBdr}>PASSWORD</Chip>}
                     {link.revoked_at && <Chip color={C.error} bg={C.errorBg} border={C.errorBdr}>REVOKED</Chip>}
                   </div>
@@ -371,19 +410,25 @@ export function AccessScreen({ doc, onSelectDoc, defaultTab }) {
                       title="Open link in new tab">↗</Btn>
                   )}
                 </div>
-                <div style={{ display: 'flex', gap: 20 }}>
+                <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
                   {(() => {
                     const expiresVal = link.expires_at ? link.expires_at.slice(0, 10) : 'Never';
                     const expiringSoon = link.expires_at && !link.revoked_at &&
                       (new Date(link.expires_at) - Date.now()) < 3 * 24 * 60 * 60 * 1000;
+                    const emailCount = (link.allowed_emails || []).length;
+                    const domainCount = (link.allowed_domains || []).length;
+                    const watermark = link.permissions?.watermark_enabled !== false;
                     return [
-                      ['Views', `${link.view_count}${link.max_views ? ' / ' + link.max_views : ''}`],
-                      ['Expires', expiresVal],
-                      ['Created', link.created_at?.slice(0, 10) || '—'],
-                    ].map(([k, v]) => (
+                      { k: 'Views', v: `${link.view_count}${link.max_views ? ' / ' + link.max_views : ''}` },
+                      { k: 'Expires', v: expiresVal, warn: expiringSoon },
+                      { k: 'Emails', v: emailCount > 0 ? `${emailCount} allowed` : 'Any' },
+                      { k: 'Domains', v: domainCount > 0 ? `${domainCount} allowed` : 'Any' },
+                      { k: 'Watermark', v: watermark ? 'On' : 'Off' },
+                      { k: 'Created', v: link.created_at?.slice(0, 10) || '—' },
+                    ].map(({ k, v, warn }) => (
                       <div key={k} style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
                         <span style={{ ...label(8) }}>{k}</span>
-                        <span style={{ ...mono, fontSize: 11, color: k === 'Expires' && expiringSoon ? C.warning : C.textSecondary }}>{v}</span>
+                        <span style={{ ...mono, fontSize: 11, color: warn ? C.warning : C.textSecondary }}>{v}</span>
                       </div>
                     ));
                   })()}
