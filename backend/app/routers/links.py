@@ -259,5 +259,23 @@ async def update_link(
     # on the next viewer request — evict link snapshot AND all session cache
     # entries for this link so any active viewer re-validates against the DB.
     invalidate_link(link.token, link_id=link.id)
+
+    try:
+        from app.services.audit_service import log_audit_event as _log_audit
+        await _log_audit(
+            db,
+            event_type="link.updated",
+            actor_user_id=user["user_id"],
+            target_type="link",
+            target_id=str(link_id),
+            details={
+                "document_id": str(link.document_id),
+                "token_prefix": link.token[:8] + "...",
+                "changed": sorted(payload.model_fields_set),
+            },
+        )
+    except Exception:
+        pass
+
     base_url = await _get_base_url_for_doc(doc_for_patch, db)
     return _link_to_summary(link, base_url)
