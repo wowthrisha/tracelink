@@ -23,6 +23,11 @@ and verified in Phase 0 of Sprint 5.3 hardening:
 """
 from alembic import op
 
+revision = "025"
+down_revision = "024"
+branch_labels = None
+depends_on = None
+
 
 def upgrade() -> None:
     op.create_index(
