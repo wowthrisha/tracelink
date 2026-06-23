@@ -17,7 +17,9 @@ analytics_svc = AnalyticsService()
 
 
 @router.get("/overview")
+@limiter.limit("30/minute")
 async def get_overview(
+    request: Request,
     db: AsyncSession = Depends(get_db),
     user: dict = Depends(require_scope("analytics:read")),
 ):
@@ -25,7 +27,9 @@ async def get_overview(
 
 
 @router.get("/documents")
+@limiter.limit("30/minute")
 async def get_document_analytics(
+    request: Request,
     group_id: Optional[str] = Query(None),
     db: AsyncSession = Depends(get_db),
     user: dict = Depends(require_scope("analytics:read")),
@@ -47,7 +51,9 @@ async def get_document_analytics(
 
 
 @router.get("/groups")
+@limiter.limit("30/minute")
 async def get_group_analytics(
+    request: Request,
     db: AsyncSession = Depends(get_db),
     user: dict = Depends(require_scope("analytics:read")),
 ):
@@ -58,7 +64,9 @@ async def get_group_analytics(
 
 
 @router.get("/page-heatmap")
+@limiter.limit("30/minute")
 async def get_page_heatmap(
+    request: Request,
     document_id: str = Query(...),
     db: AsyncSession = Depends(get_db),
     user: dict = Depends(require_scope("analytics:read")),
@@ -83,7 +91,9 @@ async def get_page_heatmap(
 
 
 @router.get("/events")
+@limiter.limit("30/minute")
 async def get_events(
+    request: Request,
     document_id: Optional[str] = Query(None),
     group_id: Optional[str] = Query(None),
     limit: int = Query(50, ge=1, le=500),
