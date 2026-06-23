@@ -201,7 +201,6 @@ export function UploadScreen({ onViewDoc, onAccessDoc }) {
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }} className="fade-in">
       <Header screen="upload">
-        <Btn variant="secondary" size="sm" onClick={() => toast('Search feature coming soon', 'info')}>⌕ Filter</Btn>
         <Btn variant="primary" size="sm" onClick={() => fileRef.current.click()}>↑ Upload PDF</Btn>
       </Header>
 
