@@ -533,18 +533,23 @@ export function ViewerScreen({ doc, publicToken, onSelectDoc, onBack }) {
               {/* Feature 1: Annotation-based hyperlink overlays (links with PDF coordinates) */}
               {linksLoaded && (pageLinksRef.current[page] || [])
                 .filter(link => link.x != null && link.y != null)
-                .map((link, i) => (
-                  <a key={i} href={link.url} target="_blank" rel="noopener noreferrer"
-                    style={{
-                      position: 'absolute',
-                      left: `${link.x * 100}%`, top: `${link.y * 100}%`,
-                      width: `${link.w * 100}%`, height: `${link.h * 100}%`,
-                      cursor: 'pointer', pointerEvents: 'auto', zIndex: 7,
-                      display: 'block',
-                    }}
-                    title={link.url}
-                  />
-                ))}
+                .map((link, i) => {
+                  let safeHref = null;
+                  try { const u = new URL(link.url); if (/^https?:$/i.test(u.protocol)) safeHref = link.url; } catch {}
+                  return (
+                    <a key={i} href={safeHref || '#'} target={safeHref ? '_blank' : undefined} rel="noopener noreferrer"
+                      onClick={safeHref ? undefined : e => e.preventDefault()}
+                      style={{
+                        position: 'absolute',
+                        left: `${link.x * 100}%`, top: `${link.y * 100}%`,
+                        width: `${link.w * 100}%`, height: `${link.h * 100}%`,
+                        cursor: safeHref ? 'pointer' : 'default', pointerEvents: 'auto', zIndex: 7,
+                        display: 'block',
+                      }}
+                      title={link.url}
+                    />
+                  );
+                })}
 
               {/* Annotation overlay layer — rendered above page image, never modifies it */}
               {session?.permissions?.can_annotate && (
