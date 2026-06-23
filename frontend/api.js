@@ -312,6 +312,9 @@ window.SecureDocAPI = {
 
   async getGateRequirements(token) {
     const r = await fetch(`${API_BASE}/api/viewer/gate/${token}`);
+    if (r.status === 404) {
+      return { status: 'not_found', requires_password: false, requires_email: false };
+    }
     if (!r.ok) throw await r.json();
     return r.json();
   },

@@ -219,8 +219,7 @@ class TestGateEndpoint:
     @pytest.mark.asyncio
     async def test_gate_nonexistent_token(self, client):
         r = await client.get("/api/viewer/gate/deadbeefdeadbeef")
-        assert r.status_code == 200
-        assert r.json()["status"] == "not_found"
+        assert r.status_code == 404
 
     @pytest.mark.asyncio
     async def test_gate_email_restricted_link(self, client, db_session, ready_document):

@@ -396,8 +396,7 @@ class TestTokenSecurity:
     @pytest.mark.asyncio
     async def test_gate_not_found_for_random_token(self, client):
         r = await client.get("/api/viewer/gate/totally-random-token-xyz999")
-        assert r.status_code == 200
-        assert r.json()["status"] == "not_found"
+        assert r.status_code == 404
 
     @pytest.mark.asyncio
     async def test_page_requires_session_id(self, client):

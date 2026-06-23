@@ -723,8 +723,7 @@ class TestEndpointRegressions:
 
     async def test_gate_unknown_token(self, client):
         r = await client.get("/api/viewer/gate/no-such-token")
-        assert r.status_code == 200
-        assert r.json()["status"] == "not_found"
+        assert r.status_code == 404
 
     async def test_gate_revoked_link(self, client, revoked_link):
         r = await client.get(f"/api/viewer/gate/{revoked_link.token}")

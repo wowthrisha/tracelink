@@ -150,7 +150,7 @@ async def get_gate_requirements(token: str, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(ShareLink).where(ShareLink.token == token))
     link = result.scalar_one_or_none()
     if not link:
-        return {"status": "not_found", "requires_password": False, "requires_email": False}
+        raise HTTPException(status_code=404, detail="Link not found")
     now = datetime.now(timezone.utc)
     if link.revoked_at is not None:
         return {"status": "revoked", "requires_password": False, "requires_email": False}

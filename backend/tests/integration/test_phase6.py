@@ -237,8 +237,7 @@ class TestTokenHardening:
     @pytest.mark.asyncio
     async def test_gate_unknown_token_returns_not_found(self, client):
         r = await client.get("/api/viewer/gate/totally-unknown-token-xyz")
-        assert r.status_code == 200
-        assert r.json()["status"] == "not_found"
+        assert r.status_code == 404
 
     @pytest.mark.asyncio
     async def test_gate_very_long_token_safe(self, client):
