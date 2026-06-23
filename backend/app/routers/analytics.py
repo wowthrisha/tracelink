@@ -31,6 +31,8 @@ async def get_overview(
 async def get_document_analytics(
     request: Request,
     group_id: Optional[str] = Query(None),
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
     user: dict = Depends(require_scope("analytics:read")),
 ):
@@ -40,27 +42,32 @@ async def get_document_analytics(
             group_uuid = uuid.UUID(group_id)
         except ValueError:
             raise HTTPException(status_code=400, detail="Invalid group_id format")
-    docs = await analytics_svc.get_document_analytics(
-        db, group_id=group_uuid, user_id=uuid.UUID(user["user_id"])
+    docs, total = await analytics_svc.get_document_analytics(
+        db, group_id=group_uuid, user_id=uuid.UUID(user["user_id"]),
+        limit=limit, offset=offset,
     )
     for d in docs:
         d["id"] = str(d["id"])
         if d.get("group_id"):
             d["group_id"] = str(d["group_id"])
-    return {"documents": docs}
+    return {"documents": docs, "total": total, "limit": limit, "offset": offset}
 
 
 @router.get("/groups")
 @limiter.limit("30/minute")
 async def get_group_analytics(
     request: Request,
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
     user: dict = Depends(require_scope("analytics:read")),
 ):
-    groups = await analytics_svc.get_group_analytics(db, user_id=uuid.UUID(user["user_id"]))
+    groups, total = await analytics_svc.get_group_analytics(
+        db, user_id=uuid.UUID(user["user_id"]), limit=limit, offset=offset,
+    )
     for g in groups:
         g["group_id"] = str(g["group_id"])
-    return {"groups": groups}
+    return {"groups": groups, "total": total, "limit": limit, "offset": offset}
 
 
 @router.get("/page-heatmap")

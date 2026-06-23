@@ -183,21 +183,34 @@ class AnalyticsService:
         db: AsyncSession,
         group_id: Optional[uuid.UUID] = None,
         user_id: Optional[uuid.UUID] = None,
-    ) -> list:
+        limit: int = 100,
+        offset: int = 0,
+    ) -> tuple:
+        """Returns (documents: list, total: int)."""
         now = datetime.now(timezone.utc)
         last_24h = now - timedelta(hours=24)
 
-        query = select(Document)
+        base_filter = []
         if group_id:
-            query = query.where(Document.group_id == group_id)
+            base_filter.append(Document.group_id == group_id)
         if user_id is not None:
-            query = query.where(Document.user_id == user_id)
+            base_filter.append(Document.user_id == user_id)
+
+        count_q = select(func.count()).select_from(Document)
+        if base_filter:
+            count_q = count_q.where(*base_filter)
+        total = (await db.execute(count_q)).scalar() or 0
+
+        query = select(Document)
+        if base_filter:
+            query = query.where(*base_filter)
+        query = query.order_by(Document.created_at.desc()).offset(offset).limit(limit)
 
         result = await db.execute(query)
         documents = result.scalars().all()
 
         if not documents:
-            return []
+            return [], total
 
         doc_ids = [d.id for d in documents]
 
@@ -304,7 +317,7 @@ class AnalyticsService:
                 "risk_score": risk_score,
             })
 
-        return analytics
+        return analytics, total
 
     async def get_page_heatmap(
         self,
@@ -376,21 +389,28 @@ class AnalyticsService:
         }
 
     async def get_group_analytics(
-        self, db: AsyncSession, user_id: Optional[uuid.UUID] = None
-    ) -> list:
-        """Aggregate analytics at the group level."""
+        self, db: AsyncSession, user_id: Optional[uuid.UUID] = None,
+        limit: int = 100, offset: int = 0,
+    ) -> tuple:
+        """Aggregate analytics at the group level. Returns (groups: list, total: int)."""
         now = datetime.now(timezone.utc)
         last_24h = now - timedelta(hours=24)
 
         # Security: only return this user's groups
+        count_q = select(func.count()).select_from(DocumentGroup)
+        if user_id is not None:
+            count_q = count_q.where(DocumentGroup.user_id == user_id)
+        total = (await db.execute(count_q)).scalar() or 0
+
         groups_q = select(DocumentGroup).order_by(DocumentGroup.name)
         if user_id is not None:
             groups_q = groups_q.where(DocumentGroup.user_id == user_id)
+        groups_q = groups_q.offset(offset).limit(limit)
         groups_result = await db.execute(groups_q)
         groups = groups_result.scalars().all()
 
         if not groups:
-            return []
+            return [], total
 
         group_ids = [g.id for g in groups]
 
@@ -413,7 +433,7 @@ class AnalyticsService:
                     "blocked_attempts": 0, "risk_score": "LOW", "active_links": 0,
                 }
                 for g in groups
-            ]
+            ], total
 
         # Batch: link IDs per document (1 query)
         links_result = await db.execute(
@@ -499,4 +519,4 @@ class AnalyticsService:
                 "active_links": active_links,
             })
 
-        return analytics
+        return analytics, total
