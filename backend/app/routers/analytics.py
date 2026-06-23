@@ -39,7 +39,7 @@ async def get_document_analytics(
         try:
             group_uuid = uuid.UUID(group_id)
         except ValueError:
-            group_uuid = None
+            raise HTTPException(status_code=400, detail="Invalid group_id format")
     docs = await analytics_svc.get_document_analytics(
         db, group_id=group_uuid, user_id=uuid.UUID(user["user_id"])
     )
