@@ -130,7 +130,7 @@ export function AccessScreen({ doc, onSelectDoc }) {
       payload.permissions = permissions;
       await window.SecureDocAPI.createLink(payload);
       setSaved(true); setTimeout(() => setSaved(false), 2500);
-      toast('Access policy saved — new link created', 'success');
+      toast('New share link created', 'success');
       await fetchLinks(); setTab('link');
     } catch (e) { toast(_errMsg(e, 'Failed to create link'), 'error'); }
     finally { setCreating(false); }
@@ -151,9 +151,9 @@ export function AccessScreen({ doc, onSelectDoc }) {
   };
 
   const TABS = [
-    { id: 'policy', label: 'Policy' },
-    { id: 'link', label: 'Share Link' },
-    { id: 'log', label: 'Access Log' },
+    { id: 'policy', label: 'Create Link' },
+    { id: 'link', label: 'Links' },
+    { id: 'log', label: 'View History' },
     { id: 'feedback', label: 'Feedback' },
     { id: 'annotations', label: 'Annotations' },
   ];
@@ -329,7 +329,7 @@ export function AccessScreen({ doc, onSelectDoc }) {
             {linksLoading ? (
               <div style={{ padding: '24px', color: C.textMuted, fontSize: 13 }}>Loading links…</div>
             ) : links.length === 0 ? (
-              <Card><div style={{ textAlign: 'center', color: C.textMuted, fontSize: 13, padding: '12px 0' }}>No share links yet — create one in the Policy tab.</div></Card>
+              <Card><div style={{ textAlign: 'center', color: C.textMuted, fontSize: 13, padding: '12px 0' }}>No share links yet — create one in the Create Link tab.</div></Card>
             ) : links.map(link => (
               <Card key={link.id}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
