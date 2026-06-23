@@ -230,6 +230,7 @@ const NAV_SECTIONS = [
     label: 'Security',
     items: [
       { id: 'access', icon: '◈', label: 'Access Control', badge: null },
+      { id: 'feedback', icon: '✦', label: 'Feedback', badge: null },
     ]
   },
   {
@@ -262,7 +263,7 @@ const NAV_SECTIONS = [
   },
 ];
 
-export function Sidebar({ active, setActive, userEmail, onLogout, plan }) {
+export function Sidebar({ active, setActive, userEmail, onLogout, plan, badges = {} }) {
   const handleNav = (id) => {
     setActive(id);
   };
@@ -306,7 +307,7 @@ export function Sidebar({ active, setActive, userEmail, onLogout, plan }) {
               <div style={{ ...label(8), padding: '10px 16px 4px', color: C.textDim }}>{sec.label}</div>
             )}
             {sec.items.map(item => (
-              <NavItem key={item.id} item={item} isActive={active === item.id} onClick={() => handleNav(item.id)} />
+              <NavItem key={item.id} item={item} isActive={active === item.id} onClick={() => handleNav(item.id)} badge={badges[item.id] ?? item.badge} />
             ))}
           </div>
         ))}
@@ -373,8 +374,9 @@ export function Sidebar({ active, setActive, userEmail, onLogout, plan }) {
   );
 }
 
-export function NavItem({ item, isActive, onClick }) {
+export function NavItem({ item, isActive, onClick, badge }) {
   const [hov, setHov] = useState(false);
+  const activeBadge = badge ?? item.badge;
   return (
     <div onClick={onClick}
       onMouseEnter={() => setHov(true)} onMouseLeave={() => setHov(false)}
@@ -390,11 +392,11 @@ export function NavItem({ item, isActive, onClick }) {
         fontSize: 12.5, fontWeight: isActive ? 600 : 400,
         color: isActive ? C.teal1 : hov ? C.textSecondary : C.textMuted, flex: 1
       }}>{item.label}</span>
-      {item.badge && (
+      {activeBadge != null && activeBadge !== 0 && (
         <span style={{
           ...mono, fontSize: 9, background: C.errorBg, color: C.error,
           border: `1px solid ${C.errorBdr}`, borderRadius: 10, padding: '1px 5px'
-        }}>{item.badge}</span>
+        }}>{activeBadge}</span>
       )}
     </div>
   );

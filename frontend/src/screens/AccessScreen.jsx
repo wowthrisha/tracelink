@@ -9,9 +9,9 @@ import { DocumentPicker } from '../components/DocumentPicker.jsx';
 
 const { useState, useEffect, useCallback } = React;
 
-export function AccessScreen({ doc, onSelectDoc }) {
+export function AccessScreen({ doc, onSelectDoc, defaultTab }) {
   const toast = useToast();
-  const [tab, setTab] = useState('policy');
+  const [tab, setTab] = useState(defaultTab || 'policy');
   const [links, setLinks] = useState([]);
   const [linksLoading, setLinksLoading] = useState(true);
   const [creating, setCreating] = useState(false);

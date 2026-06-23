@@ -29,11 +29,13 @@ export function AppShell() {
   const [screen, setScreen] = useState('upload');
   const [activeDoc, setActiveDoc] = useState(null);
   const [plan, setPlan] = useState('free');
+  const [feedbackBadge, setFeedbackBadge] = useState(null);
 
   const userEmail = token ? parseJwtEmail(token) : '';
 
   const handleViewDoc = doc => { setActiveDoc(doc); setScreen('viewer'); };
   const handleAccessDoc = doc => { setActiveDoc(doc); setScreen('access'); };
+  const handleFeedbackNav = () => { setFeedbackBadge(null); setScreen('feedback'); };
   const handleLogin = (newToken) => {
     setToken(newToken);
     // If redirected back from Stripe checkout, go to billing screen
@@ -56,6 +58,18 @@ export function AppShell() {
       window.history.replaceState({}, '', window.location.pathname);
     }
   }, []);
+
+  // Fetch open (unresolved) feedback count when activeDoc changes
+  useEffect(() => {
+    if (!activeDoc?.id || !window.SecureDocAPI?.getFeedback) return;
+    window.SecureDocAPI.getFeedback(activeDoc.id, { resolved: false })
+      .then(data => {
+        const items = Array.isArray(data) ? data : (data?.feedback || []);
+        const roots = items.filter(a => !a.parent_id);
+        setFeedbackBadge(roots.length > 0 ? roots.length : null);
+      })
+      .catch(() => setFeedbackBadge(null));
+  }, [activeDoc?.id]);
 
   if (!window.SecureDocAPI) {
     return (
@@ -101,12 +115,14 @@ export function AppShell() {
   return (
     <ToastProvider>
       <div style={{ display: 'flex', height: '100vh', width: '100vw', overflow: 'hidden', background: C.bg }}>
-        <Sidebar active={screen} setActive={setScreen}
-          userEmail={userEmail} onLogout={handleLogout} plan={plan} />
+        <Sidebar active={screen} setActive={(id) => id === 'feedback' ? handleFeedbackNav() : setScreen(id)}
+          userEmail={userEmail} onLogout={handleLogout} plan={plan}
+          badges={{ feedback: feedbackBadge }} />
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
           {screen === 'upload' && <UploadScreen onViewDoc={handleViewDoc} onAccessDoc={handleAccessDoc} />}
           {screen === 'viewer' && <ViewerErrorBoundary><ViewerScreen doc={activeDoc} onSelectDoc={handleViewDoc} onBack={() => setScreen('upload')} /></ViewerErrorBoundary>}
           {screen === 'access' && <AccessScreen doc={activeDoc} onSelectDoc={handleAccessDoc} />}
+          {screen === 'feedback' && <AccessScreen doc={activeDoc} onSelectDoc={handleAccessDoc} defaultTab="feedback" />}
           {screen === 'analytics' && <AnalyticsScreen />}
           {screen === 'storage' && <StorageScreen />}
           {screen === 'billing' && <BillingScreen onPlanChange={setPlan} />}
