@@ -139,26 +139,29 @@ class AnalyticsService:
             ShareLink.expires_at > now,
         )
 
-        # views_last_7_days — single batch query, aggregate in Python
+        # views_last_7_days — SQL GROUP BY DATE avoids fetching all raw timestamps
         week_start = (now - timedelta(days=6)).replace(
             hour=0, minute=0, second=0, microsecond=0
         )
         if scoped_link_ids is not None and not scoped_link_ids:
-            week_ts_rows = []
+            date_counts: dict = {}
         else:
-            week_q = select(AccessEvent.created_at).where(
-                AccessEvent.event_type == "opened",
-                AccessEvent.created_at >= week_start,
+            week_q = (
+                select(
+                    func.date(AccessEvent.created_at).label("day"),
+                    func.count().label("cnt"),
+                )
+                .where(
+                    AccessEvent.event_type == "opened",
+                    AccessEvent.created_at >= week_start,
+                )
+                .group_by(func.date(AccessEvent.created_at))
             )
             if scoped_link_ids:
                 week_q = week_q.where(AccessEvent.link_id.in_(scoped_link_ids))
-            week_ts_rows = (await db.execute(week_q)).scalars().all()
-
-        date_counts: dict = {}
-        for ts in week_ts_rows:
-            if ts.tzinfo is None:
-                ts = ts.replace(tzinfo=timezone.utc)
-            date_counts[ts.strftime("%Y-%m-%d")] = date_counts.get(ts.strftime("%Y-%m-%d"), 0) + 1
+            # func.date() returns a str in SQLite and a date object in PostgreSQL;
+            # str() normalises both to "YYYY-MM-DD" for the dict key.
+            date_counts = {str(row.day): row.cnt for row in (await db.execute(week_q)).all()}
 
         views_7_days = []
         for i in range(6, -1, -1):
