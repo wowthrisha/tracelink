@@ -12,6 +12,7 @@ Covers:
      the /static/ mount.
 """
 import os
+import re
 import pytest
 
 # Resolve the frontend directory the same way main.py does at runtime.
@@ -83,11 +84,13 @@ class TestBundleCorrectness:
     def test_bundle_ends_with_reactdom_render(self):
         """The last statement must be the ReactDOM mount (app entry point)."""
         bundle = _read_bundle()
-        # Strip trailing whitespace/newlines
         trimmed = bundle.strip()
-        assert trimmed.endswith(
-            'ReactDOM.createRoot(document.getElementById("root")).render(React.createElement(App,null));'
-        ), "Bundle does not end with ReactDOM render — app entry point may be missing"
+        # esbuild minifies the App component name and wraps the bundle in an IIFE.
+        # Verify the render call exists anywhere in the bundle with the correct structure.
+        assert re.search(
+            r'ReactDOM\.createRoot\(document\.getElementById\("root"\)\)\.render\(React\.createElement\(\w+,null\)\);',
+            trimmed,
+        ), "Bundle does not contain ReactDOM render — app entry point may be missing"
 
 
 # ══════════════════════════════════════════════════════════════════════════════
