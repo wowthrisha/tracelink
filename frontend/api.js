@@ -298,6 +298,16 @@ window.SecureDocAPI = {
     return r.json();
   },
 
+  async deleteLink(linkId) {
+    const r = await fetch(`${API_BASE}/api/links/${linkId}/hard`, {
+      method: 'DELETE',
+      headers: { ...authHeaders() },
+    });
+    if (r.status === 401) { _clearAndReload(); return; }
+    if (!r.ok) throw await r.json();
+    return r.json();
+  },
+
   async resolveFeedback(docId, annotationId) {
     const r = await fetch(`${API_BASE}/api/documents/${docId}/feedback/${annotationId}/resolve`, {
       method: 'PATCH',

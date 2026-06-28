@@ -49,6 +49,7 @@ class LinkSummary(BaseModel):
     label: Optional[str]
     expires_at: Optional[datetime]
     max_views: Optional[int]
+    max_concurrent_sessions: Optional[int] = None
     view_count: int
     revoked_at: Optional[datetime]
     created_at: datetime

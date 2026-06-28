@@ -74,6 +74,7 @@ def _link_to_summary(link: ShareLink, base_url: str = "") -> LinkSummary:
         label=link.label,
         expires_at=link.expires_at,
         max_views=link.max_views,
+        max_concurrent_sessions=link.max_concurrent_sessions,
         view_count=link.view_count,
         revoked_at=link.revoked_at,
         created_at=link.created_at,
@@ -118,6 +119,23 @@ async def create_link(
         permissions=payload.permissions,
         created_by=uuid.UUID(user["user_id"]),
     )
+
+    try:
+        from app.services.audit_service import log_audit_event as _log_audit
+        await _log_audit(
+            db,
+            event_type="link.created",
+            actor_user_id=user["user_id"],
+            target_type="link",
+            target_id=str(link.id),
+            details={
+                "document_id": str(link.document_id),
+                "token_prefix": link.token[:8] + "...",
+                "label": link.label,
+            },
+        )
+    except Exception:
+        pass
 
     base_url = await _get_base_url_for_doc(doc, db)
     return LinkResponse(
@@ -230,23 +248,33 @@ async def update_link(
     if not doc_for_patch:
         raise HTTPException(status_code=403, detail="Not authorized")
 
-    if payload.label is not None:
+    # Use model_fields_set so that explicitly-null values CLEAR the field,
+    # while absent fields leave existing values untouched.
+    if "label" in payload.model_fields_set:
         link.label = payload.label
-    if payload.expires_at is not None:
+    if "expires_at" in payload.model_fields_set:
         link.expires_at = payload.expires_at
-    if payload.max_views is not None:
+    if "max_views" in payload.model_fields_set:
         link.max_views = payload.max_views
-    if payload.allowed_emails is not None:
-        link.allowed_emails = json.dumps([e.lower().strip() for e in payload.allowed_emails if e.strip()])
-    if payload.allowed_domains is not None:
-        link.allowed_domains = json.dumps([d.strip().lower() for d in payload.allowed_domains if d.strip()])
-    if payload.ip_allowlist is not None:
-        link.ip_allowlist = json.dumps([ip.strip() for ip in payload.ip_allowlist if ip.strip()]) if payload.ip_allowlist else None
-    if payload.max_concurrent_sessions is not None:
+    if "max_concurrent_sessions" in payload.model_fields_set:
         link.max_concurrent_sessions = payload.max_concurrent_sessions
-    if payload.permissions is not None:
+    if "allowed_emails" in payload.model_fields_set:
+        link.allowed_emails = (
+            json.dumps([e.lower().strip() for e in payload.allowed_emails if e.strip()])
+            if payload.allowed_emails else None
+        )
+    if "allowed_domains" in payload.model_fields_set:
+        link.allowed_domains = (
+            json.dumps([d.strip().lower() for d in payload.allowed_domains if d.strip()])
+            if payload.allowed_domains else None
+        )
+    if "ip_allowlist" in payload.model_fields_set:
+        link.ip_allowlist = (
+            json.dumps([ip.strip() for ip in payload.ip_allowlist if ip.strip()])
+            if payload.ip_allowlist else None
+        )
+    if "permissions" in payload.model_fields_set and payload.permissions is not None:
         link.permissions = json.dumps(payload.permissions)
-
     if "password" in payload.model_fields_set:
         if payload.password is not None:
             link.password_hash = hash_password(payload.password)
@@ -279,3 +307,48 @@ async def update_link(
 
     base_url = await _get_base_url_for_doc(doc_for_patch, db)
     return _link_to_summary(link, base_url)
+
+
+@router.delete("/{link_id}/hard", response_model=dict)
+async def delete_link_permanently(
+    link_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    user: dict = Depends(require_scope("links:write")),
+):
+    """Permanently remove a revoked link and all its analytics from the database."""
+    result = await db.execute(select(ShareLink).where(ShareLink.id == link_id))
+    link = result.scalar_one_or_none()
+    if not link:
+        raise HTTPException(status_code=404, detail="Link not found")
+
+    doc_result = await db.execute(
+        select(Document).where(
+            Document.id == link.document_id,
+            Document.user_id == uuid.UUID(user["user_id"]),
+        )
+    )
+    if not doc_result.scalar_one_or_none():
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    if link.revoked_at is None:
+        raise HTTPException(status_code=400, detail="Revoke the link before deleting it permanently")
+
+    token = link.token
+    invalidate_link(token, link_id=link.id)
+
+    try:
+        from app.services.audit_service import log_audit_event as _log_audit
+        await _log_audit(
+            db,
+            event_type="link.deleted",
+            actor_user_id=user["user_id"],
+            target_type="link",
+            target_id=str(link_id),
+            details={"document_id": str(link.document_id), "token_prefix": token[:8] + "..."},
+        )
+    except Exception:
+        pass
+
+    await db.delete(link)
+    await db.commit()
+    return {"id": str(link_id), "deleted": True}

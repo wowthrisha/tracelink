@@ -285,7 +285,7 @@ export function AccessScreen({ doc, onSelectDoc, defaultTab }) {
               </div>
             </Card>
 
-            {/* Permissions */}
+            {/* Permissions + Link Name + action buttons */}
             <Card style={{ gridColumn: '1 / -1' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                 <div style={{ flex: 1 }}>
@@ -314,9 +314,17 @@ export function AccessScreen({ doc, onSelectDoc, defaultTab }) {
                     ))}
                   </div>
                 </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginLeft: 20, flexShrink: 0 }}>
-                  <Btn variant="primary" onClick={handleSave} style={{ minWidth: 130 }}>
-                    {saved ? '✓ Created' : 'Create New Link'}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginLeft: 20, flexShrink: 0, minWidth: 160 }}>
+                  <Field label="Link Name">
+                    <input
+                      value={label_txt}
+                      onChange={e => setLabel(e.target.value)}
+                      placeholder="e.g. Client Review, Tender Submission"
+                      style={{ fontSize: 12 }}
+                    />
+                  </Field>
+                  <Btn variant="primary" onClick={handleSave} disabled={creating} style={{ minWidth: 130 }}>
+                    {saved ? '✓ Created' : creating ? '…' : 'Create Share Link'}
                   </Btn>
                   <Btn variant="secondary" disabled={creating || !docId} onClick={async () => {
                     setCreating(true);
@@ -324,11 +332,11 @@ export function AccessScreen({ doc, onSelectDoc, defaultTab }) {
                       await window.SecureDocAPI.createLink({ document_id: docId });
                       await fetchLinks();
                       setTab('link');
-                      toast('New link created', 'success');
+                      toast('New share link created', 'success');
                     } catch (e) { toast(_errMsg(e, 'Failed to create link'), 'error'); }
                     finally { setCreating(false); }
                   }} style={{ minWidth: 130 }}>
-                    {creating ? '…' : '⟳ New Link'}
+                    {creating ? '…' : '⟳ New Share Link'}
                   </Btn>
                 </div>
               </div>
@@ -378,12 +386,21 @@ export function AccessScreen({ doc, onSelectDoc, defaultTab }) {
                     {link.has_password && <Chip color={C.warning} bg={C.warningBg} border={C.warningBdr}>PASSWORD</Chip>}
                     {link.revoked_at && <Chip color={C.error} bg={C.errorBg} border={C.errorBdr}>REVOKED</Chip>}
                   </div>
-                  {!link.revoked_at && (
-                    <div style={{ display: 'flex', gap: 6 }}>
-                      <Btn variant="ghost" size="sm" onClick={() => setEditLinkModal(link)}>Edit</Btn>
-                      <Btn variant="outline-danger" size="sm" onClick={async () => { try { await window.SecureDocAPI.revokeLink(link.id); toast('Link revoked', 'info'); await fetchLinks(); } catch (e) { toast(_errMsg(e, 'Failed'), 'error'); } }}>Revoke</Btn>
-                    </div>
-                  )}
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    {!link.revoked_at && (
+                      <>
+                        <Btn variant="ghost" size="sm" onClick={() => setEditLinkModal(link)}>Edit</Btn>
+                        <Btn variant="outline-danger" size="sm" onClick={async () => { try { await window.SecureDocAPI.revokeLink(link.id); toast('Link revoked', 'info'); await fetchLinks(); } catch (e) { toast(_errMsg(e, 'Failed'), 'error'); } }}>Revoke</Btn>
+                      </>
+                    )}
+                    {link.revoked_at && (
+                      <Btn variant="outline-danger" size="sm" onClick={async () => {
+                        if (!window.confirm('Permanently delete this link and all its view history? This cannot be undone.')) return;
+                        try { await window.SecureDocAPI.deleteLink(link.id); toast('Link deleted', 'info'); await fetchLinks(); }
+                        catch (e) { toast(_errMsg(e, 'Failed to delete link'), 'error'); }
+                      }}>Delete</Btn>
+                    )}
+                  </div>
                 </div>
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 10 }}>
                   <div style={{
