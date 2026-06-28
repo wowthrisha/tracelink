@@ -1,3 +1,4 @@
+import logging
 import uuid
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -11,6 +12,8 @@ from app.models.document import Document
 from app.services.analytics_service import AnalyticsService
 from app.middleware.rate_limit import limiter
 from app.auth import get_current_user, require_scope
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/analytics", tags=["analytics"])
 analytics_svc = AnalyticsService()
