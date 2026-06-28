@@ -159,8 +159,7 @@ async def update_webhook(
 
     # SQLAlchemy won't auto-update updated_at for in-place JSON property change,
     # so touch it explicitly.
-    from datetime import datetime, timezone as _tz
-    ep.updated_at = datetime.now(_tz.utc)
+    ep.updated_at = datetime.now(timezone.utc)
 
     await db.commit()
     await db.refresh(ep)

@@ -2,7 +2,7 @@ import uuid
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import get_current_user
@@ -50,9 +50,9 @@ async def get_audit_log(
         query = query.where(AdminAuditLog.actor_user_id == user_uuid)
 
     count_result = await db.execute(
-        query.with_only_columns(AdminAuditLog.id)
+        select(func.count()).select_from(query.subquery())
     )
-    total = len(count_result.all())
+    total = count_result.scalar() or 0
 
     result = await db.execute(
         query.order_by(AdminAuditLog.created_at.desc()).offset(offset).limit(limit)

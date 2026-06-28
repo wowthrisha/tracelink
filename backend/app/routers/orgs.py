@@ -125,15 +125,20 @@ async def list_orgs(
         .order_by(Organization.name)
     )
     rows = result.all()
-    orgs = []
-    for membership, org in rows:
-        count_result = await db.execute(
-            select(func.count()).select_from(OrgMembership).where(
-                OrgMembership.org_id == org.id
-            )
-        )
-        count = count_result.scalar() or 0
-        orgs.append(_org_response(org, member_count=count, my_role=membership.role))
+    if rows:
+        org_ids = [org.id for _, org in rows]
+        count_rows = (await db.execute(
+            select(OrgMembership.org_id, func.count(OrgMembership.id).label("cnt"))
+            .where(OrgMembership.org_id.in_(org_ids))
+            .group_by(OrgMembership.org_id)
+        )).all()
+        member_counts = {r.org_id: r.cnt for r in count_rows}
+    else:
+        member_counts = {}
+    orgs = [
+        _org_response(org, member_count=member_counts.get(org.id, 0), my_role=membership.role)
+        for membership, org in rows
+    ]
     return {"organizations": orgs}
 
 
