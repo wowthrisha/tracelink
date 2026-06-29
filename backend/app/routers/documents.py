@@ -341,13 +341,13 @@ async def extract_sidecars(
 
     async def _run_extraction():
         try:
-            from app.storage import get_storage
+            from app.services.storage import get_storage_service
             from app.workers.pipeline.pdf import (
                 extract_and_store_pdf_toc,
                 extract_and_store_links_sidecar,
                 extract_and_store_word_positions,
             )
-            storage = get_storage()
+            storage = get_storage_service()
             pdf_bytes = await storage.download_bytes(doc.storage_key)
             doc_id_str = str(doc_id)
             await extract_and_store_pdf_toc(doc_id_str, pdf_bytes, storage)

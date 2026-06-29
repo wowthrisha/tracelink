@@ -1,3 +1,5 @@
+> **HISTORICAL ARCHIVE** — Reflects repository state before Sprint 4.2D extraction (2026-06-22). Not current. Do not use for active decision-making.
+
 # Phase E2 — Scalability & Large Document Audit
 **SecureDoc / TraceLink**
 **Date:** 2026-06-07

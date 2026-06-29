@@ -157,14 +157,15 @@ async def list_links(
     db: AsyncSession = Depends(get_db),
     user: dict = Depends(require_scope("links:read")),
 ):
-    # Verify document belongs to this user
+    # Verify document belongs to this user; reuse result for URL generation
     doc_result = await db.execute(
         select(Document).where(
             Document.id == document_id,
             Document.user_id == uuid.UUID(user["user_id"]),
         )
     )
-    if not doc_result.scalar_one_or_none():
+    doc = doc_result.scalar_one_or_none()
+    if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
 
     result = await db.execute(
@@ -173,12 +174,7 @@ async def list_links(
         .order_by(ShareLink.created_at.desc())
     )
     links = result.scalars().all()
-    # Resolve org custom domain once for all links on this document
-    doc_result2 = await db.execute(
-        select(Document).where(Document.id == document_id)
-    )
-    doc_for_url = doc_result2.scalar_one_or_none()
-    base_url = await _get_base_url_for_doc(doc_for_url, db) if doc_for_url else settings.app_public_base_url
+    base_url = await _get_base_url_for_doc(doc, db)
     return {"links": [_link_to_summary(l, base_url) for l in links]}
 
 

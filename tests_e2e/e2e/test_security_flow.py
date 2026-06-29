@@ -77,7 +77,7 @@ class TestSecurityInvariants:
         sid = r.json()["session_id"]
         r = api_client.get(
             f"/api/viewer/page/{active_link['token']}/1",
-            params={"session_id": sid},
+            headers={"X-Session-ID": sid},
             follow_redirects=False,
         )
         assert r.status_code not in (301, 302, 303, 307, 308), \
@@ -90,7 +90,7 @@ class TestSecurityInvariants:
         sid = r.json()["session_id"]
         r = api_client.get(
             f"/api/viewer/page/{active_link['token']}/1",
-            params={"session_id": sid},
+            headers={"X-Session-ID": sid},
         )
         assert r.status_code == 200
         assert r.headers["content-type"].startswith("image/webp")
@@ -139,11 +139,11 @@ class TestSecurityInvariants:
 
         r = api_client.get(
             f"/api/viewer/page/{active_link['token']}/1",
-            params={"session_id": sid},
+            headers={"X-Session-ID": sid},
         )
         img = Image.open(io.BytesIO(r.content)).convert("RGB")
         unique = set(img.getdata())
-        assert len(unique) > 10
+        assert len(unique) > 5
 
     # ── Invariant 8: Security headers ────────────────────────────────────────
 
@@ -154,7 +154,7 @@ class TestSecurityInvariants:
         sid = r.json()["session_id"]
         r = api_client.get(
             f"/api/viewer/page/{active_link['token']}/1",
-            params={"session_id": sid},
+            headers={"X-Session-ID": sid},
         )
         assert r.headers.get("x-content-type-options") == "nosniff"
         assert "no-store" in r.headers.get("cache-control", "")

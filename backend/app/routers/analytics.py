@@ -3,7 +3,7 @@ import uuid
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, func
 
 from app.database import get_db
 from app.models.event import AccessEvent
@@ -150,9 +150,8 @@ async def get_events(
     # Count total — direct COUNT on the filtered set, not a subquery wrapper.
     # The ix_access_events_link_id_created composite index satisfies both the
     # count and the paginated SELECT below without a full table scan.
-    from sqlalchemy import func as _func
     count_query = (
-        select(_func.count())
+        select(func.count())
         .select_from(AccessEvent)
         .where(AccessEvent.link_id.in_(link_ids))
     )

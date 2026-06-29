@@ -1,3 +1,5 @@
+> **HISTORICAL ARCHIVE** — Reflects repository state before Sprint 4.2D extraction (2026-06-22). Not current. Do not use for active decision-making.
+
 # SecureDoc Enterprise Transformation — Implementation Progress
 
 **Last Updated:** 2026-06-07  

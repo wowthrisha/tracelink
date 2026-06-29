@@ -1,6 +1,7 @@
 // React hooks via UMD CDN global (no npm react package).
 const { useState, useRef, useEffect } = React;
 import { _errMsg } from '../utils/viewer.js';
+import { useToast } from '../contexts/toast.jsx';
 
 /**
  * Manages the full session lifecycle for the document viewer:
@@ -13,16 +14,14 @@ import { _errMsg } from '../utils/viewer.js';
  * @param {Function}    [opts.onValidated] - Called after successful validation.
  *   ViewerScreen passes `() => _setPageRef.current?.()` to reset to page 1.
  *   Stored in a ref internally so it does not need to be stable across renders.
- * @param {Function}    [opts.toast]   - Toast notification function from useToast().
- *   ViewerScreen passes its own toast instance. Used for DRM warnings and errors.
- *   Called with optional chaining (toast?.()) so a missing value is safe.
  *
  * CRITICAL: reinitRef.current is assigned in the render body on every render,
  * NOT in a useEffect. This is intentional — the assignment must close over the
  * current session and pendingToken values. Moving it to useEffect would make it
  * one render stale, causing the wrong token to be used on 401 re-auth.
  */
-export function useViewerSession(doc, publicToken, { onValidated, toast } = {}) {
+export function useViewerSession(doc, publicToken, { onValidated } = {}) {
+  const toast = useToast();
   const [session, setSession] = useState(null);
   const [blurred, setBlurred] = useState(false);
   const [initializing, setInit] = useState(true);

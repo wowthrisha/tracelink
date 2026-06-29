@@ -1,3 +1,5 @@
+> **HISTORICAL ARCHIVE** — Reflects repository state before Sprint 4.2D extraction (2026-06-22). Not current. Do not use for active decision-making.
+
 # TraceView Phase D2.5 — Validation & Production-Readiness Report
 ## DOCX Visual Rendering Pipeline Review
 

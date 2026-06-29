@@ -1,3 +1,5 @@
+> **HISTORICAL ARCHIVE** — Reflects repository state before Sprint 4.2D extraction (2026-06-22). Not current. Do not use for active decision-making.
+
 # TraceView — Launch Readiness Audit Report
 ## Pre-Merge / Pre-Pilot Review
 

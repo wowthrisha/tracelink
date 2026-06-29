@@ -10,6 +10,11 @@ from app.models.link import ShareLink
 from app.models.event import AccessEvent
 from app.utils.crypto import hash_value, mask_email
 
+def _by_link(rows) -> dict:
+    """Map (link_id, count) result rows to a dict for O(1) lookup."""
+    return {row[0]: row[1] for row in rows}
+
+
 BLOCKED_EVENT_TYPES = {
     "print_attempt",
     "copy_attempt",
@@ -238,9 +243,6 @@ class AnalyticsService:
             all_link_ids.append(row.id)
 
         # Batch event aggregates — one GROUP BY query per metric (6 queries total)
-        def _by_link(rows) -> dict:
-            return {row[0]: row[1] for row in rows}
-
         if all_link_ids:
             views_by_link = _by_link((await db.execute(
                 select(AccessEvent.link_id, func.count().label("c"))
@@ -457,9 +459,6 @@ class AnalyticsService:
                     active_link_ids.add(row.id)
 
         # Batch event aggregates — one GROUP BY query per metric (4 queries)
-        def _by_link(rows) -> dict:
-            return {row[0]: row[1] for row in rows}
-
         if all_link_ids:
             views_by_link = _by_link((await db.execute(
                 select(AccessEvent.link_id, func.count().label("c"))

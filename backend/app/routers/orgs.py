@@ -456,7 +456,7 @@ async def verify_custom_domain(
         error_detail = "DNS library not available; cannot verify automatically"
     else:
         try:
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             resolver = _dns_resolver.Resolver()
             resolver.lifetime = 5.0
             _domain = org.custom_domain

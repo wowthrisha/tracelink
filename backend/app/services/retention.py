@@ -32,7 +32,7 @@ from app.models.document import RETENTION_DAYS
 logger = logging.getLogger(__name__)
 
 # Sidecars that may exist for any document; delete_file is a no-op on missing keys.
-_SIDECAR_PREFIXES = ("toc", "text", "links")
+_SIDECAR_PREFIXES = ("toc", "text", "links", "words")
 
 
 def compute_expires_at(
@@ -55,12 +55,13 @@ async def delete_document_storage(
     """Delete all S3/R2 objects for a document.
 
     Deletes:
-      - page images        pages/{doc_id}/*
-      - thumbnails         thumbs/{doc_id}/*
-      - original file      storage_key  (e.g. originals/{doc_id}.pdf)
-      - TOC sidecar        toc/{doc_id}.json
-      - text sidecar       text/{doc_id}.json
-      - hyperlinks sidecar links/{doc_id}.json
+      - page images           pages/{doc_id}/*
+      - thumbnails            thumbs/{doc_id}/*
+      - original file         storage_key  (e.g. originals/{doc_id}.pdf)
+      - TOC sidecar           toc/{doc_id}.json
+      - text sidecar          text/{doc_id}.json
+      - hyperlinks sidecar    links/{doc_id}.json
+      - word positions sidecar words/{doc_id}.json
 
     Returns a summary dict for audit logging.
 

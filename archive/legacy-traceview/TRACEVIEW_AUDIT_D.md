@@ -1,3 +1,5 @@
+> **HISTORICAL ARCHIVE** — Reflects repository state before Sprint 4.2D extraction (2026-06-22). Not current. Do not use for active decision-making.
+
 # TRACEVIEW UNIVERSAL DOCUMENT ARCHITECTURE
 ## Phase D — Design Audit for PDF / TXT / MD / LOG / DOCX / DOC / PPTX
 
