@@ -21,12 +21,38 @@ function fmtTime(iso) {
 
 function eventLabel(ev) {
   const type = ev.event_type || ev.type || '';
-  if (type === 'link_view' || type === 'link.viewed') return 'Link viewed';
-  if (type === 'document_view') return 'Document viewed';
-  if (type === 'download') return 'Document downloaded';
-  if (type === 'analytics.completed') return 'Analytics ready';
-  if (type === 'document.processed') return 'Document processed';
-  return type || 'Event';
+  switch (type) {
+    case 'opened':               return 'Viewer opened';
+    case 'page_viewed':          return 'Page viewed';
+    case 'completed':            return 'Document completed';
+    case 'download_attempt':     return 'Download attempted';
+    case 'printed':              return 'Document printed';
+    case 'print_attempt':        return 'Print attempted';
+    case 'copy_attempt':         return 'Copy attempted';
+    case 'right_click_attempt':  return 'Right-click attempted';
+    case 'password_wrong':       return 'Wrong password';
+    case 'access_denied':        return 'Access denied';
+    case 'ip_blocked':           return 'IP blocked';
+    case 'expired':              return 'Link expired';
+    case 'revoked':              return 'Link revoked';
+    case 'max_views_reached':    return 'Max views reached';
+    case 'session_limit_reached':return 'Session limit reached';
+    case 'link_view':
+    case 'link.viewed':          return 'Link viewed';
+    case 'document_view':        return 'Document viewed';
+    case 'download':             return 'Document downloaded';
+    case 'analytics.completed':  return 'Analytics ready';
+    case 'document.processed':   return 'Document processed';
+    case 'document.deleted':     return 'Document deleted';
+    case 'link.created':         return 'Link created';
+    case 'link.revoked':         return 'Link revoked';
+    case 'link.updated':         return 'Link updated';
+    case 'link.deleted':         return 'Link deleted';
+    case 'api_key.created':      return 'API key created';
+    case 'api_key.revoked':      return 'API key revoked';
+    case 'api_key.deleted':      return 'API key deleted';
+    default:                     return type || 'Event';
+  }
 }
 
 function eventDetail(ev) {

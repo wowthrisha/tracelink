@@ -194,14 +194,14 @@ export function UploadScreen({ onViewDoc, onAccessDoc }) {
   const stats = [
     { label: 'Total Documents', value: (overview?.total_documents || 0).toString(), sub: `${docs.filter(d => d.status === 'ready').length} ready`, icon: '◫', color: C.teal2 },
     { label: 'Active Shares', value: (overview?.active_links || 0).toString(), sub: `${overview?.expiring_soon_count || 0} expiring within 14d`, icon: '◈', color: C.teal2 },
-    { label: 'Total Views', value: (overview?.total_views_today || 0).toLocaleString(), sub: `+${weekViews} this week`, icon: '▦', color: C.success },
+    { label: 'Views Today', value: (overview?.total_views_today || 0).toLocaleString(), sub: `+${weekViews} this week`, icon: '▦', color: C.success },
     { label: 'Blocked Attempts', value: (overview?.blocked_attempts_today || 0).toString(), sub: `${highRiskCount} high-risk docs`, icon: '⊗', color: C.warning },
   ];
 
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }} className="fade-in">
       <Header screen="upload">
-        <Btn variant="primary" size="sm" onClick={() => fileRef.current.click()}>↑ Upload PDF</Btn>
+        <Btn variant="primary" size="sm" onClick={() => fileRef.current.click()}>↑ Upload</Btn>
       </Header>
 
       <div style={{ flex: 1, overflow: 'auto', padding: 20, display: 'flex', flexDirection: 'column', gap: 14 }}>

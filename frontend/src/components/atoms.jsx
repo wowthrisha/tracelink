@@ -30,7 +30,8 @@ export function RiskBadge({ level }) {
     MED: { c: C.warning, bg: C.warningBg, b: C.warningBdr },
     LOW: { c: C.success, bg: C.successBg, b: C.successBdr },
   };
-  const s = map[level] || { c: C.textMuted, bg: 'transparent', b: C.border };
+  if (!level || !map[level]) return <span style={{ ...mono, fontSize: 11, color: C.textDim }}>—</span>;
+  const s = map[level];
   return (
     <span style={{
       ...mono, fontSize: 9, fontWeight: 700, letterSpacing: '0.9px',

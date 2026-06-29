@@ -222,7 +222,7 @@ export function AccessScreen({ doc, onSelectDoc, defaultTab }) {
                   {activeLinks.length === 0 ? 'Revoked' : 'Active'}
                 </span>
               </div>
-              <RiskBadge level={doc?.risk || 'HIGH'} />
+              <RiskBadge level={doc?.risk} />
               <Chip color={C.textMuted} bg="transparent" border={C.border}>
                 {doc?.total_views ?? 0} views
               </Chip>

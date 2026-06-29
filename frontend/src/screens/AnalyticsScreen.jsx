@@ -40,7 +40,7 @@ export function AnalyticsScreen() {
   const avgCompletion = activeDocs.length > 0
     ? Math.round(activeDocs.reduce((a, d) => a + (d.completion_rate_pct || 0), 0) / activeDocs.length) : 0;
   const kpis = [
-    { label: 'Total Views', value: totalViews.toLocaleString(), icon: '▦' },
+    { label: 'Views Today', value: totalViews.toLocaleString(), icon: '▦' },
     { label: 'Active Links', value: (overview?.active_links || 0).toString(), icon: '◫' },
     { label: 'Avg Session', value: avgSessionStr, icon: '⏱' },
     { label: 'Blocked Attempts', value: (overview?.blocked_attempts_today || 0).toString(), icon: '⊗' },

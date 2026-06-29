@@ -157,7 +157,7 @@ export function BillingScreen({ onPlanChange }) {
               border: `1px solid ${C.border}`, borderRadius: 7,
               padding: '9px 12px', marginBottom: 14, lineHeight: 1.5
             }}>
-              Billing is not configured on this server. Set <code style={{ ...mono, fontSize: 11, color: C.teal2 }}>STRIPE_SECRET_KEY</code> to enable upgrades.
+              Billing is not configured on this server. Contact your administrator to enable paid plan upgrades.
             </div>
           )}
 
