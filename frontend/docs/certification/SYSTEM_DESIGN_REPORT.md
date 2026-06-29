@@ -1,7 +1,7 @@
-# SYSTEM DESIGN REPORT — Sprint 5.5 Engineering Investigation
+# SYSTEM DESIGN REPORT — Sprint 6.0 Engineering Excellence
 **Date:** 2026-06-29  
-**Sprint:** 5.5 Phase 2  
-**Method:** Source code review of all routers, services, middleware, and models
+**Sprint:** 6.0 (supersedes Sprint 5.5)  
+**Method:** Full source code review of all routers, services, workers, middleware, models, and utilities
 
 ---
 

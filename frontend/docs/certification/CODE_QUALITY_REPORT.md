@@ -1,7 +1,7 @@
-# CODE QUALITY REPORT — Sprint 5.5 Engineering Investigation
+# CODE QUALITY REPORT — Sprint 6.0 Engineering Excellence
 **Date:** 2026-06-29  
-**Sprint:** 5.5 Phase 2  
-**Method:** Source code review of all 14 backend routers, 13 services, frontend screens
+**Sprint:** 6.0 (supersedes Sprint 5.5)  
+**Method:** Full source code review — all 14 backend routers, 10 services, 3 workers, 4 middleware, utilities, models, frontend api.js
 
 ---
 
@@ -9,16 +9,27 @@
 
 | Dimension | Score | Notes |
 |-----------|-------|-------|
-| Consistency | 8/10 | Consistent patterns throughout; minor inconsistencies in import style |
+| Consistency | 8.5/10 | Consistent patterns throughout; FIX-006/FIX-008/FIX-009 improved import hygiene |
 | Error handling | 9/10 | Excellent — audit/webhook/Celery failures all non-fatal, well-documented |
-| Logging | 8/10 | All routers have loggers (FIX-001 corrected the one missing case) |
+| Logging | 9/10 | All routers/services have loggers; session_id truncated in logs (privacy) |
 | Input validation | 9/10 | Pydantic v2 models, UUID coercion, bounds checking throughout |
-| Dead code | 8/10 | FIX-004 removed one redundant import; no other dead code found |
-| Query efficiency | 8/10 | FIX-002/FIX-003 corrected two inefficiencies; rest are well-optimized |
+| Dead code | 8.5/10 | 2 duplicate helpers removed (FIX-008); 1 dead in-function import removed (FIX-006) |
+| Query efficiency | 8.5/10 | FIX-010 eliminated redundant fetch; FIX-002/003 corrected Sprint 5.5 inefficiencies |
+| Deprecated API usage | 9/10 | FIX-009 removed last deprecated `asyncio.get_event_loop()` from async context |
 
 ---
 
-## Issues Fixed
+## Issues Fixed (Sprint 6.0)
+
+| Fix | File | Issue |
+|-----|------|-------|
+| FIX-005 | documents.py:342-350 | Wrong module import causing ImportError on every extract-sidecars call |
+| FIX-006 | analytics.py:6,153 | `func` missing from module import; in-function import shadowed it |
+| FIX-008 | analytics_service.py | `_by_link()` helper defined identically in two method bodies |
+| FIX-009 | orgs.py:459 | `asyncio.get_event_loop()` deprecated in Python 3.10+ async context |
+| FIX-010 | links.py:177-180 | Document fetched twice in `list_links` (ownership + URL generation) |
+
+## Issues Fixed (Sprint 5.5, historical)
 
 | Fix | File | Issue |
 |-----|------|-------|

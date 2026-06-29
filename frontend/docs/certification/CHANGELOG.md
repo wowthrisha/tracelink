@@ -1,6 +1,34 @@
-# CHANGELOG — Sprint 5.5 Engineering Investigation
+# CHANGELOG — Sprint 6.0 Engineering Excellence
 **Date:** 2026-06-29  
-**Sprint:** 5.5 Phase 2
+**Sprint:** 6.0 (supersedes Sprint 5.5)
+
+---
+
+## [Sprint 6.0 Engineering Excellence] — 2026-06-29
+
+### Fixed
+
+- **FIX-005** `backend/app/routers/documents.py` — Fix wrong import in `extract_sidecars` closure. `from app.storage import get_storage` raised `ModuleNotFoundError` on every call. Correct path: `from app.services.storage import get_storage_service`. This endpoint was fully broken. (Commit: `ef35524`)
+
+- **FIX-006** `backend/app/routers/analytics.py` — Add `func` to module-level `from sqlalchemy import select, func`. Remove inner `from sqlalchemy import func as _func` that existed at line 153 inside `get_events()`. Module-level import is authoritative. (Commit: `ef35524`)
+
+- **FIX-008** `backend/app/services/analytics_service.py` — Extract duplicate `_by_link()` helper to module level. It was defined identically inside both `get_document_analytics()` and `get_group_analytics()`. Now a single module-level function. (Commit: `ef35524`)
+
+- **FIX-009** `backend/app/routers/orgs.py` — Replace deprecated `asyncio.get_event_loop()` with `asyncio.get_running_loop()` inside `verify_custom_domain` async function. `get_event_loop()` emits a DeprecationWarning in Python 3.10+ when called inside a running loop. (Commit: `ef35524`)
+
+- **FIX-010** `backend/app/routers/links.py` — Eliminate redundant `Document` DB fetch in `list_links`. The document was fetched once for ownership check and again for `_get_base_url_for_doc()`. Now reuses the first result. (Commit: `ef35524`)
+
+- **FIX-011** `backend/app/services/retention.py` — Add `"words"` to `_SIDECAR_PREFIXES`. The `words/{doc_id}.json` sidecar created by `extract_and_store_word_positions()` in the worker pipeline was never deleted on document removal or expiry. Storage leak closed. (Commit: `ef35524`)
+
+### Refactored
+
+- **Frontend** — Monolithic `frontend/src/app.jsx` (5525 lines) extracted into modular component hierarchy. `app.jsx` is now a single import from `./screens/AppShell.jsx`. Components, screens, hooks, contexts, constants, and utils are separate files. (Commit: `ef35524`)
+
+- **`useViewerSession.js`** — `toast` notification function moved from caller-supplied parameter to `useToast()` context hook. Callers no longer need to pass their own toast instance. (Commit: `ef35524`)
+
+### Tests Fixed
+
+- **`tests_e2e/e2e/test_security_flow.py`** — Session ID now passed as `X-Session-ID` header (was incorrectly using query param `?session_id=`). Aligns with the API contract established in prior sprints. (Commit: `ef35524`)
 
 ---
 

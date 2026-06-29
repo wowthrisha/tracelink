@@ -1,7 +1,7 @@
-# PERFORMANCE REPORT — Sprint 5.5 Engineering Investigation
+# PERFORMANCE REPORT — Sprint 6.0 Engineering Excellence
 **Date:** 2026-06-29  
-**Sprint:** 5.5 Phase 2  
-**Method:** Source code review of all backend routers and services for query patterns
+**Sprint:** 6.0 (supersedes Sprint 5.5)  
+**Method:** Full source code review of all backend routers, services, workers for query patterns and hot path efficiency
 
 ---
 
@@ -9,10 +9,22 @@
 
 | Issue | Severity | Status |
 |-------|----------|--------|
-| N+1 query in list_orgs | MEDIUM | FIXED (FIX-002) |
-| In-memory count in get_audit_log | LOW | FIXED (FIX-003) |
-| No client-side caching | LOW | DOCUMENTED (by design) |
-| Single bundle, no code splitting | LOW | DOCUMENTED (248 KB, acceptable) |
+| N+1 query in list_orgs | MEDIUM | FIXED (FIX-002, Sprint 5.5) |
+| In-memory count in get_audit_log | LOW | FIXED (FIX-003, Sprint 5.5) |
+| Redundant Document fetch in list_links | LOW | FIXED (FIX-010, Sprint 6.0) |
+| No client-side caching | LOW | DOCUMENTED (by design, fetch-on-demand) |
+| Single bundle, no code splitting | LOW | DOCUMENTED (248 KB, acceptable for beta) |
+
+---
+
+## Sprint 6.0 Performance Fix
+
+### PERF-FIXED-003 — Redundant Document fetch in list_links
+
+**File:** `backend/app/routers/links.py`  
+**Before:** `list_links` fetched `Document` twice: once for ownership check (`SELECT WHERE id=X AND user_id=Y`), then again inside `_get_base_url_for_doc(doc, db)` which also needed the same document.  
+**After:** The `doc` object from the ownership check is passed directly to `_get_base_url_for_doc()`. One DB round-trip eliminated.  
+**Commit:** `ef35524`
 
 ---
 

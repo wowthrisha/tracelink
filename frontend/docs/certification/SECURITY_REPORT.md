@@ -1,7 +1,7 @@
-# SECURITY REPORT — Sprint 5.5 Engineering Investigation
+# SECURITY REPORT — Sprint 6.0 Engineering Excellence
 **Date:** 2026-06-29  
-**Sprint:** 5.5 Phase 2  
-**Method:** Source code review of all backend routers, middleware, services, and security utilities
+**Sprint:** 6.0 (supersedes Sprint 5.5)  
+**Method:** Full source code review of all backend routers, middleware, services, security utilities, worker delivery chain
 
 ---
 
@@ -10,14 +10,16 @@
 | Category | Score | Finding |
 |----------|-------|---------|
 | Authentication | PASS | JWT JWKS validation with key rotation, API key SHA-256 hashing |
-| Authorization | PASS | Scope enforcement per endpoint, viewer session validation |
-| SSRF Protection | PASS | Comprehensive IP range blocking, DNS rebinding protection |
-| Input Validation | PASS | Pydantic models, coordinate bounds checking, UUID coercion |
-| Security Headers | PASS | CSP with SRI, X-Frame-Options: DENY, HSTS opt-in, COOP |
+| Authorization | PASS | Scope enforcement per endpoint, viewer session validation at every content endpoint |
+| SSRF Protection | PASS | RFC 1918 + loopback + link-local + IPv6 ULA + DNS rebinding; TOCTOU re-check on delivery |
+| Input Validation | PASS | Pydantic models, coordinate bounds checking, UUID coercion, page_number range validation |
+| Security Headers | PASS | CSP with SRI hashes, X-Frame-Options: DENY, HSTS opt-in, COOP, X-Permitted-Cross-Domain-Policies |
 | CORS | PASS | Explicit origins in production, no credentials with wildcard |
-| Rate Limiting | PASS | slowapi applied to write and viewer endpoints |
+| Rate Limiting | PASS | slowapi on all write and viewer endpoints; Redis-backed in production |
 | Injection Prevention | PASS | No raw SQL; parameterized SQLAlchemy ORM throughout |
-| Webhook Security | PASS | SSRF validation at registration + re-validation at delivery |
+| Webhook Security | PASS | SSRF validation at registration + re-validation immediately before HTTP delivery |
+| Storage Lifecycle | PASS | All 4 sidecar types (toc, text, links, words) deleted on document removal (FIX-011) |
+| Analytics Poisoning | PASS | `page_number`, `time_spent_ms`, `event_type` range-validated; metadata size capped at 1 KB |
 | Production Hardening | PASS | Startup refuses unsafe salt/URL config |
 
 **No critical or high security vulnerabilities found.**
