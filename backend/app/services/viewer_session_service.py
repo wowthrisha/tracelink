@@ -9,6 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
+from app.metrics import viewer_sessions_total
 from app.models.document import Document, DocumentPage
 from app.services.policy import enforcer as policy_enforcer
 
@@ -52,6 +53,8 @@ async def build_validate_response(
 
     link = validation.link
     session_id = validation.session_id
+    outcome = "resumed" if existing_session_id and existing_session_id == session_id else "created"
+    viewer_sessions_total.labels(outcome=outcome).inc()
 
     await analytics_svc.log_event(
         db,

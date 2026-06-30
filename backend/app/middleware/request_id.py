@@ -28,11 +28,15 @@ def _sanitize_path(path: str) -> str:
 
 
 class RequestIDMiddleware(BaseHTTPMiddleware):
-    """Assign or forward a request correlation ID and emit a structured access log."""
+    """Assign or forward a request/correlation ID and emit a structured access log."""
 
     async def dispatch(self, request: Request, call_next):
         request_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())
+        # X-Correlation-ID is set by upstream callers (API gateways, client SDKs).
+        # When absent, default to the request ID so every log line has a trace anchor.
+        correlation_id = request.headers.get("X-Correlation-ID") or request_id
         request.state.request_id = request_id
+        request.state.correlation_id = correlation_id
         t0 = time.perf_counter()
         response = await call_next(request)
         duration_ms = (time.perf_counter() - t0) * 1000
@@ -42,25 +46,26 @@ class RequestIDMiddleware(BaseHTTPMiddleware):
         )
         sanitized_path = _sanitize_path(request.url.path)
 
-        # Emit structured access log — when JSONLogFormatter is active the extra
-        # fields appear as top-level JSON keys; with plaintext formatter they
-        # appear only in the message string.
         logger.info(
-            "access method=%s path=%s status=%d ms=%.1f req_id=%s ip=%s",
+            "access method=%s path=%s status=%d ms=%.1f ip=%s req_id=%s corr_id=%s",
             request.method,
             sanitized_path,
             response.status_code,
             duration_ms,
-            request_id,
             client_ip,
+            request_id,
+            correlation_id,
             extra={
                 "method": request.method,
                 "path": sanitized_path,
                 "status_code": response.status_code,
                 "duration_ms": round(duration_ms, 1),
+                "ip": client_ip,
                 "request_id": request_id,
+                "correlation_id": correlation_id,
                 "event": "http_request",
             },
         )
         response.headers["X-Request-ID"] = request_id
+        response.headers["X-Correlation-ID"] = correlation_id
         return response

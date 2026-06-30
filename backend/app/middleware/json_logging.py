@@ -25,10 +25,12 @@ from typing import Any
 # Extend this list when adding new structured log fields.
 _EXTRA_KEYS = (
     "request_id",
+    "correlation_id",      # X-Correlation-ID from caller (e.g. upstream service)
     "session_id_prefix",   # first 8 chars of session_id only — never full ID
     "doc_id",
     "link_id",
     "user_id",
+    "org_id",
     "cache_source",
     "cache_hit",
     "latency_ms",
@@ -39,6 +41,7 @@ _EXTRA_KEYS = (
     "page_number",
     "event",
     "worker_task",
+    "error_category",      # auth_error | validation_error | not_found | server_error
 )
 
 

@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import os
+import time
 import uuid
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Request
@@ -23,6 +24,7 @@ from app.schemas.document import (
 )
 from app.services.storage import get_storage_service
 from app.config import settings
+from app.metrics import upload_duration_seconds, document_uploads_total
 from app.middleware.rate_limit import limiter
 from app.auth import get_current_user, require_scope
 from app.models.billing import UserBilling, PLAN_PRO
@@ -192,10 +194,13 @@ async def upload_document(
             raise HTTPException(status_code=400, detail="Invalid org_id format")
 
     storage = get_storage_service()
+    _upload_start = time.perf_counter()
     try:
         await storage.upload_file(
             file_bytes, storage_key, content_type=_adapter.content_type_for_storage()
         )
+        upload_duration_seconds.observe(time.perf_counter() - _upload_start)
+        document_uploads_total.labels(result="queued").inc()
     except Exception as exc:
         logger.error("Storage upload failed for key %s: %s", storage_key, exc)
         raise HTTPException(status_code=502, detail="Storage upload failed. Please try again.")

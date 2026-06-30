@@ -1,9 +1,11 @@
 import asyncio
+import time
 import uuid
 import logging
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 from app.workers.celery_app import celery_app
+from app.metrics import processing_duration_seconds
 
 logger = logging.getLogger(__name__)
 
@@ -131,9 +133,12 @@ async def process_document_with_session(
 
     file_type = getattr(doc, "file_type", "pdf") or "pdf"
     adapter = get_adapter(file_type)
-    return await adapter.process(
+    _t0 = time.perf_counter()
+    result = await adapter.process(
         db, doc, document_id, storage, rasterizer=rasterizer, watermark=watermark
     )
+    processing_duration_seconds.labels(stage="rasterize").observe(time.perf_counter() - _t0)
+    return result
 
 
 async def _mark_document_error(document_id: str, message: str) -> None:

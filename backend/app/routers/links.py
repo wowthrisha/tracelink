@@ -1,3 +1,4 @@
+import ipaddress
 import json
 import uuid
 from datetime import datetime, timezone
@@ -7,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from app.database import get_db
+from app.metrics import share_links_created_total, share_links_revoked_total
 from app.models.link import ShareLink
 from app.models.document import Document
 from app.schemas.link import (
@@ -24,6 +26,27 @@ from app.auth import get_current_user, require_scope
 
 router = APIRouter(prefix="/api/links", tags=["links"])
 link_svc = LinkService()
+
+
+def _validate_ip_allowlist(entries: list[str]) -> None:
+    """Raise 422 if any entry is not a valid IP address or CIDR range."""
+    invalid = []
+    for entry in entries:
+        entry = entry.strip()
+        if not entry:
+            continue
+        try:
+            if "/" in entry:
+                ipaddress.ip_network(entry, strict=False)
+            else:
+                ipaddress.ip_address(entry)
+        except ValueError:
+            invalid.append(entry)
+    if invalid:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Invalid IP address or CIDR notation: {', '.join(invalid)}",
+        )
 
 
 async def _get_base_url_for_doc(doc: Document, db) -> str:
@@ -105,6 +128,9 @@ async def create_link(
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
 
+    if payload.ip_allowlist:
+        _validate_ip_allowlist(payload.ip_allowlist)
+
     link = await link_svc.create_link(
         db=db,
         document_id=str(payload.document_id),
@@ -137,6 +163,7 @@ async def create_link(
     except Exception:
         pass
 
+    share_links_created_total.inc()
     base_url = await _get_base_url_for_doc(doc, db)
     return LinkResponse(
         id=link.id,
@@ -200,6 +227,7 @@ async def revoke_link(
         raise HTTPException(status_code=403, detail="Not authorized")
 
     revoked = await link_svc.revoke_link(db, str(link_id))
+    share_links_revoked_total.inc()
 
     # Audit log: link.revoked
     try:
@@ -265,6 +293,8 @@ async def update_link(
             if payload.allowed_domains else None
         )
     if "ip_allowlist" in payload.model_fields_set:
+        if payload.ip_allowlist:
+            _validate_ip_allowlist(payload.ip_allowlist)
         link.ip_allowlist = (
             json.dumps([ip.strip() for ip in payload.ip_allowlist if ip.strip()])
             if payload.ip_allowlist else None

@@ -30,6 +30,8 @@ if settings.app_env == "production":
     _errors = []
     if not settings.supabase_url:
         _errors.append("  SUPABASE_URL is not set")
+    if not settings.supabase_anon_key:
+        _errors.append("  SUPABASE_ANON_KEY is not set")
     if "localhost" in settings.app_public_base_url:
         _errors.append("  APP_PUBLIC_BASE_URL still points to localhost")
     if not settings.app_public_base_url.startswith("https://"):
@@ -210,6 +212,16 @@ else:
     )
 
 _log = logging.getLogger("securedoc")
+
+_API_VERSION = "2024-01"
+
+
+@app.middleware("http")
+async def api_version_header(request: Request, call_next):
+    """Inject X-API-Version into every response for client compatibility detection."""
+    response = await call_next(request)
+    response.headers["X-API-Version"] = _API_VERSION
+    return response
 
 
 @app.exception_handler(Exception)
@@ -419,6 +431,50 @@ async def diagnostics():
             "app_public_base_url": settings.app_public_base_url,
         },
     }
+
+
+@app.get("/live", tags=["ops"])
+async def liveness():
+    """Kubernetes liveness probe. Returns 200 if the process is alive.
+
+    Does NOT check external dependencies (DB, Redis). Kubernetes uses this to
+    decide whether to restart the container — only fail if the process is
+    in an unrecoverable state. External-dependency failures belong in /ready.
+    """
+    return {"status": "alive"}
+
+
+@app.get("/ready", tags=["ops"])
+async def readiness(db: AsyncSession = Depends(get_db)):
+    """Kubernetes readiness probe. Returns 200 when the app can serve traffic.
+
+    Checks DB connectivity and Redis availability. Returns 503 if either is
+    unavailable so the load balancer stops routing traffic to this instance.
+    Unlike /health (informational), /ready drives traffic routing decisions.
+    """
+    from sqlalchemy import text as _sql_text
+    issues = []
+
+    try:
+        await db.execute(_sql_text("SELECT 1"))
+    except Exception as e:
+        issues.append(f"db: {type(e).__name__}")
+
+    try:
+        from app.services.page_cache import get_redis_page_cache
+        _rc = get_redis_page_cache()
+        if _rc is not None:
+            await _rc._r.ping()
+    except Exception as e:
+        issues.append(f"redis: {type(e).__name__}")
+
+    if issues:
+        from fastapi.responses import JSONResponse
+        return JSONResponse(
+            status_code=503,
+            content={"status": "not_ready", "issues": issues},
+        )
+    return {"status": "ready"}
 
 
 frontend_dir = "/frontend"  # mounted in Docker; fallback for local dev

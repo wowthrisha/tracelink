@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 import httpx
 
 from app.workers.celery_app import celery_app
+from app.metrics import webhook_deliveries_total, webhook_retries_total
 
 logger = logging.getLogger(__name__)
 
@@ -169,11 +170,13 @@ async def _deliver_async(task, webhook_id: str, delivery_id: str):
             await db.commit()
 
             if success:
+                webhook_deliveries_total.labels(outcome="success").inc()
                 logger.info(
                     "deliver_webhook: success delivery=%s event=%s status=%s",
                     delivery_id, event_type, response_status,
                 )
             elif delivery.status == "failed":
+                webhook_deliveries_total.labels(outcome="failure").inc()
                 logger.error(
                     "deliver_webhook: permanently failed delivery=%s event=%s "
                     "after %d attempt(s) last_status=%s",
@@ -181,6 +184,7 @@ async def _deliver_async(task, webhook_id: str, delivery_id: str):
                 )
 
     if should_retry and not success:
+        webhook_retries_total.inc()
         raise task.retry(
             countdown=_countdown(task.request.retries),
             exc=Exception(f"delivery failed: HTTP {response_status}"),

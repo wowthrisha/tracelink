@@ -24,6 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import get_current_user
 from app.database import get_db
+from app.metrics import annotations_total
 from app.middleware.rate_limit import limiter
 from app.models.annotation import VALID_ANNOTATION_TYPES
 from app.models.document import Document
@@ -202,7 +203,9 @@ async def create_annotation(
     db: AsyncSession = Depends(get_db),
 ):
     link_row, session_id = await _resolve_link_and_verify_session(token, request, db)
-    return await create_viewer_annotation(db, link_row, session_id, body)
+    result = await create_viewer_annotation(db, link_row, session_id, body)
+    annotations_total.labels(annotation_type=body.type, action="create").inc()
+    return result
 
 
 # ── PUT update own annotation ─────────────────────────────────────────────────
@@ -232,6 +235,7 @@ async def delete_annotation(
 ):
     link_row, session_id = await _resolve_link_and_verify_session(token, request, db)
     await delete_viewer_annotation(db, link_row, session_id, annotation_id)
+    annotations_total.labels(annotation_type="unknown", action="delete").inc()
 
 
 # ── GET bookmarks for session ─────────────────────────────────────────────────

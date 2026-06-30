@@ -41,6 +41,12 @@ page_requests_total = Counter(
     ["cache_hit"],  # true | false
 )
 
+viewer_sessions_total = Counter(
+    "securedoc_viewer_sessions_total",
+    "Viewer sessions started by outcome",
+    ["outcome"],  # created | resumed | rejected
+)
+
 # ── Document operations ───────────────────────────────────────────────────────
 
 document_uploads_total = Counter(
@@ -49,10 +55,78 @@ document_uploads_total = Counter(
     ["result"],  # queued | rejected_quota | rejected_type | rejected_size
 )
 
+upload_duration_seconds = Histogram(
+    "securedoc_upload_duration_seconds",
+    "Time from upload receipt to storage completion",
+    buckets=[0.1, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0],
+)
+
+processing_duration_seconds = Histogram(
+    "securedoc_processing_duration_seconds",
+    "Document processing time by stage (rasterize, extract, ocr)",
+    ["stage"],  # rasterize | text_extract | toc_extract | watermark
+    buckets=[0.5, 1.0, 5.0, 15.0, 30.0, 60.0, 120.0, 300.0, 600.0],
+)
+
 downloads_total = Counter(
     "securedoc_downloads_total",
     "Document download requests by outcome",
     ["result"],  # success | denied_permission | denied_session | too_large
+)
+
+# ── Share links ───────────────────────────────────────────────────────────────
+
+share_links_created_total = Counter(
+    "securedoc_share_links_created_total",
+    "Share links created",
+)
+
+share_links_revoked_total = Counter(
+    "securedoc_share_links_revoked_total",
+    "Share links revoked",
+)
+
+# ── Annotations ───────────────────────────────────────────────────────────────
+
+annotations_total = Counter(
+    "securedoc_annotations_total",
+    "Annotation operations by type and action",
+    ["annotation_type", "action"],  # (highlight|comment|...) x (create|delete|resolve)
+)
+
+# ── Webhooks ──────────────────────────────────────────────────────────────────
+
+webhook_deliveries_total = Counter(
+    "securedoc_webhook_deliveries_total",
+    "Webhook delivery attempts by outcome",
+    ["outcome"],  # success | failure | skipped
+)
+
+webhook_retries_total = Counter(
+    "securedoc_webhook_retries_total",
+    "Webhook delivery retries (excludes first attempt)",
+)
+
+# ── Database ──────────────────────────────────────────────────────────────────
+
+db_query_duration_seconds = Histogram(
+    "securedoc_db_query_duration_seconds",
+    "Database query latency",
+    buckets=[0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.5, 1.0, 5.0],
+)
+
+# ── Cache ─────────────────────────────────────────────────────────────────────
+
+cache_hits_total = Counter(
+    "securedoc_cache_hits_total",
+    "Cache hits by cache layer",
+    ["layer"],  # redis | memory
+)
+
+cache_misses_total = Counter(
+    "securedoc_cache_misses_total",
+    "Cache misses by cache layer",
+    ["layer"],  # redis | memory
 )
 
 # ── Session state ─────────────────────────────────────────────────────────────
