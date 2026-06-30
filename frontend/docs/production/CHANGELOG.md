@@ -1,7 +1,25 @@
-# CHANGELOG — Sprint 6.1 Product Polish
-**Date:** 2026-06-29
+# CHANGELOG
+**Last updated:** 2026-06-30
 
 ---
+
+## [Sprint 6.2 Release Candidate RC-1] — 2026-06-30
+
+### Fixed
+
+- **FIX-007** `backend/app/routers/viewer.py`, `backend/tests/integration/test_phase7.py` — Removed duplicate `_session_watermark_angle` definition from `viewer.py`. The canonical implementation is in `app/services/viewer_service.py`. The duplicate was accompanied by a now-unused `import hashlib as _hashlib`. Corrected `test_phase7.py` to import from the canonical module and patch the correct target (`app.services.viewer_service.settings` instead of `app.routers.viewer.settings`). Commit: `e52112d`.
+
+### No Other Changes
+
+> Release Candidate accepted with zero additional engineering changes beyond FIX-007.
+
+### Test Suite
+
+1624 passed / 1 skipped / 0 failures. Zero regressions.
+
+---
+
+## [Sprint 6.1 Final Product Polish] — 2026-06-29
 
 ## [Sprint 6.1 Final Product Polish] — 2026-06-29
 

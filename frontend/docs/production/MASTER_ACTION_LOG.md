@@ -1,87 +1,92 @@
-# MASTER ACTION LOG — Sprint 6.1 Product Polish
-**Date:** 2026-06-29  
-**Sprint:** 6.1 (Final Product Polish & Enterprise Readiness)
+# MASTER ACTION LOG — Sprint 6.2 Release Candidate RC-1
+**Date:** 2026-06-30
+**Sprint:** 6.2 (Release Candidate RC-1)
 
 ---
 
 ## Timeline
 
-### Phase 1 — Setup & Authentication (Session start)
+### Phase 0 — Fix Revalidation
 
-| Time | Action | Result |
-|------|--------|--------|
-| T+0 | Backend confirmed running at localhost:8000 (PID 49183) | ✓ |
-| T+1 | API key `sd_70mp7y_...` loaded from `/tmp/securedoc_test_key.txt` | ✓ |
-| T+2 | Playwright browser launched, API key injected into localStorage | ✓ |
-| T+3 | All 10 main screens navigated and screenshotted | ✓ |
+| Action | Result |
+|--------|--------|
+| Verify FIX-005: `documents.py` storage import at module level | ✓ Confirmed at line 24, 49, 344 |
+| Verify FIX-006: `analytics.py` `func` import at top-level | ✓ Confirmed at line 6 |
+| Verify FIX-007: duplicate `_session_watermark_angle` | ✗ Found duplicate still in `viewer.py` — **FIXED** |
+| Verify FIX-008: `_by_link` at module level in analytics_service | ✓ Confirmed at line 13 |
+| Verify FIX-009: `asyncio.get_running_loop()` in orgs.py | ✓ Confirmed at line 459 |
+| Verify FIX-010: no redundant doc fetch in list_links | ✓ Confirmed |
+| Verify FIX-011: sidecar prefixes tuple in retention.py | ✓ Confirmed at line 35 |
 
----
-
-### Phase 2 — Screenshot Analysis
-
-All 10 screen screenshots examined and annotated:
-
-| Screenshot | Issues Found |
-|------------|-------------|
-| `upload_01_default.png` | UX-001 (button label), UX-005 (risk empty box) |
-| `access_01_default.png` | UX-007 ("1 pages · 1 views") |
-| `analytics_01_default.png` | UX-002 ("TOTAL VIEWS" misleading) |
-| `storage_01_default.png` | None |
-| `apikeys_01_default.png` | None |
-| `webhooks_01_default.png` | None |
-| `audit_01_default.png` | None |
-| `orgs_01_default.png` | None |
-| `notifications_01_default.png` | UX-003 (raw event types) |
-| `billing_01_default.png` | UX-004 (STRIPE_SECRET_KEY leak) |
+**FIX-007 remediation:**
+- Removed duplicate function from `backend/app/routers/viewer.py`
+- Removed now-unused `import hashlib as _hashlib`
+- Added `_session_watermark_angle` to import from `app.services.viewer_service`
+- Updated `backend/tests/integration/test_phase7.py`: import source + patch target corrected
+- Committed: `e52112d`
 
 ---
 
-### Phase 3 — Deep Interactive Walkthrough
+### Phase 1 — Runtime Verification
 
-Playwright scripts run to probe deeper interactions:
-
-| Test | Finding |
-|------|---------|
-| Search filter | Works: "invoice" filters to 1 doc |
-| + New group modal | Opens with Name + Description fields |
-| Error doc row | Has "↺ Retry" button — good |
-| Click doc in Access Control | Opens full Create Link / Links / Feedback / Annotations UI |
-| Notifications body scan | `page_viewed`, `password_wrong`, `opened\n`, `completed\n` confirmed as raw |
-| Billing body scan | `STRIPE_SECRET_KEY` confirmed present |
-| API Keys modal | Scope checkboxes, name input present |
-| Webhooks modal | URL + event selection fields |
+| Action | Result |
+|--------|--------|
+| Confirm backend running at localhost:8000 | ✓ PID 49183 |
+| GET /health | ✓ 200 — all checks ok |
+| Exercise all 19 frontend-used API endpoints | ✓ All 200 |
+| Confirm /api/storage/snapshots not used by frontend | ✓ StorageScreen uses only /dashboard and /forecast |
+| Verify bundle served at /static/dist/app.bundle.js | ✓ 200, 249.3 KB |
+| Verify auth accepted via sd_ key | ✓ |
 
 ---
 
-### Phase 4 — Source Code Fixes
+### Phase 2 — Release Blocking Issues
 
-| Fix | File | Line | Change |
-|-----|------|------|--------|
-| UX-001 | `UploadScreen.jsx` | 204 | "↑ Upload PDF" → "↑ Upload" |
-| UX-002a | `UploadScreen.jsx` | 197 | "Total Views" → "Views Today" |
-| UX-002b | `AnalyticsScreen.jsx` | 43 | "Total Views" → "Views Today" |
-| UX-003 | `NotificationsScreen.jsx` | 22-53 | `eventLabel()`: Added 25+ event type mappings |
-| UX-004 | `BillingScreen.jsx` | 160 | Removed STRIPE_SECRET_KEY from user message |
-| UX-005 | `atoms.jsx` | 27-43 | `RiskBadge`: early return "—" when level missing |
-| UX-006 | `AccessScreen.jsx` | 225 | Removed `|| 'HIGH'` fallback from risk badge |
-| UX-007 | `DocumentPicker.jsx` | 67 | Conditional pluralization for page/view counts |
+| Check | Result |
+|-------|--------|
+| Scan for 500 responses | ✓ None found |
+| Scan for broken API contracts | ✓ None found |
+| Scan for debug code (print, pdb, breakpoint) | ✓ None in app/ |
+| Scan for console.log / debugger in frontend | ✓ None |
+| Scan for env var names exposed to users | ✓ None (fixed in Sprint 6.1) |
+| Scan for TODO / FIXME / HACK in backend | ✓ None |
+| Scan for TODO / FIXME in frontend | ✓ None |
 
 ---
 
-### Phase 5 — Build & Verification
+### Phase 3 — Production Engineering
 
-| Step | Result |
-|------|--------|
-| `npm run build` | ✓ 249.3 KB, 0 errors |
-| Backend tests | ✓ 1624 passed, 0 failures |
-| Visual verification screenshots | ✓ All 7 fixes confirmed in live screenshots |
+| Check | Result |
+|-------|--------|
+| Dockerfile review | ✓ Multi-stage, non-root, health check |
+| docker-compose review | ✓ 6 services, all with health checks + correct depends_on |
+| migrate.py review | ✓ Advisory lock, SQLite fallback, clean implementation |
+| entrypoint.sh review | ✓ Runs migrate.py then exec "$@" |
+| Alembic migration count | ✓ 26 migrations, at head (025) |
+| Celery beat tasks | ✓ purge_stale_sessions (30min), requeue_orphaned_uploads (5min) |
+| Backup service | ✓ Present with profile:backup, daily pg_dump |
+| Railway config | — No railway.json/toml; Dockerfile used directly |
 
-**Confirmed fixes (screenshot evidence):**
-- `fix_upload.png` — "↑ Upload" button, "VIEWS TODAY" card, "—" for risk column
-- `fix_notifications.png` — "Page viewed", "Viewer opened", "Document completed", "Wrong password"
-- `fix_billing.png` — "Contact your administrator to enable paid plan upgrades."
-- `fix_analytics.png` — "VIEWS TODAY" stat card in analytics
-- `fix_access_doc.png` — Access Control doc detail view (full Create Link form)
+---
+
+### Phase 4 — Regression Testing
+
+| Action | Result |
+|--------|--------|
+| `python -m pytest tests/ -x -q` | ✓ 1624 passed, 1 skipped, 0 failures in 54.31s |
+| Confirm FIX-007 test changes did not cause regressions | ✓ |
+| Inspect warnings | ✓ All pre-existing or third-party |
+
+---
+
+### Phase 5 — Repository Certification
+
+| Check | Result |
+|-------|--------|
+| Dead imports in backend/app | ✓ None (FIX-007 cleaned last one) |
+| TODOs/FIXMEs in backend/app | ✓ None |
+| Debug code in backend/app | ✓ None |
+| Console.log/debugger in frontend/src | ✓ None |
 
 ---
 
@@ -89,36 +94,34 @@ Playwright scripts run to probe deeper interactions:
 
 | Report | Status |
 |--------|--------|
-| `FINAL_UX_REPORT.md` | ✓ Created |
-| `FINAL_FUNCTIONAL_VERIFICATION.md` | ✓ Created |
-| `FINAL_REPOSITORY_HEALTH.md` | ✓ Created |
-| `FINAL_PRODUCT_POLISH_REPORT.md` | ✓ Created |
+| `RC1_RELEASE_REPORT.md` | ✓ Created |
+| `RC1_REGRESSION_REPORT.md` | ✓ Created |
+| `RC1_RUNTIME_REPORT.md` | ✓ Created |
+| `RC1_DEPLOYMENT_REPORT.md` | ✓ Created |
+| `RC1_CERTIFICATION.md` | ✓ Created |
 | `MASTER_ACTION_LOG.md` | ✓ This file |
-| `CHANGELOG.md` (Sprint 6.1 section) | ✓ Created |
+| `CHANGELOG.md` (Sprint 6.2 section) | ✓ Created |
 
 All reports copied to `~/Downloads/`.
 
 ---
 
-## Files Changed in Sprint 6.1
+## Files Changed in Sprint 6.2
 
 ```
-frontend/src/screens/NotificationsScreen.jsx    — event label mapping
-frontend/src/screens/BillingScreen.jsx          — billing message
-frontend/src/screens/UploadScreen.jsx           — button label, stat label
-frontend/src/screens/AnalyticsScreen.jsx        — stat label
-frontend/src/screens/AccessScreen.jsx           — risk badge fallback
-frontend/src/components/atoms.jsx               — RiskBadge null handling
-frontend/src/components/DocumentPicker.jsx      — grammar pluralization
-frontend/dist/app.bundle.js                     — rebuilt bundle
-frontend/docs/production/FINAL_UX_REPORT.md
-frontend/docs/production/FINAL_FUNCTIONAL_VERIFICATION.md
-frontend/docs/production/FINAL_REPOSITORY_HEALTH.md
-frontend/docs/production/FINAL_PRODUCT_POLISH_REPORT.md
+backend/app/routers/viewer.py               — FIX-007: removed duplicate function + dead import
+backend/tests/integration/test_phase7.py   — FIX-007: corrected import path and patch target
+frontend/docs/production/RC1_RELEASE_REPORT.md
+frontend/docs/production/RC1_REGRESSION_REPORT.md
+frontend/docs/production/RC1_RUNTIME_REPORT.md
+frontend/docs/production/RC1_DEPLOYMENT_REPORT.md
+frontend/docs/production/RC1_CERTIFICATION.md
 frontend/docs/production/MASTER_ACTION_LOG.md
 frontend/docs/production/CHANGELOG.md
 ```
 
 ---
 
-## Sprint 6.1 Complete
+## Sprint 6.2 Complete
+
+RC-1 accepted. One engineering change (FIX-007). Zero regressions. 1624 tests pass.
