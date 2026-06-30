@@ -1,343 +1,167 @@
 # SecureDoc
 
-Secure document sharing platform with per-link access control, viewer analytics, and Supabase authentication.
+**Secure document sharing with per-link access controls, viewer analytics, and forensic watermarking.**
+
+Share documents as controlled links — not attachments. Set expiry dates, view limits, IP restrictions, and passwords per link. See exactly who viewed what, when, and for how long. Every page is watermarked with the viewer's identity.
 
 ---
 
-## Quick Start — One Command
+## Features
 
-```bash
-# 1. Copy env template (edit if you have Supabase / storage credentials)
-cp backend/.env.example backend/.env
-
-# 2. Start everything (Docker required)
-./start.sh all
-# or: make up && make test
-```
-
-This builds Docker images, runs DB migrations, starts all services, and runs the test suite. The app is available at `http://localhost:8000` when complete.
-
-**No Docker?** Use native mode — see [Local Development](#development-setup) below.
-
----
+- **Controlled sharing** — per-link expiry, view limits, IP allowlist, password, domain restriction
+- **Viewer analytics** — time per page, completion rate, geography, device
+- **Forensic watermarking** — visible watermark (email + timestamp) + invisible forensic stamp per viewer per page
+- **DRM controls** — print, copy, right-click, and screenshot prevention (client-side UX gates)
+- **Multi-format support** — PDF, DOCX, DOC, TXT, MD, LOG
+- **API access** — full REST API with `sd_` API keys
+- **Webhooks** — outbound events for view, completion, access denial
+- **Organizations & SSO** — multi-org support, Supabase SAML integration
+- **Retention policies** — per-document automatic expiry
+- **Audit log** — admin audit trail for all sensitive operations
 
 ## Architecture
 
+```
+Browser (Viewer)
+    └─▶ Share link  /v/{token}
+            └─▶ FastAPI API  :8000
+                    ├─▶ Supabase Auth (JWT / SAML)
+                    ├─▶ PostgreSQL    (state, 26 migrations)
+                    ├─▶ Redis         (page cache + Celery broker)
+                    ├─▶ Object Storage (S3-compatible)
+                    └─▶ Celery Worker (PDF processing pipeline)
+```
+
 | Layer | Technology |
-|---|---|
-| Backend | FastAPI + SQLAlchemy async + Celery |
-| Database | PostgreSQL (prod) / SQLite (tests) |
+|-------|-----------|
+| Backend | FastAPI + SQLAlchemy async |
+| Database | PostgreSQL 16 |
+| Cache / Broker | Redis 7 |
 | Storage | Supabase Storage (S3-compatible) |
-| Auth | Supabase (JWKS / ES256 JWT) |
-| Task queue | Celery + Redis |
-| Frontend | Single-file React + Babel (`frontend/SecureDoc.html`) |
+| Auth | Supabase JWT (ES256 / JWKS) + API keys |
+| Task queue | Celery + Celery Beat |
+| Frontend | React 18, esbuild IIFE bundle (249 KB) |
+
+For system diagrams and design decisions see [`docs/architecture/`](docs/architecture/).
 
 ---
 
-## Development Setup
+## Quick Start
 
-### 1. Prerequisites
-
-- Python 3.12+
-- PostgreSQL running locally (or use Docker)
-- Redis running locally
-- Supabase project (free tier is fine)
-
-### 2. Install dependencies
+### Docker (recommended)
 
 ```bash
+cp backend/.env.example backend/.env   # fill in credentials
+docker compose up --build
+# App available at http://localhost:8000
+```
+
+### Native
+
+```bash
+# Prerequisites: Python 3.12+, PostgreSQL, Redis
+
 cd backend
 pip install -r requirements.txt
-# Install Poppler for PDF rasterization:
-# macOS:  brew install poppler
-# Ubuntu: apt-get install poppler-utils
-```
-
-### 3. Configure environment
-
-```bash
-cp .env.example .env
-# Edit .env and fill in every value — see "Required env vars" below
-```
-
-### 4. Run database migrations
-
-```bash
-cd backend
+cp .env.example .env                   # fill in credentials
 alembic upgrade head
+
+# Terminal 1 — API
+USE_DEMO_STORAGE=1 python run_demo.py
+
+# Terminal 2 — Worker
+celery -A app.workers.celery_app worker --loglevel=info
 ```
 
-### 5. Start the stack
+Frontend is served automatically at `http://localhost:8000` by the backend.
 
-```bash
-# Terminal 1 — Backend (FastAPI on :8000)
-./start.sh backend
+---
 
-# Terminal 2 — PDF worker (Celery)
-./start.sh worker
-```
+## Environment Variables
 
-Or start the backend directly:
+Copy `backend/.env.example` and set these:
+
+| Variable | Description |
+|----------|-------------|
+| `DATABASE_URL` | PostgreSQL connection (`postgresql+asyncpg://...`) |
+| `REDIS_URL` | Redis connection (`redis://...`) |
+| `JWT_SECRET` | 32-byte hex secret (`python3 -c "import secrets; print(secrets.token_hex(32))"`) |
+| `SUPABASE_URL` | Supabase project URL |
+| `SUPABASE_ANON_KEY` | Supabase anon (publishable) key |
+| `SUPABASE_SERVICE_KEY` | Supabase service role key — never expose to browser |
+| `STORAGE_BACKEND` | `s3`, `gcs`, or `demo` |
+| `APP_PUBLIC_BASE_URL` | Root URL for share links (e.g. `https://your-domain.com`) |
+| `ALLOWED_ORIGINS` | Comma-separated CORS origins |
+
+See [`docs/deployment/DEPLOYMENT.md`](docs/deployment/DEPLOYMENT.md) for the full variable reference, Railway/Fly deployment, and scaling notes.
+
+---
+
+## Development
+
+### Run tests
+
 ```bash
 cd backend
-USE_DEMO_STORAGE=1 python run_demo.py   # local disk storage (no Supabase needed)
+python -m pytest tests/ -q
+# Expected: 1624+ passed, 0 failed
 ```
 
-Backend: `http://localhost:8000` · API docs: `http://localhost:8000/docs`
-
-### 6. Serve the frontend
-
-The backend auto-serves the frontend at `http://localhost:8000/` via StaticFiles.
-
-For live frontend development:
-```bash
-cd frontend && python3 -m http.server 5500
-# Open http://localhost:5500/SecureDoc.html
-```
-
-### 7. Run tests
+### Build the frontend bundle
 
 ```bash
-# Fast — SQLite mocks, no live services needed
-./start.sh test
-# or: make test
-# or: cd backend && PYTHONPATH=. python -m pytest tests/ -q
-# Expected: 159+ passed, 0 failed
-
-# Inside the running Docker container
-make test-docker
+cd frontend && npm ci && npm run build
+# Output: frontend/dist/app.bundle.js
 ```
 
-### 8. Verify the stack is working
+### API documentation
+
+Interactive API docs at `http://localhost:8000/docs` (Swagger UI) when the backend is running.
+
+### Migrations
 
 ```bash
-./start.sh check       # health + mode + share URL
-curl localhost:8000/health   # → {"status":"ok"}
-open http://localhost:8000   # opens the app
+cd backend
+alembic current           # show current migration state
+alembic upgrade head      # apply pending migrations
+alembic downgrade -1      # roll back one migration
 ```
-
----
-
-## Globally Shareable Links — Cloudflare Quick Tunnel
-
-SecureDoc generates share links using `APP_PUBLIC_BASE_URL`. Run a Cloudflare Quick Tunnel to get a public HTTPS URL in seconds — **no card, no DNS changes, no cert.pem, no `cloudflared login`**.
-
-> **Note on custom domains:** `wowmyspace.com` is currently on GoDaddy/Wix and not yet connected to Cloudflare DNS. Until DNS is migrated, use a Quick Tunnel (temporary `trycloudflare.com` URL). The app is fully ready for the custom domain — just update `APP_PUBLIC_BASE_URL` when the time comes.
-
-### How it works
-
-```
-Viewer's browser
-    → https://abc123.trycloudflare.com/v/{token}
-    → Cloudflare edge  (no DNS setup needed — trycloudflare.com is Cloudflare's domain)
-    → Cloudflare Quick Tunnel  (free, ephemeral, no login)
-    → localhost:8000  (your FastAPI backend)
-    → /v/{token} → /static/SecureDoc.html?token={token}
-```
-
-### Quick tunnel setup (~30 seconds)
-
-**Step 1 — Install cloudflared** (if not already)
-
-```bash
-brew install cloudflared
-```
-
-**Step 2 — Start the tunnel** (Terminal 3)
-
-```bash
-./start.sh quicktunnel
-```
-
-This starts `cloudflared tunnel --url http://localhost:8000`, detects the public URL from the output, and **automatically updates `backend/.env`**. Output looks like:
-
-```
-  cloudflared | Your quick Tunnel has been created!
-  cloudflared | https://random-words-123.trycloudflare.com
-  ────────────────────────────────────────────────────────
-  Public URL detected and saved to backend/.env:
-
-    https://random-words-123.trycloudflare.com
-
-  Share links will now be:  https://random-words-123.trycloudflare.com/v/<token>
-
-  Next step — restart the backend to apply:
-    ./start.sh backend
-  ────────────────────────────────────────────────────────
-```
-
-**Step 3 — Restart the backend** (Terminal 1)
-
-```bash
-# Ctrl+C the backend if it's running, then:
-./start.sh backend
-```
-
-The backend now generates links like:
-```
-https://random-words-123.trycloudflare.com/v/{token}
-```
-
-**Step 4 — Verify**
-
-```bash
-./start.sh check
-# Shows: Mode: Cloudflare Quick Tunnel (globally shareable)
-```
-
-### Manual URL update (if auto-detect fails)
-
-If the auto-detect misses the URL, copy it from the cloudflared output and run:
-
-```bash
-./start.sh set-url https://your-words.trycloudflare.com
-./start.sh backend
-```
-
-### How share links are generated
-
-`APP_PUBLIC_BASE_URL` in `backend/.env` is the **single source of truth** for all share link URLs:
-
-```
-share link = {APP_PUBLIC_BASE_URL}/v/{token}
-```
-
-| Mode | APP_PUBLIC_BASE_URL |
-|---|---|
-| Local dev only | `http://localhost:8000` |
-| Quick tunnel (temp) | `https://random-words.trycloudflare.com` (auto-set) |
-| Custom domain (future) | `https://secure.wowmyspace.com` |
-
-### Frontend API routing
-
-`frontend/api.js` auto-detects the environment — no source changes needed:
-
-| Where the page loads | API calls go to |
-|---|---|
-| `localhost:5500` (dev server) | `http://localhost:8000` (detected by port) |
-| `*.trycloudflare.com` (quick tunnel) | same origin (relative `/api/...`) |
-| `secure.wowmyspace.com` (custom domain) | same origin |
-
-### Known limitations of quick tunnels
-
-- The URL **changes every time** cloudflared restarts — existing share links using the old URL will stop working.
-- The tunnel must stay running for viewers to access documents.
-- For stable links, use a named tunnel with a custom domain (see below).
-
----
-
-## Required Environment Variables
-
-Copy `.env.example` to `.env` and fill in every value.
-
-| Variable | Required | Description |
-|---|---|---|
-| `DATABASE_URL` | Yes | PostgreSQL connection string |
-| `REDIS_URL` | Yes | Redis connection string |
-| `STORAGE_ENDPOINT_URL` | Yes | Supabase Storage S3 endpoint |
-| `STORAGE_ACCESS_KEY_ID` | Yes | Supabase Storage access key |
-| `STORAGE_SECRET_ACCESS_KEY` | Yes | Supabase Storage secret key (service role) |
-| `STORAGE_BUCKET_NAME` | Yes | S3 bucket name (default: `securedoc-docs`) |
-| `JWT_SECRET` | Yes | Random secret for internal share-link tokens |
-| `SUPABASE_URL` | Yes | Your Supabase project URL |
-| `SUPABASE_ANON_KEY` | Yes | Supabase publishable anon key |
-| `APP_PUBLIC_BASE_URL` | Yes | Root URL for all generated share links |
-| `ALLOWED_ORIGINS` | Yes | Comma-separated CORS origins |
-| `APP_ENV` | No | `development` (default) or `production` |
-| `CLOUDFLARE_TUNNEL_TOKEN` | No | Token from Zero Trust dashboard (for tunnel mode) |
-
-### Generate JWT_SECRET
-
-```bash
-python3 -c "import secrets; print(secrets.token_hex(32))"
-```
-
-### Get Supabase Storage credentials
-
-1. Go to Supabase dashboard → Storage → S3 Connection
-2. Copy the endpoint URL, access key ID, and secret
-3. Create a bucket named `securedoc-docs` (set to private)
 
 ---
 
 ## Deployment
 
-### Option A — Cloudflare Quick Tunnel (current recommended path)
+See [`docs/deployment/DEPLOYMENT.md`](docs/deployment/DEPLOYMENT.md) for:
 
-Run the backend locally and expose it globally. No server, no card, no DNS changes.
-See the **Globally Shareable Links** section for the full walkthrough.
+- Full Docker Compose service reference
+- Railway / Fly / VPS deployment
+- Environment variable reference
+- Migration safety (advisory lock)
+- Scaling notes (API, worker, Beat)
+- Backup configuration
+
+### Public HTTPS without a domain (Cloudflare Quick Tunnel)
 
 ```bash
-./start.sh quicktunnel   # auto-sets APP_PUBLIC_BASE_URL in .env
+brew install cloudflared
+./start.sh quicktunnel   # detects URL and writes APP_PUBLIC_BASE_URL to .env
 ./start.sh backend       # restart to apply
 ```
 
-### Option A2 — Cloudflare Named Tunnel (when domain is on Cloudflare)
+---
 
-Use this once `wowmyspace.com` DNS is migrated to Cloudflare:
+## Security
 
-```
-APP_PUBLIC_BASE_URL=https://secure.wowmyspace.com
-CLOUDFLARE_TUNNEL_TOKEN=<from Zero Trust dashboard>
-```
-
-```bash
-./start.sh tunnel
-```
-
-### Option B — Docker Compose (local production-like)
-
-```bash
-cp backend/.env.example backend/.env   # fill in credentials
-docker compose up --build              # starts db + redis + api + worker
-```
-
-The Dockerfile bakes in both the backend and frontend. Migrations run automatically on startup via `backend/entrypoint.sh`.
-
-```
-docker compose logs -f api     # tail API logs
-docker compose logs -f worker  # tail worker logs
-docker compose down            # stop all services
-```
-
-### Option C — Cloud server (Railway / Fly / VPS)
-
-1. Deploy `backend/` to your hosting provider
-2. Set start command: `python run_demo.py`
-3. Add all env vars with production values
-4. Set `APP_ENV=production`
-5. Set `APP_PUBLIC_BASE_URL` to your server's public URL
-
-```
-APP_ENV=production
-APP_PUBLIC_BASE_URL=https://your-server-domain.com
-FRONTEND_BASE_URL=https://your-server-domain.com
-ALLOWED_ORIGINS=https://your-server-domain.com
-JWT_SECRET=<64-char random hex>
-SUPABASE_URL=https://your-project.supabase.co
-SUPABASE_ANON_KEY=<publishable anon key>
-STORAGE_ENDPOINT_URL=https://your-project.storage.supabase.co/storage/v1/s3
-STORAGE_ACCESS_KEY_ID=<from Supabase Storage S3 settings>
-STORAGE_SECRET_ACCESS_KEY=<service role key — NEVER expose to frontend>
-DATABASE_URL=postgresql+asyncpg://...
-REDIS_URL=redis://...
-```
-
-### Frontend — served by backend
-
-The backend serves the frontend from `frontend/` via `/static/`. No separate frontend deployment needed.
-
-If hosting the HTML separately (CDN / GitHub Pages):
-- Set `<meta name="api-base" content="https://your-backend-url.com">` in `SecureDoc.html`
-- Set `<meta name="supabase-url">` and `<meta name="supabase-anon-key">` accordingly
+All page bytes are proxied through the API — object storage URLs are never exposed to viewers. HSTS is enabled by default. See [`SECURITY.md`](SECURITY.md) for the full security model, vulnerability reporting, and known limitations.
 
 ---
 
-## Security Notes
+## Contributing
 
-- **Never commit `.env`** — it contains real credentials. `.gitignore` protects it.
-- **`JWT_SECRET` must be generated manually** — it signs internal share-link tokens. A weak or guessable secret allows token forgery.
-- **`STORAGE_SECRET_ACCESS_KEY` is the Supabase service role key** — it has full storage access. Never expose it to the browser or include it in frontend code.
-- **`SUPABASE_ANON_KEY` is safe for the frontend** — it is the publishable key and is already in `SecureDoc.html`.
-- Auth tokens are verified via Supabase JWKS (public key, no shared secret). The backend fetches public keys at startup and caches them for 1 hour.
-- All page images are served through the backend proxy — direct S3 URLs are never exposed to viewers.
+See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the development workflow, code standards, and PR checklist.
+
+---
+
+## License
+
+MIT — see [`LICENSE`](LICENSE).
