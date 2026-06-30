@@ -1,6 +1,6 @@
 import { C, mono } from '../constants/tokens.js';
 
-const { useState } = React;
+const { useState, useEffect, useRef } = React;
 
 /* ─── STYLE HELPER ─────────────────────────────────────────── */
 export const label = (size = 9, extraStyle = {}) => ({
@@ -15,8 +15,9 @@ export function SectionLabel({ children, style }) {
 
 export function StatusDot({ status, size = 6 }) {
   const map = { active: C.success, error: C.error, processing: C.teal2, inactive: C.slate2 };
+  const labels = { active: 'Active', error: 'Error', processing: 'Processing', inactive: 'Inactive' };
   return (
-    <span style={{
+    <span role="img" aria-label={labels[status] || status || 'Unknown'} style={{
       display: 'inline-block', width: size, height: size, borderRadius: '50%',
       background: map[status] || C.slate1, flexShrink: 0,
       ...(status === 'processing' ? { animation: 'pulse 1.4s ease infinite' } : {})
@@ -57,23 +58,24 @@ export function Chip({ children, color = C.teal2, bg, border }) {
 }
 
 /* ─── BUTTON ───────────────────────────────────────────────── */
-export function Btn({ children, variant = 'primary', disabled, onClick, style, size = 'md' }) {
+export function Btn({ children, variant = 'primary', disabled, loading, onClick, style, size = 'md' }) {
   const [hov, setHov] = useState(false);
   const pad = size === 'sm' ? '5px 11px' : size === 'lg' ? '10px 20px' : '8px 15px';
   const fz = size === 'sm' ? 11 : size === 'lg' ? 14 : 12.5;
+  const isDisabled = disabled || loading;
   const base = {
     padding: pad, borderRadius: 7, fontSize: fz, fontWeight: 600,
-    cursor: disabled ? 'not-allowed' : 'pointer', border: 'none',
+    cursor: isDisabled ? 'not-allowed' : 'pointer', border: 'none',
     fontFamily: "'DM Sans', sans-serif", letterSpacing: '0.1px',
     transition: 'all .15s ease', display: 'inline-flex', alignItems: 'center',
     gap: 6, whiteSpace: 'nowrap', ...style,
   };
-  if (disabled) return (
-    <button disabled style={{
+  if (isDisabled) return (
+    <button disabled aria-busy={loading ? 'true' : undefined} style={{
       ...base, background: 'transparent',
       color: 'rgba(90,200,208,0.2)', border: '1px solid rgba(90,200,208,0.08)',
-      textDecoration: 'line-through', cursor: 'not-allowed'
-    }}>{children}</button>
+      textDecoration: loading ? 'none' : 'line-through', cursor: 'not-allowed'
+    }}>{loading ? '…' : children}</button>
   );
   if (variant === 'primary') return (
     <button onClick={onClick} onMouseEnter={() => setHov(true)} onMouseLeave={() => setHov(false)}
@@ -145,6 +147,49 @@ export function Card({ children, style, onClick, noPad, hover = true }) {
 
 /* ─── MODAL ─────────────────────────────────────────────────── */
 export function Modal({ open, onClose, title, children, width = 440 }) {
+  const dialogRef = useRef(null);
+  const triggerRef = useRef(null);
+
+  useEffect(() => {
+    if (open) {
+      // Remember what had focus before the modal opened
+      triggerRef.current = document.activeElement;
+      // Move focus into the modal on next frame
+      requestAnimationFrame(() => {
+        const el = dialogRef.current;
+        if (!el) return;
+        const focusable = el.querySelectorAll(
+          'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+        );
+        if (focusable.length) focusable[0].focus();
+      });
+    } else {
+      // Return focus to the element that opened the modal
+      triggerRef.current?.focus?.();
+    }
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    const trap = (e) => {
+      if (e.key !== 'Tab' || !dialogRef.current) return;
+      const focusable = Array.from(dialogRef.current.querySelectorAll(
+        'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+      )).filter(el => !el.disabled);
+      if (!focusable.length) return;
+      const first = focusable[0], last = focusable[focusable.length - 1];
+      if (e.shiftKey) {
+        if (document.activeElement === first) { e.preventDefault(); last.focus(); }
+      } else {
+        if (document.activeElement === last) { e.preventDefault(); first.focus(); }
+      }
+    };
+    const esc = (e) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', trap);
+    document.addEventListener('keydown', esc);
+    return () => { document.removeEventListener('keydown', trap); document.removeEventListener('keydown', esc); };
+  }, [open, onClose]);
+
   if (!open) return null;
   return (
     <div style={{
@@ -153,7 +198,7 @@ export function Modal({ open, onClose, title, children, width = 440 }) {
       alignItems: 'center', justifyContent: 'center', animation: 'fadeIn .15s ease'
     }}
       onClick={e => e.target === e.currentTarget && onClose()}>
-      <div className="fade-up" style={{
+      <div ref={dialogRef} role="dialog" aria-modal="true" aria-label={title} className="fade-up" style={{
         background: C.surface, border: `1px solid ${C.borderMed}`,
         borderRadius: 12, width, maxWidth: '90vw', overflow: 'hidden',
         boxShadow: '0 24px 80px rgba(0,0,0,0.7)'
@@ -163,7 +208,7 @@ export function Modal({ open, onClose, title, children, width = 440 }) {
           padding: '16px 20px', borderBottom: `1px solid ${C.border}`
         }}>
           <span style={{ fontSize: 14, fontWeight: 700, color: C.textPrimary }}>{title}</span>
-          <button onClick={onClose} style={{
+          <button onClick={onClose} aria-label="Close" style={{
             background: 'none', border: 'none',
             color: C.textMuted, cursor: 'pointer', fontSize: 18, lineHeight: 1,
             display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -204,11 +249,11 @@ export function Toggle({ enabled, locked, onChange }) {
 /* ─── FORM FIELD ───────────────────────────────────────────── */
 export function Field({ label: lbl, children, hint }) {
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-      <label style={{ ...label(10), color: C.textMuted }}>{lbl}</label>
+    <label style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+      <span style={{ ...label(10), color: C.textMuted }}>{lbl}</span>
       {children}
       {hint && <span style={{ fontSize: 10, color: C.textDim }}>{hint}</span>}
-    </div>
+    </label>
   );
 }
 
@@ -301,11 +346,11 @@ export function Sidebar({ active, setActive, userEmail, onLogout, plan, badges =
       </div>
 
       {/* Nav */}
-      <nav style={{ flex: 1, padding: '8px 0', overflow: 'auto' }}>
+      <nav aria-label="Main navigation" style={{ flex: 1, padding: '8px 0', overflow: 'auto' }}>
         {NAV_SECTIONS.map((sec, si) => (
-          <div key={si} style={{ marginBottom: 4 }}>
+          <div key={si} role="group" aria-label={sec.label || 'Main'} style={{ marginBottom: 4 }}>
             {sec.label && (
-              <div style={{ ...label(8), padding: '10px 16px 4px', color: C.textDim }}>{sec.label}</div>
+              <div style={{ ...label(8), padding: '10px 16px 4px', color: C.textDim }} aria-hidden="true">{sec.label}</div>
             )}
             {sec.items.map(item => (
               <NavItem key={item.id} item={item} isActive={active === item.id} onClick={() => handleNav(item.id)} badge={badges[item.id] ?? item.badge} />
@@ -379,22 +424,26 @@ export function NavItem({ item, isActive, onClick, badge }) {
   const [hov, setHov] = useState(false);
   const activeBadge = badge ?? item.badge;
   return (
-    <div onClick={onClick}
+    <div role="button" tabIndex={0} aria-current={isActive ? 'page' : undefined}
+      aria-label={activeBadge ? `${item.label} (${activeBadge} unread)` : item.label}
+      onClick={onClick}
+      onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick?.(); } }}
       onMouseEnter={() => setHov(true)} onMouseLeave={() => setHov(false)}
       style={{
         display: 'flex', alignItems: 'center', gap: 9,
         padding: '9px 16px', cursor: 'pointer', margin: '1px 8px', borderRadius: 7,
         background: isActive ? C.accentBg : hov ? 'rgba(90,200,208,0.04)' : 'transparent',
         border: `1px solid ${isActive ? C.borderMed : 'transparent'}`,
-        transition: 'all .12s'
-      }}>
-      <span style={{ fontSize: 12, color: isActive ? C.teal1 : C.textDim, lineHeight: 1, width: 14, textAlign: 'center' }}>{item.icon}</span>
+        transition: 'all .12s', outline: 'none',
+      }}
+      onFocus={() => setHov(true)} onBlur={() => setHov(false)}>
+      <span aria-hidden="true" style={{ fontSize: 12, color: isActive ? C.teal1 : C.textDim, lineHeight: 1, width: 14, textAlign: 'center' }}>{item.icon}</span>
       <span style={{
         fontSize: 12.5, fontWeight: isActive ? 600 : 400,
         color: isActive ? C.teal1 : hov ? C.textSecondary : C.textMuted, flex: 1
       }}>{item.label}</span>
       {activeBadge != null && activeBadge !== 0 && (
-        <span style={{
+        <span aria-hidden="true" style={{
           ...mono, fontSize: 9, background: C.errorBg, color: C.error,
           border: `1px solid ${C.errorBdr}`, borderRadius: 10, padding: '1px 5px'
         }}>{activeBadge}</span>

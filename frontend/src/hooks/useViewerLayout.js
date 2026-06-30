@@ -77,6 +77,12 @@ export function useViewerLayout(session, { onToggleSearch } = {}) {
         e.preventDefault();
         _onToggleSearchRef.current?.();
       }
+      // Escape: return focus to the first toolbar button (AX-011)
+      if (e.key === 'Escape' && session) {
+        const toolbar = document.querySelector('[data-viewer-toolbar]');
+        const first = toolbar?.querySelector('button:not([disabled])');
+        if (first) first.focus();
+      }
     };
     // Block browser native page-zoom from trackpad pinch (ctrlKey+wheel).
     // Zoom is controlled ONLY by the toolbar +/− buttons.

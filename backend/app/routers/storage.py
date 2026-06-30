@@ -101,6 +101,18 @@ async def storage_dashboard(
         key = str(d.org_id) if d.org_id else "_personal"
         org_totals[key] = org_totals.get(key, 0) + _effective_bytes(d)
 
+    # Load org names for the breakdown
+    org_ids_to_lookup = [k for k in org_totals if k != "_personal"]
+    org_names: dict = {}
+    if org_ids_to_lookup:
+        from app.models.org import Organization
+        org_rows = (
+            await db.execute(
+                select(Organization).where(Organization.id.in_([uuid.UUID(oid) for oid in org_ids_to_lookup]))
+            )
+        ).scalars().all()
+        org_names = {str(o.id): o.name for o in org_rows}
+
     return {
         "total_bytes": total_bytes,
         "total_mb": round(total_bytes / _BYTES_PER_MB, 2),
@@ -110,7 +122,12 @@ async def storage_dashboard(
         "expired_count": expired_count,
         "by_document": by_doc,
         "by_org": [
-            {"org_id": k, "total_bytes": v, "total_mb": round(v / _BYTES_PER_MB, 2)}
+            {
+                "org_id": k,
+                "org_name": "Personal" if k == "_personal" else org_names.get(k, k[:8] + "…"),
+                "total_bytes": v,
+                "total_mb": round(v / _BYTES_PER_MB, 2),
+            }
             for k, v in org_totals.items()
         ],
     }

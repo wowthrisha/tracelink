@@ -47,6 +47,10 @@ export function UploadScreen({ onViewDoc, onAccessDoc }) {
   const [groupSaving, setGroupSaving] = useState(false);
   const [retentionPolicy, setRetentionPolicy] = useState('never');
   const [quickShareDoc, setQuickShareDoc] = useState(null);
+  const [deleteGroupModal, setDeleteGroupModal] = useState(null);
+  const [sortKey, setSortKey] = useState('uploaded_at');
+  const [sortDir, setSortDir] = useState('desc');
+  const [visibleCount, setVisibleCount] = useState(25);
   const fileRef = useRef();
   const pollRef = useRef(null);
 
@@ -91,7 +95,16 @@ export function UploadScreen({ onViewDoc, onAccessDoc }) {
             setUploadDone(true);
             const unit = (fileType === 'pdf' || fileType === 'docx' || fileType === 'doc') ? 'pages' : 'chunks';
             toast(`Upload complete — ${s.page_count} ${unit} ready`, 'success');
-          } else toast(`Processing error: ${s.error_message || 'unknown'}`, 'error');
+          } else {
+            const errMsg = s.error_message || '';
+            const isEncrypted = /encrypt|password|protect/i.test(errMsg);
+            const msg = isEncrypted
+              ? 'Processing failed: the file appears to be password-protected or encrypted.'
+              : errMsg
+                ? `Processing failed: ${errMsg}`
+                : 'Processing failed. The file may be corrupt or in an unsupported format.';
+            toast(msg, 'error');
+          }
         }
       } catch { }
     }, 2000);
@@ -101,6 +114,9 @@ export function UploadScreen({ onViewDoc, onAccessDoc }) {
 
   const simulate = async (file) => {
     if (!file) return;
+    if (!file.name || /[/\\]|\.\./.test(file.name)) {
+      toast('Invalid filename. Please rename the file and try again.', 'error'); return;
+    }
     const fileType = _detectFileType(file);
     if (!fileType) {
       toast('Supported formats: PDF, DOCX, DOC, TXT, MD, LOG', 'error'); return;
@@ -119,8 +135,13 @@ export function UploadScreen({ onViewDoc, onAccessDoc }) {
       await fetchDocs();
     } catch (e) {
       setUploading(false);
-      const msg = (e && (e.detail || e.message)) || 'Upload failed';
-      toast(msg, 'error');
+      const status = e?._status || e?.status;
+      if (status === 402 || status === 403 || (typeof e?.detail === 'string' && /limit|quota|plan|upgrade/i.test(e.detail))) {
+        toast('Document limit reached. Upgrade to Pro to upload more documents.', 'error');
+      } else {
+        const msg = (e && (e.detail || e.message)) || 'Upload failed';
+        toast(msg, 'error');
+      }
     }
   };
 
@@ -169,7 +190,7 @@ export function UploadScreen({ onViewDoc, onAccessDoc }) {
       await window.SecureDocAPI.deleteDocument(doc.id);
       setDeleteModal(null);
       await fetchDocs();
-      toast('Document deleted.', 'success');
+      toast('Document deleted', 'success');
     } catch (e) { toast(_errMsg(e, 'Delete failed'), 'error'); }
     finally { setDeleting(false); }
   };
@@ -183,16 +204,41 @@ export function UploadScreen({ onViewDoc, onAccessDoc }) {
     } catch (e) { toast(_errMsg(e, 'Failed to reprocess'), 'error'); }
   };
 
-  const filtered = docs.filter(d =>
-    (d.filename || d.name || '').toLowerCase().includes(search.toLowerCase()) &&
-    (!activeGroupFilter || d.group_id === activeGroupFilter)
-  );
+  const handleSort = (key) => {
+    if (sortKey === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+    else { setSortKey(key); setSortDir('asc'); }
+  };
+
+  const _sortVal = (d, key) => {
+    if (key === 'filename') return (d.filename || d.name || '').toLowerCase();
+    if (key === 'uploaded_at') return d.created_at || d.uploaded_at || '';
+    if (key === 'total_views') return d.total_views || 0;
+    if (key === 'page_count') return d.page_count || 0;
+    return '';
+  };
+
+  const filtered = docs
+    .filter(d =>
+      (d.filename || d.name || '').toLowerCase().includes(search.toLowerCase()) &&
+      (!activeGroupFilter || d.group_id === activeGroupFilter)
+    )
+    .sort((a, b) => {
+      const av = _sortVal(a, sortKey), bv = _sortVal(b, sortKey);
+      if (av < bv) return sortDir === 'asc' ? -1 : 1;
+      if (av > bv) return sortDir === 'asc' ? 1 : -1;
+      return 0;
+    });
 
   const weekViews = (overview?.views_last_7_days || []).reduce((a, d) => a + d.count, 0);
   const highRiskCount = docs.filter(d => d.risk === 'HIGH').length;
+  const docCount = overview?.total_documents || docs.length;
+  const docLimit = overview?.document_limit || null;
+  const planLabel = docLimit
+    ? `${docCount} / ${docLimit} used${docCount >= docLimit ? ' — limit reached' : docCount >= docLimit * 0.8 ? ' — approaching limit' : ''}`
+    : `${docs.filter(d => d.status === 'ready').length} ready`;
 
   const stats = [
-    { label: 'Total Documents', value: (overview?.total_documents || 0).toString(), sub: `${docs.filter(d => d.status === 'ready').length} ready`, icon: '◫', color: C.teal2 },
+    { label: 'Total Documents', value: docCount.toString(), sub: planLabel, icon: '◫', color: docLimit && docCount >= docLimit ? C.error : C.teal2 },
     { label: 'Active Shares', value: (overview?.active_links || 0).toString(), sub: `${overview?.expiring_soon_count || 0} expiring within 14d`, icon: '◈', color: C.teal2 },
     { label: 'Views Today', value: (overview?.total_views_today || 0).toLocaleString(), sub: `+${weekViews} this week`, icon: '▦', color: C.success },
     { label: 'Blocked Attempts', value: (overview?.blocked_attempts_today || 0).toString(), sub: `${highRiskCount} high-risk docs`, icon: '⊗', color: C.warning },
@@ -248,7 +294,7 @@ export function UploadScreen({ onViewDoc, onAccessDoc }) {
                 </button>
                 <button onClick={() => { setGroupForm({ name: g.name, color: g.color, description: g.description || '' }); setGroupModal(g); }}
                   style={{ fontSize: 9, padding: '2px 5px', borderRadius: 4, border: `1px solid ${C.border}`, background: 'transparent', color: C.textDim, cursor: 'pointer' }}>✎</button>
-                <button onClick={() => handleDeleteGroup(g)}
+                <button onClick={() => setDeleteGroupModal(g)} aria-label={`Delete group ${g.name}`}
                   style={{ fontSize: 9, padding: '2px 5px', borderRadius: 4, border: `1px solid ${C.border}`, background: 'transparent', color: C.textDim, cursor: 'pointer' }}>✕</button>
               </div>
             ))}
@@ -265,15 +311,33 @@ export function UploadScreen({ onViewDoc, onAccessDoc }) {
               {activeGroupFilter && (() => { const g = groups.find(x => x.id === activeGroupFilter); return g ? <Chip color={g.color} bg={`${g.color}22`} border="transparent">{g.name}</Chip> : null; })()}
             </div>
             <input style={{ width: 200, fontSize: 12 }} placeholder="Search documents…"
-              value={search} onChange={e => setSearch(e.target.value)} />
+              value={search} onChange={e => { setSearch(e.target.value); setVisibleCount(25); }} />
           </div>
 
           <Card noPad>
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
                 <tr style={{ borderBottom: `1px solid ${C.border}` }}>
-                  {['Document', 'Status', 'Risk', 'Pages', 'Views', 'Expires', ''].map(h => (
-                    <th key={h} style={{ ...label(9), padding: '10px 14px', textAlign: 'left', fontWeight: 600, color: C.textDim }}>{h}</th>
+                  {[
+                    { h: 'Document', key: 'filename' },
+                    { h: 'Status', key: null },
+                    { h: 'Risk', key: null },
+                    { h: 'Pages', key: 'page_count' },
+                    { h: 'Views', key: 'total_views' },
+                    { h: 'Expires', key: null },
+                    { h: '', key: null },
+                  ].map(({ h, key }) => (
+                    <th key={h || 'actions'} scope="col"
+                      onClick={key ? () => handleSort(key) : undefined}
+                      style={{
+                        ...label(9), padding: '10px 14px', textAlign: 'left', fontWeight: 600,
+                        color: sortKey === key ? C.teal2 : C.textDim,
+                        cursor: key ? 'pointer' : 'default',
+                        userSelect: 'none',
+                        whiteSpace: 'nowrap',
+                      }}>
+                      {h}{key && sortKey === key ? (sortDir === 'asc' ? ' ▲' : ' ▼') : ''}
+                    </th>
                   ))}
                 </tr>
               </thead>
@@ -286,8 +350,8 @@ export function UploadScreen({ onViewDoc, onAccessDoc }) {
                   <tr><td colSpan={7} style={{ padding: '32px', textAlign: 'center', color: C.textMuted, fontSize: 13 }}>
                     {docs.length === 0 ? 'No documents yet — upload your first PDF above' : 'No documents match your search'}
                   </td></tr>
-                ) : filtered.map((d, i) => (
-                  <DocRow key={d.id} doc={d} isLast={i === filtered.length - 1}
+                ) : filtered.slice(0, visibleCount).map((d, i) => (
+                  <DocRow key={d.id} doc={d} isLast={i === Math.min(visibleCount, filtered.length) - 1}
                     onView={() => onViewDoc(d)} onAccess={() => onAccessDoc(d)}
                     onDelete={() => setDeleteModal(d)}
                     onReprocess={() => handleReprocess(d)}
@@ -296,6 +360,13 @@ export function UploadScreen({ onViewDoc, onAccessDoc }) {
                 ))}
               </tbody>
             </table>
+            {filtered.length > visibleCount && (
+              <div style={{ padding: '10px 16px', borderTop: `1px solid ${C.border}`, display: 'flex', justifyContent: 'center' }}>
+                <Btn variant="ghost" size="sm" onClick={() => setVisibleCount(n => n + 25)} style={{ fontSize: 11 }}>
+                  Show more ({filtered.length - visibleCount} remaining)
+                </Btn>
+              </div>
+            )}
           </Card>
         </div>
 
@@ -319,6 +390,22 @@ export function UploadScreen({ onViewDoc, onAccessDoc }) {
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
             <Btn variant="secondary" onClick={() => setDeleteModal(null)}>Cancel</Btn>
             <Btn variant="danger" onClick={() => handleDelete(deleteModal)}>Delete Document</Btn>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal open={!!deleteGroupModal} onClose={() => setDeleteGroupModal(null)} title="Delete Group" width={400}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <div style={{
+            background: C.errorBg, border: `1px solid ${C.errorBdr}`,
+            borderRadius: 8, padding: '12px 14px', fontSize: 13, color: C.textSecondary, lineHeight: 1.6
+          }}>
+            <strong style={{ color: C.error }}>⚠ This cannot be undone.</strong><br />
+            The group <strong style={{ color: C.textPrimary }}>"{deleteGroupModal?.name}"</strong> will be deleted. Documents in this group will not be deleted but will become ungrouped.
+          </div>
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+            <Btn variant="secondary" onClick={() => setDeleteGroupModal(null)}>Cancel</Btn>
+            <Btn variant="danger" onClick={() => { handleDeleteGroup(deleteGroupModal); setDeleteGroupModal(null); }}>Delete Group</Btn>
           </div>
         </div>
       </Modal>

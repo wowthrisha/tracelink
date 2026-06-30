@@ -128,7 +128,7 @@ export function ViewerToolbar({
     : `${customZoom}%`;
 
   return (
-    <div style={{
+    <div data-viewer-toolbar style={{
       height: 42, background: '#10151d',
       borderBottom: '1px solid rgba(255,255,255,0.055)',
       display: 'flex', alignItems: 'center', padding: '0 8px',
@@ -288,8 +288,10 @@ export function ViewerToolbar({
           </div>
 
           {/* Two-page toggle */}
-          <button onClick={onToggleTwoPage} title="Two-page view"
-            style={{ ...btn, ...(isTwoPage ? on : {}), padding: '3px 8px', marginLeft: 2 }}>
+          <button onClick={PAGE_COUNT > 1 ? onToggleTwoPage : undefined}
+            disabled={PAGE_COUNT <= 1}
+            title={PAGE_COUNT <= 1 ? 'Two-page view requires more than one page' : 'Two-page view'}
+            style={{ ...btn, ...(isTwoPage ? on : {}), padding: '3px 8px', marginLeft: 2, ...(PAGE_COUNT <= 1 ? { opacity: 0.35, cursor: 'not-allowed' } : {}) }}>
             <svg width="15" height="11" viewBox="0 0 15 11" fill="none" style={{ flexShrink: 0 }}>
               <rect x="0.5" y="0.5" width="6" height="10" rx="1" stroke="currentColor" strokeWidth="1.2" fill="none"/>
               <rect x="8.5" y="0.5" width="6" height="10" rx="1" stroke="currentColor" strokeWidth="1.2" fill="none"/>

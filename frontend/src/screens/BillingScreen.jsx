@@ -9,25 +9,26 @@ function authHeaders() {
 export function BillingScreen({ onPlanChange }) {
   const [billing, setBilling] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [actionLoading, setActionLoading] = useState('');
   const [error, setError] = useState('');
 
-  useEffect(() => {
-    async function load() {
-      try {
-        const r = await fetch(`${window.SecureDocAPI?.apiBase || ''}/api/billing/status`, {
-          headers: { ...authHeaders() },
-        });
-        if (r.ok) {
-          const data = await r.json();
-          setBilling(data);
-          if (onPlanChange) onPlanChange(data.plan || 'free');
-        }
-      } catch (_) {}
-      finally { setLoading(false); }
-    }
-    load();
-  }, []);
+  async function load(silent = false) {
+    if (!silent) setLoading(true); else setRefreshing(true);
+    try {
+      const r = await fetch(`${window.SecureDocAPI?.apiBase || ''}/api/billing/status`, {
+        headers: { ...authHeaders() },
+      });
+      if (r.ok) {
+        const data = await r.json();
+        setBilling(data);
+        if (onPlanChange) onPlanChange(data.plan || 'free');
+      }
+    } catch (_) {}
+    finally { if (!silent) setLoading(false); else setRefreshing(false); }
+  }
+
+  useEffect(() => { load(); }, []);
 
   async function handleUpgrade() {
     setActionLoading('upgrade');
@@ -82,9 +83,16 @@ export function BillingScreen({ onPlanChange }) {
 
   return (
     <div style={{ flex: 1, overflow: 'auto', padding: '28px 32px', maxWidth: 640 }}>
-      <div style={{ marginBottom: 24 }}>
-        <div style={{ fontSize: 18, fontWeight: 700, color: C.textPrimary, marginBottom: 4 }}>Billing & Plan</div>
-        <div style={{ fontSize: 12, color: C.textMuted }}>Manage your subscription and usage.</div>
+      <div style={{ marginBottom: 24, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
+        <div>
+          <div style={{ fontSize: 18, fontWeight: 700, color: C.textPrimary, marginBottom: 4 }}>Billing & Plan</div>
+          <div style={{ fontSize: 12, color: C.textMuted }}>Manage your subscription and usage.</div>
+        </div>
+        <button onClick={() => load(true)} disabled={refreshing || loading}
+          style={{ fontSize: 11, color: C.textMuted, background: 'none', border: 'none', cursor: refreshing ? 'not-allowed' : 'pointer', padding: '4px 8px', opacity: refreshing ? 0.5 : 1 }}
+          title="Refresh billing status">
+          {refreshing ? '…' : '↻ Refresh'}
+        </button>
       </div>
 
       {loading ? (

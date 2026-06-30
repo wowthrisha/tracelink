@@ -9,6 +9,11 @@ import { DocumentPicker } from '../components/DocumentPicker.jsx';
 
 const { useState, useEffect, useCallback } = React;
 
+function fmtDate(iso) {
+  if (!iso) return '—';
+  return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
 export function AccessScreen({ doc, onSelectDoc, defaultTab }) {
   const toast = useToast();
   const [tab, setTab] = useState(defaultTab || 'policy');
@@ -16,9 +21,14 @@ export function AccessScreen({ doc, onSelectDoc, defaultTab }) {
   const [linksLoading, setLinksLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [revokeModal, setRevokeModal] = useState(false);
+  const [quickLinkModal, setQuickLinkModal] = useState(false);
   const [revoking, setRevoking] = useState(null);
   const [editLinkModal, setEditLinkModal] = useState(null); // link object being edited, or null
   const [editSaving, setEditSaving] = useState(false);
+  const [revokeLinkModal, setRevokeLinkModal] = useState(null);
+  const [deleteLinkModal, setDeleteLinkModal] = useState(null);
+  const [revokingLink, setRevokingLink] = useState(null);
+  const [deletingLink, setDeletingLink] = useState(null);
   const [linkCopied, setLinkCopied] = useState(null);
   const [renamingLinkId, setRenamingLinkId] = useState(null);
   const [renameValue, setRenameValue] = useState('');
@@ -118,12 +128,18 @@ export function AccessScreen({ doc, onSelectDoc, defaultTab }) {
   const activeLinks = links.filter(l => !l.revoked_at && (!l.expires_at || new Date(l.expires_at) > new Date()));
 
   const handleSave = async () => {
+    if (expiry && new Date(expiry) < new Date(new Date().toDateString())) {
+      toast('Expiry date cannot be in the past.', 'error'); return;
+    }
+    if (maxViews && parseInt(maxViews) < 1) {
+      toast('Max view count must be at least 1, or leave blank for unlimited.', 'error'); return;
+    }
     setCreating(true);
     try {
       const payload = { document_id: docId };
       if (label_txt) payload.label = label_txt;
       if (password) payload.password = password;
-      if (maxViews) payload.max_views = parseInt(maxViews);
+      if (maxViews && parseInt(maxViews) >= 1) payload.max_views = parseInt(maxViews);
       if (maxConcurrentSessions) payload.max_concurrent_sessions = parseInt(maxConcurrentSessions);
       if (expiry) payload.expires_at = new Date(expiry + 'T23:59:59').toISOString();
       if (allowedEmails) payload.allowed_emails = allowedEmails.split('\n').map(e => e.trim()).filter(Boolean);
@@ -326,17 +342,8 @@ export function AccessScreen({ doc, onSelectDoc, defaultTab }) {
                   <Btn variant="primary" onClick={handleSave} disabled={creating} style={{ minWidth: 130 }}>
                     {saved ? '✓ Created' : creating ? '…' : 'Create Share Link'}
                   </Btn>
-                  <Btn variant="secondary" disabled={creating || !docId} onClick={async () => {
-                    setCreating(true);
-                    try {
-                      await window.SecureDocAPI.createLink({ document_id: docId });
-                      await fetchLinks();
-                      setTab('link');
-                      toast('New share link created', 'success');
-                    } catch (e) { toast(_errMsg(e, 'Failed to create link'), 'error'); }
-                    finally { setCreating(false); }
-                  }} style={{ minWidth: 130 }}>
-                    {creating ? '…' : '⟳ New Share Link'}
+                  <Btn variant="secondary" disabled={creating || !docId} onClick={() => setQuickLinkModal(true)} style={{ minWidth: 130 }}>
+                    + Quick Link
                   </Btn>
                 </div>
               </div>
@@ -379,7 +386,7 @@ export function AccessScreen({ doc, onSelectDoc, defaultTab }) {
                     {!link.revoked_at && renamingLinkId !== link.id && (
                       <button
                         onClick={() => { setRenamingLinkId(link.id); setRenameValue(link.label || ''); }}
-                        title="Rename"
+                        title="Rename link" aria-label="Rename link"
                         style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.textDim, fontSize: 11, padding: '0 2px', lineHeight: 1 }}
                       >✎</button>
                     )}
@@ -390,15 +397,14 @@ export function AccessScreen({ doc, onSelectDoc, defaultTab }) {
                     {!link.revoked_at && (
                       <>
                         <Btn variant="ghost" size="sm" onClick={() => setEditLinkModal(link)}>Edit</Btn>
-                        <Btn variant="outline-danger" size="sm" onClick={async () => { try { await window.SecureDocAPI.revokeLink(link.id); toast('Link revoked', 'info'); await fetchLinks(); } catch (e) { toast(_errMsg(e, 'Failed'), 'error'); } }}>Revoke</Btn>
+                        <Btn variant="outline-danger" size="sm" onClick={() => setRevokeLinkModal(link)}>Revoke</Btn>
                       </>
                     )}
                     {link.revoked_at && (
-                      <Btn variant="outline-danger" size="sm" onClick={async () => {
-                        if (!window.confirm('Permanently delete this link and all its view history? This cannot be undone.')) return;
-                        try { await window.SecureDocAPI.deleteLink(link.id); toast('Link deleted', 'info'); await fetchLinks(); }
-                        catch (e) { toast(_errMsg(e, 'Failed to delete link'), 'error'); }
-                      }}>Delete</Btn>
+                      <Btn variant="outline-danger" size="sm" disabled={deletingLink === link.id}
+                        onClick={() => setDeleteLinkModal(link)}>
+                        {deletingLink === link.id ? '…' : 'Delete'}
+                      </Btn>
                     )}
                   </div>
                 </div>
@@ -424,12 +430,12 @@ export function AccessScreen({ doc, onSelectDoc, defaultTab }) {
                   </Btn>
                   {!link.revoked_at && (
                     <Btn variant="ghost" size="sm" onClick={() => window.open(link.share_url, '_blank')}
-                      title="Open link in new tab">↗</Btn>
+                      title="Open link in new tab" aria-label="Open share link in new tab">↗</Btn>
                   )}
                 </div>
                 <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
                   {(() => {
-                    const expiresVal = link.expires_at ? link.expires_at.slice(0, 10) : 'Never';
+                    const expiresVal = link.expires_at ? fmtDate(link.expires_at) : 'Never';
                     const expiringSoon = link.expires_at && !link.revoked_at &&
                       (new Date(link.expires_at) - Date.now()) < 3 * 24 * 60 * 60 * 1000;
                     const emailCount = (link.allowed_emails || []).length;
@@ -441,7 +447,7 @@ export function AccessScreen({ doc, onSelectDoc, defaultTab }) {
                       { k: 'Emails', v: emailCount > 0 ? `${emailCount} allowed` : 'Any' },
                       { k: 'Domains', v: domainCount > 0 ? `${domainCount} allowed` : 'Any' },
                       { k: 'Watermark', v: watermark ? 'On' : 'Off' },
-                      { k: 'Created', v: link.created_at?.slice(0, 10) || '—' },
+                      { k: 'Created', v: fmtDate(link.created_at) },
                     ].map(({ k, v, warn }) => (
                       <div key={k} style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
                         <span style={{ ...label(8) }}>{k}</span>
@@ -573,7 +579,7 @@ export function AccessScreen({ doc, onSelectDoc, defaultTab }) {
               ) : (() => {
                 const shown = feedbackItems;
                 if (shown.length === 0) return (
-                  <div style={{ padding: 32, textAlign: 'center', color: C.textMuted, fontSize: 13 }}>No feedback yet — viewers need can_annotate permission enabled</div>
+                  <div style={{ padding: 32, textAlign: 'center', color: C.textMuted, fontSize: 13 }}>No feedback yet. Viewers can leave comments when they view this document.</div>
                 );
                 return (
                   <table style={{ width: '100%', borderCollapse: 'collapse' }}>
@@ -792,6 +798,87 @@ export function AccessScreen({ doc, onSelectDoc, defaultTab }) {
       )}
 
       {/* Revoke confirmation modal */}
+      <Modal open={quickLinkModal} onClose={() => setQuickLinkModal(false)} title="Create Unrestricted Link" width={440}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <div style={{
+            background: 'rgba(245,158,11,0.08)', border: `1px solid rgba(245,158,11,0.3)`,
+            borderRadius: 8, padding: '12px 14px', fontSize: 13, color: C.textSecondary, lineHeight: 1.6
+          }}>
+            <strong style={{ color: C.warning }}>⚠ This creates a link with no restrictions.</strong><br />
+            Anyone with the link can view the document with no password, no expiry, and no view limit. Use "Create Share Link" above to configure restrictions.
+          </div>
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+            <Btn variant="secondary" onClick={() => setQuickLinkModal(false)}>Cancel</Btn>
+            <Btn variant="primary" loading={creating}
+              onClick={async () => {
+                setQuickLinkModal(false);
+                setCreating(true);
+                try {
+                  await window.SecureDocAPI.createLink({ document_id: docId });
+                  await fetchLinks();
+                  setTab('link');
+                  toast('Unrestricted share link created', 'success');
+                } catch (e) { toast(_errMsg(e, 'Failed to create link'), 'error'); }
+                finally { setCreating(false); }
+              }}>
+              Create Anyway
+            </Btn>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal open={!!revokeLinkModal} onClose={() => setRevokeLinkModal(null)} title="Revoke Share Link" width={420}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <div style={{
+            background: 'rgba(245,158,11,0.08)', border: `1px solid rgba(245,158,11,0.3)`,
+            borderRadius: 8, padding: '12px 14px', fontSize: 13, color: C.textSecondary, lineHeight: 1.6
+          }}>
+            <strong style={{ color: C.warning }}>⚠ This will immediately terminate all active sessions for this link.</strong><br />
+            Anyone currently viewing through <strong style={{ color: C.textPrimary }}>"{revokeLinkModal?.label || 'Untitled Link'}"</strong> will be disconnected.
+          </div>
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+            <Btn variant="secondary" onClick={() => setRevokeLinkModal(null)}>Cancel</Btn>
+            <Btn variant="danger" loading={revokingLink === revokeLinkModal?.id}
+              onClick={async () => {
+                const link = revokeLinkModal;
+                setRevokeLinkModal(null);
+                setRevokingLink(link.id);
+                try { await window.SecureDocAPI.revokeLink(link.id); toast('Link revoked', 'info'); await fetchLinks(); }
+                catch (e) { toast(_errMsg(e, 'Failed'), 'error'); }
+                finally { setRevokingLink(null); }
+              }}>
+              Revoke Link
+            </Btn>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal open={!!deleteLinkModal} onClose={() => setDeleteLinkModal(null)} title="Delete Share Link" width={420}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <div style={{
+            background: C.errorBg, border: `1px solid ${C.errorBdr}`,
+            borderRadius: 8, padding: '12px 14px', fontSize: 13, color: C.textSecondary, lineHeight: 1.6
+          }}>
+            <strong style={{ color: C.error }}>⚠ This cannot be undone.</strong><br />
+            <strong style={{ color: C.textPrimary }}>"{deleteLinkModal?.label || 'Untitled Link'}"</strong> and all its view history will be permanently deleted.
+          </div>
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+            <Btn variant="secondary" onClick={() => setDeleteLinkModal(null)}>Cancel</Btn>
+            <Btn variant="danger" loading={deletingLink === deleteLinkModal?.id}
+              onClick={async () => {
+                const link = deleteLinkModal;
+                setDeleteLinkModal(null);
+                setDeletingLink(link.id);
+                try { await window.SecureDocAPI.deleteLink(link.id); toast('Link deleted', 'info'); await fetchLinks(); }
+                catch (e) { toast(_errMsg(e, 'Failed to delete link'), 'error'); }
+                finally { setDeletingLink(null); }
+              }}>
+              Delete Link
+            </Btn>
+          </div>
+        </div>
+      </Modal>
+
       <Modal open={revokeModal} onClose={() => setRevokeModal(false)} title="Revoke All Access" width={420}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <div style={{
@@ -834,12 +921,19 @@ function EditLinkModal({ link, saving, onClose, onSave }) {
     watermark_enabled: true, can_annotate: false, enable_info: true,
   });
 
+  const toast = useToast();
   const handleSubmit = () => {
+    if (expiry && new Date(expiry) < new Date(new Date().toDateString())) {
+      toast('Expiry date cannot be in the past.', 'error'); return;
+    }
+    if (maxViews && parseInt(maxViews) < 1) {
+      toast('Max view count must be at least 1.', 'error'); return;
+    }
     const patch = {};
     patch.label = label_txt || null;
     if (password) patch.password = password;
     patch.expires_at = expiry ? new Date(expiry + 'T23:59:59').toISOString() : null;
-    patch.max_views = maxViews ? parseInt(maxViews) : null;
+    patch.max_views = maxViews && parseInt(maxViews) >= 1 ? parseInt(maxViews) : null;
     patch.max_concurrent_sessions = maxConcurrentSessions ? parseInt(maxConcurrentSessions) : null;
     patch.allowed_emails = allowedEmails ? allowedEmails.split('\n').map(e => e.trim()).filter(Boolean) : null;
     patch.allowed_domains = allowedDomains ? allowedDomains.split(',').map(d => d.trim()).filter(Boolean) : null;

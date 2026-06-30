@@ -1,7 +1,7 @@
 import { C, mono } from '../constants/tokens.js';
 import { _errMsg } from '../utils/viewer.js';
 import { useToast } from '../contexts/toast.jsx';
-import { Card, Header, SectionLabel, Chip, Btn, Divider, Field } from '../components/atoms.jsx';
+import { Card, Header, SectionLabel, Chip, Btn, Divider, Field, Modal } from '../components/atoms.jsx';
 const { useState, useEffect, useCallback } = React;
 
 const ALL_EVENTS = ['document.processed', 'link.viewed', 'analytics.completed'];
@@ -21,8 +21,9 @@ function CreateWebhookModal({ onClose, onCreated }) {
   const toggleEvent = e => setEvents(prev => prev.includes(e) ? prev.filter(x => x !== e) : [...prev, e]);
 
   const handleCreate = async () => {
-    if (!url.trim()) { toast('URL is required', 'error'); return; }
-    if (!events.length) { toast('Select at least one event', 'error'); return; }
+    if (!url.trim()) { toast('URL is required.', 'error'); return; }
+    if (!url.trim().startsWith('https://')) { toast('Webhook URL must start with https://', 'error'); return; }
+    if (!events.length) { toast('Select at least one event.', 'error'); return; }
     setSaving(true);
     try {
       const wh = await window.SecureDocAPI.createWebhook(url.trim(), events, description.trim());
@@ -35,8 +36,8 @@ function CreateWebhookModal({ onClose, onCreated }) {
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
       <Card style={{ width: 480, padding: '22px 24px', display: 'flex', flexDirection: 'column', gap: 16 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <SectionLabel>Register Webhook</SectionLabel>
-          <Btn variant="ghost" size="sm" onClick={onClose}>✕</Btn>
+          <SectionLabel>New Webhook</SectionLabel>
+          <Btn variant="ghost" size="sm" onClick={onClose} aria-label="Close">✕</Btn>
         </div>
         <Field label="Endpoint URL">
           <input value={url} onChange={e => setUrl(e.target.value)} placeholder="https://your-server.com/webhook"
@@ -123,7 +124,7 @@ function DeliveryPanel({ webhook, onClose }) {
             <SectionLabel>Delivery History</SectionLabel>
             <div style={{ ...mono, fontSize: 10, color: C.textMuted, marginTop: 2 }}>{webhook.url}</div>
           </div>
-          <Btn variant="ghost" size="sm" onClick={onClose}>✕</Btn>
+          <Btn variant="ghost" size="sm" onClick={onClose} aria-label="Close">✕</Btn>
         </div>
         <div style={{ flex: 1, overflow: 'auto' }}>
           {loading ? (
@@ -172,6 +173,12 @@ export function WebhooksScreen() {
   const [testing, setTesting] = useState(null);
   const [deleting, setDeleting] = useState(null);
   const [toggling, setToggling] = useState(null);
+  const [deleteWebhookModal, setDeleteWebhookModal] = useState(null);
+  const [editWebhookModal, setEditWebhookModal] = useState(null);
+  const [editUrl, setEditUrl] = useState('');
+  const [editDescription, setEditDescription] = useState('');
+  const [editEvents, setEditEvents] = useState([]);
+  const [editSaving, setEditSaving] = useState(false);
 
   const fetchWebhooks = useCallback(async () => {
     setLoading(true);
@@ -218,7 +225,7 @@ export function WebhooksScreen() {
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }} className="fade-in">
       <Header screen="webhooks">
-        <Btn variant="primary" size="sm" onClick={() => setShowCreate(true)}>+ Register Webhook</Btn>
+        <Btn variant="primary" size="sm" onClick={() => setShowCreate(true)}>+ New Webhook</Btn>
       </Header>
 
       <div style={{ flex: 1, overflow: 'auto', padding: 20, display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -235,15 +242,18 @@ export function WebhooksScreen() {
 
         <Card noPad>
           <div style={{ padding: '10px 16px', borderBottom: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <SectionLabel>Registered Endpoints</SectionLabel>
+            <SectionLabel>Registered Webhooks</SectionLabel>
             <Chip color={C.textMuted} bg="transparent" border={C.border}>{webhooks.length} / 20</Chip>
           </div>
 
           {loading ? (
             <div style={{ padding: 32, textAlign: 'center', color: C.textMuted, fontSize: 12 }}>Loading…</div>
           ) : webhooks.length === 0 ? (
-            <div style={{ padding: 32, textAlign: 'center', color: C.textMuted, fontSize: 12 }}>
-              No webhooks registered yet.
+            <div style={{ padding: '32px 24px', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10 }}>
+              <div style={{ fontSize: 26, color: C.textDim }}>⇌</div>
+              <div style={{ fontSize: 13, fontWeight: 600, color: C.textSecondary }}>No webhooks registered yet</div>
+              <div style={{ fontSize: 12, color: C.textMuted, maxWidth: 320, lineHeight: 1.6 }}>Register a webhook to receive real-time notifications when documents are viewed, downloaded, or processed.</div>
+              <Btn variant="primary" size="sm" onClick={() => setShowCreate(true)} style={{ marginTop: 4 }}>+ New Webhook</Btn>
             </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column' }}>
@@ -268,14 +278,15 @@ export function WebhooksScreen() {
                       </div>
                     </div>
                     <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+                      <Btn variant="ghost" size="sm" onClick={() => { setEditWebhookModal(wh); setEditUrl(wh.url); setEditDescription(wh.description || ''); setEditEvents(wh.events || []); }} style={{ fontSize: 10 }}>Edit</Btn>
                       <Btn variant="ghost" size="sm" onClick={() => setDeliveryWebhook(wh)} style={{ fontSize: 10 }}>History</Btn>
-                      <Btn variant="ghost" size="sm" onClick={() => handleTest(wh)} disabled={testing === wh.id} style={{ fontSize: 10 }}>
+                      <Btn variant="ghost" size="sm" onClick={() => handleTest(wh)} disabled={testing === wh.id || !wh.is_active} style={{ fontSize: 10 }} title={!wh.is_active ? 'Resume webhook to send test pings' : undefined}>
                         {testing === wh.id ? '…' : 'Test'}
                       </Btn>
                       <Btn variant="ghost" size="sm" onClick={() => handleToggle(wh)} disabled={toggling === wh.id} style={{ fontSize: 10 }}>
                         {toggling === wh.id ? '…' : wh.is_active ? 'Pause' : 'Resume'}
                       </Btn>
-                      <Btn variant="ghost" size="sm" onClick={() => handleDelete(wh)} disabled={deleting === wh.id} style={{ fontSize: 10, color: C.error }}>
+                      <Btn variant="ghost" size="sm" onClick={() => setDeleteWebhookModal(wh)} disabled={deleting === wh.id} style={{ fontSize: 10, color: C.error }}>
                         {deleting === wh.id ? '…' : 'Delete'}
                       </Btn>
                     </div>
@@ -290,6 +301,76 @@ export function WebhooksScreen() {
       {showCreate && <CreateWebhookModal onClose={() => setShowCreate(false)} onCreated={handleCreated} />}
       {newWebhook && <SecretReveal webhook={newWebhook} onDismiss={() => setNewWebhook(null)} />}
       {deliveryWebhook && <DeliveryPanel webhook={deliveryWebhook} onClose={() => setDeliveryWebhook(null)} />}
+
+      <Modal open={!!editWebhookModal} onClose={() => setEditWebhookModal(null)} title="Edit Webhook" width={480}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <Field label="Endpoint URL">
+            <input value={editUrl} onChange={e => setEditUrl(e.target.value)}
+              placeholder="https://your-server.com/webhook"
+              style={{ fontSize: 12, background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 6, padding: '7px 10px', color: C.textPrimary, width: '100%', fontFamily: "'DM Mono',monospace" }} />
+          </Field>
+          <Field label="Description (optional)">
+            <input value={editDescription} onChange={e => setEditDescription(e.target.value)}
+              placeholder="e.g. Production notifications"
+              style={{ fontSize: 12, background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 6, padding: '7px 10px', color: C.textPrimary, width: '100%' }} />
+          </Field>
+          <div>
+            <div style={{ fontSize: 10, fontWeight: 600, color: C.textMuted, textTransform: 'uppercase', letterSpacing: '.5px', marginBottom: 8 }}>Events</div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+              {ALL_EVENTS.map(ev => {
+                const active = editEvents.includes(ev);
+                return (
+                  <button key={ev} onClick={() => setEditEvents(prev => prev.includes(ev) ? prev.filter(x => x !== ev) : [...prev, ev])}
+                    style={{
+                      ...mono, fontSize: 10, padding: '4px 10px', borderRadius: 5,
+                      border: `1px solid ${active ? C.teal1 : C.border}`,
+                      background: active ? 'rgba(90,200,208,0.12)' : C.surface2,
+                      color: active ? C.teal1 : C.textMuted, cursor: 'pointer', transition: 'all .12s',
+                    }}>{ev}</button>
+                );
+              })}
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+            <Btn variant="secondary" onClick={() => setEditWebhookModal(null)}>Cancel</Btn>
+            <Btn variant="primary" loading={editSaving}
+              onClick={async () => {
+                if (!editUrl.trim()) { toast('URL is required.', 'error'); return; }
+                if (!editUrl.trim().startsWith('https://')) { toast('Webhook URL must start with https://', 'error'); return; }
+                if (!editEvents.length) { toast('Select at least one event.', 'error'); return; }
+                setEditSaving(true);
+                try {
+                  await window.SecureDocAPI.updateWebhook(editWebhookModal.id, { url: editUrl.trim(), description: editDescription.trim(), events: editEvents });
+                  toast('Webhook updated', 'success');
+                  setEditWebhookModal(null);
+                  fetchWebhooks();
+                } catch (e) { toast(_errMsg(e, 'Failed to update webhook'), 'error'); }
+                finally { setEditSaving(false); }
+              }}>
+              Save Changes
+            </Btn>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal open={!!deleteWebhookModal} onClose={() => setDeleteWebhookModal(null)} title="Delete Webhook" width={420}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <div style={{
+            background: C.errorBg, border: `1px solid ${C.errorBdr}`,
+            borderRadius: 8, padding: '12px 14px', fontSize: 13, color: C.textSecondary, lineHeight: 1.6
+          }}>
+            <strong style={{ color: C.error }}>⚠ This cannot be undone.</strong><br />
+            The endpoint <strong style={{ color: C.textPrimary }}>"{deleteWebhookModal?.url}"</strong> will be removed and all delivery history will be permanently deleted.
+          </div>
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+            <Btn variant="secondary" onClick={() => setDeleteWebhookModal(null)}>Cancel</Btn>
+            <Btn variant="danger" loading={deleting === deleteWebhookModal?.id}
+              onClick={() => { handleDelete(deleteWebhookModal); setDeleteWebhookModal(null); }}>
+              Delete Webhook
+            </Btn>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }

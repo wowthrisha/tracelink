@@ -36,7 +36,7 @@ export function ToastProvider({ children }) {
   return (
     <ToastCtx.Provider value={add}>
       {children}
-      <div style={{
+      <div role="status" aria-live="polite" aria-atomic="false" style={{
         position: 'fixed', bottom: 24, right: 24, zIndex: 9999,
         display: 'flex', flexDirection: 'column', gap: 8, pointerEvents: 'none'
       }}>

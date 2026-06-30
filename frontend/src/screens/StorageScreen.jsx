@@ -54,21 +54,24 @@ export function StorageScreen() {
     finally { setUpdatingId(null); }
   };
 
-  if (loading) return <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: C.textMuted, fontSize: 13 }}>Loading…</div>;
-
   const totalBytes = dashboard?.total_bytes || 0;
   const maxBytes = Math.max(...(dashboard?.by_document || []).map(d => d.storage_bytes), 1);
 
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }} className="fade-in">
       <Header screen="storage">
-        <span style={{ ...mono, fontSize: 11, color: C.textMuted }}>
-          {fmtBytes(totalBytes)} used · {dashboard?.document_count || 0} documents
-        </span>
+        {!loading && (
+          <span style={{ ...mono, fontSize: 11, color: C.textMuted }}>
+            {fmtBytes(totalBytes)} used · {dashboard?.document_count || 0} documents
+          </span>
+        )}
       </Header>
       <div style={{ flex: 1, overflow: 'auto', padding: 20, display: 'flex', flexDirection: 'column', gap: 16 }}>
+        {loading && (
+          <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: C.textMuted, fontSize: 13, minHeight: 200 }}>Loading…</div>
+        )}
 
-        {/* Summary cards */}
+        {!loading && <>{/* Summary cards */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 10 }}>
           {[
             { label: 'Total Storage', value: fmtBytes(totalBytes), sub: `${dashboard?.document_count ?? 0} docs`, color: C.teal2 },
@@ -90,7 +93,7 @@ export function StorageScreen() {
             {(dashboard.by_org || []).map(org => (
               <div key={org.org_id} style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
                 <div style={{ ...mono, fontSize: 11, color: C.textMuted, width: 120, flexShrink: 0 }}>
-                  {org.org_id === '_personal' ? 'Personal' : org.org_id.slice(0, 8) + '…'}
+                  {org.org_name || (org.org_id === '_personal' ? 'Personal' : org.org_id.slice(0, 8) + '…')}
                 </div>
                 <div style={{ flex: 1, height: 6, background: C.surface3, borderRadius: 3 }}>
                   <div style={{ height: '100%', width: `${Math.min(100, (org.total_bytes / totalBytes) * 100)}%`, background: C.teal2, borderRadius: 3 }} />
@@ -160,6 +163,7 @@ export function StorageScreen() {
             </table>
           </div>
         </Card>
+        </>}
 
       </div>
     </div>

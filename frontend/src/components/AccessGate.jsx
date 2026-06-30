@@ -25,6 +25,8 @@ export function AccessGate({ gateInfo, onSubmit, error }) {
   if (status === 'not_found') return <GateMessage icon="&#x1F50D;" title="Link Not Found" msg="This share link does not exist or has been removed." />;
   if (status === 'revoked') return <GateMessage icon="&#x1F6AB;" title="Link Revoked" msg="This share link has been revoked by the document owner." />;
   if (status === 'expired') return <GateMessage icon="&#x23F1;" title="Link Expired" msg="This share link has expired and is no longer accessible." />;
+  if (status === 'concurrent_limit') return <GateMessage icon="&#x1F4CB;" title="Session Limit Reached" msg="The maximum number of simultaneous viewers for this link has been reached. Please try again later or contact the document owner." />;
+  if (status === 'access_denied') return <GateMessage icon="&#x1F512;" title="Access Denied" msg={gateInfo?._detail || "You don't have permission to view this document. Contact the document owner if you believe this is an error."} />;
 
   const canSubmit = (!requiresEmail || email.trim()) && (!requiresPw || pw);
   const handleSubmit = () => { if (canSubmit) onSubmit(email.trim() || null, pw || null); };

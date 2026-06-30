@@ -142,7 +142,7 @@ export function AppShell() {
         <Sidebar active={screen} setActive={(id) => id === 'feedback' ? handleFeedbackNav() : setScreen(id)}
           userEmail={userEmail} onLogout={handleLogout} plan={plan}
           badges={{ feedback: feedbackBadge }} />
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        <main style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
           {screen === 'upload' && <UploadScreen onViewDoc={handleViewDoc} onAccessDoc={handleAccessDoc} />}
           {screen === 'viewer' && <ViewerErrorBoundary><ViewerScreen doc={activeDoc} onSelectDoc={handleViewDoc} onBack={() => setScreen('upload')} /></ViewerErrorBoundary>}
           {screen === 'access' && <AccessScreen doc={activeDoc} onSelectDoc={handleAccessDoc} />}
@@ -155,7 +155,7 @@ export function AppShell() {
           {screen === 'auditlog' && <AuditLogScreen />}
           {screen === 'orgs' && <OrgsScreen />}
           {screen === 'notifications' && <NotificationsScreen />}
-        </div>
+        </main>
       </div>
     </ToastProvider>
   );

@@ -1,7 +1,7 @@
 import { C, mono } from '../constants/tokens.js';
 import { _errMsg } from '../utils/viewer.js';
 import { useToast } from '../contexts/toast.jsx';
-import { Card, Header, SectionLabel, Chip, Btn, Field } from '../components/atoms.jsx';
+import { Card, Header, SectionLabel, Chip, Btn, Field, Modal } from '../components/atoms.jsx';
 const { useState, useEffect, useCallback } = React;
 
 function fmtDate(iso) {
@@ -15,7 +15,7 @@ function CreateOrgModal({ onClose, onCreated }) {
   const [saving, setSaving] = useState(false);
 
   const handleCreate = async () => {
-    if (!name.trim()) { toast('Name is required', 'error'); return; }
+    if (!name.trim()) { toast('Name is required.', 'error'); return; }
     setSaving(true);
     try {
       const org = await window.SecureDocAPI.createOrg(name.trim());
@@ -29,7 +29,7 @@ function CreateOrgModal({ onClose, onCreated }) {
       <Card style={{ width: 420, padding: '22px 24px', display: 'flex', flexDirection: 'column', gap: 16 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <SectionLabel>Create Organization</SectionLabel>
-          <Btn variant="ghost" size="sm" onClick={onClose}>✕</Btn>
+          <Btn variant="ghost" size="sm" onClick={onClose} aria-label="Close">✕</Btn>
         </div>
         <Field label="Organization name">
           <input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Acme Corp"
@@ -52,7 +52,7 @@ function RenameOrgModal({ org, onClose, onRenamed }) {
   const [saving, setSaving] = useState(false);
 
   const handleSave = async () => {
-    if (!name.trim()) { toast('Name is required', 'error'); return; }
+    if (!name.trim()) { toast('Name is required.', 'error'); return; }
     setSaving(true);
     try {
       await window.SecureDocAPI.updateOrg(org.id, { name: name.trim() });
@@ -66,7 +66,7 @@ function RenameOrgModal({ org, onClose, onRenamed }) {
       <Card style={{ width: 420, padding: '22px 24px', display: 'flex', flexDirection: 'column', gap: 16 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <SectionLabel>Rename Organization</SectionLabel>
-          <Btn variant="ghost" size="sm" onClick={onClose}>✕</Btn>
+          <Btn variant="ghost" size="sm" onClick={onClose} aria-label="Close">✕</Btn>
         </div>
         <Field label="New name">
           <input value={name} onChange={e => setName(e.target.value)}
@@ -83,54 +83,156 @@ function RenameOrgModal({ org, onClose, onRenamed }) {
   );
 }
 
+const ORG_ROLES_LIST = ['viewer', 'admin', 'owner'];
+
+function InviteMemberModal({ org, onClose, onInvited }) {
+  const toast = useToast();
+  const [email, setEmail] = useState('');
+  const [role, setRole] = useState('viewer');
+  const [saving, setSaving] = useState(false);
+
+  const handleInvite = async () => {
+    if (!email.trim() || !email.includes('@')) { toast('Enter a valid email address', 'error'); return; }
+    setSaving(true);
+    try {
+      await window.SecureDocAPI.inviteOrgMember(org.id, email.trim().toLowerCase(), role);
+      toast(`${email.trim()} added as ${role}`, 'success');
+      onInvited();
+      onClose();
+    } catch (e) { toast(_errMsg(e, 'Failed to invite member'), 'error'); }
+    finally { setSaving(false); }
+  };
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1100 }}>
+      <Card style={{ width: 420, padding: '22px 24px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <SectionLabel>Invite Member to {org.name}</SectionLabel>
+          <Btn variant="ghost" size="sm" onClick={onClose} aria-label="Close">✕</Btn>
+        </div>
+        <div style={{ fontSize: 11, color: C.textMuted, lineHeight: 1.5 }}>
+          The user must already have a SecureDoc account. They will be added immediately.
+        </div>
+        <Field label="Email address">
+          <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="colleague@company.com" autoFocus
+            onKeyDown={e => e.key === 'Enter' && handleInvite()}
+            style={{ fontSize: 12, background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 6, padding: '7px 10px', color: C.textPrimary, width: '100%' }} />
+        </Field>
+        <Field label="Role">
+          <select value={role} onChange={e => setRole(e.target.value)}
+            style={{ fontSize: 12, background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 6, padding: '7px 10px', color: C.textPrimary }}>
+            <option value="viewer">Viewer — can view shared documents</option>
+            <option value="admin">Admin — can manage members and settings</option>
+            <option value="owner">Owner — full control including delete</option>
+          </select>
+        </Field>
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+          <Btn variant="ghost" size="sm" onClick={onClose}>Cancel</Btn>
+          <Btn variant="primary" size="sm" loading={saving} onClick={handleInvite}>Add Member</Btn>
+        </div>
+      </Card>
+    </div>
+  );
+}
+
 function MembersPanel({ org, onClose }) {
   const toast = useToast();
   const [members, setMembers] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [showInvite, setShowInvite] = useState(false);
+  const [removingId, setRemovingId] = useState(null);
+  const [changingRoleId, setChangingRoleId] = useState(null);
 
-  useEffect(() => {
+  const fetchMembers = () => {
+    setLoading(true);
     window.SecureDocAPI.listOrgMembers(org.id)
       .then(data => setMembers(data?.members || []))
       .catch(e => toast(_errMsg(e, 'Failed to load members'), 'error'))
       .finally(() => setLoading(false));
-  }, [org.id]);
+  };
+
+  useEffect(() => { fetchMembers(); }, [org.id]);
+
+  const handleChangeRole = async (m, newRole) => {
+    setChangingRoleId(m.user_id);
+    try {
+      await window.SecureDocAPI.updateOrgMemberRole(org.id, m.user_id, newRole);
+      toast(`Role updated to ${newRole}`, 'success');
+      fetchMembers();
+    } catch (e) { toast(_errMsg(e, 'Failed to update role'), 'error'); }
+    finally { setChangingRoleId(null); }
+  };
+
+  const handleRemove = async (m) => {
+    setRemovingId(m.user_id);
+    try {
+      await window.SecureDocAPI.removeOrgMember(org.id, m.user_id);
+      toast('Member removed', 'success');
+      setMembers(prev => prev.filter(x => x.user_id !== m.user_id));
+    } catch (e) { toast(_errMsg(e, 'Failed to remove member'), 'error'); }
+    finally { setRemovingId(null); }
+  };
+
+  const ownerCount = members.filter(m => m.role === 'owner').length;
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-      <Card style={{ width: 520, maxHeight: '70vh', display: 'flex', flexDirection: 'column', padding: 0, overflow: 'hidden' }}>
+      <Card style={{ width: 600, maxHeight: '80vh', display: 'flex', flexDirection: 'column', padding: 0, overflow: 'hidden' }}>
         <div style={{ padding: '14px 18px', borderBottom: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div>
-            <SectionLabel>Members</SectionLabel>
-            <div style={{ fontSize: 11, color: C.textMuted, marginTop: 2 }}>{org.name}</div>
+            <SectionLabel>Members — {org.name}</SectionLabel>
+            <div style={{ fontSize: 11, color: C.textMuted, marginTop: 2 }}>{members.length} member{members.length !== 1 ? 's' : ''}</div>
           </div>
-          <Btn variant="ghost" size="sm" onClick={onClose}>✕</Btn>
+          <div style={{ display: 'flex', gap: 6 }}>
+            <Btn variant="primary" size="sm" onClick={() => setShowInvite(true)} style={{ fontSize: 10 }}>+ Invite Member</Btn>
+            <Btn variant="ghost" size="sm" onClick={onClose} aria-label="Close">✕</Btn>
+          </div>
         </div>
         <div style={{ flex: 1, overflow: 'auto' }}>
           {loading ? (
             <div style={{ padding: 28, textAlign: 'center', color: C.textMuted, fontSize: 12 }}>Loading…</div>
           ) : members.length === 0 ? (
-            <div style={{ padding: 28, textAlign: 'center', color: C.textMuted, fontSize: 12 }}>No members in this organization.</div>
+            <div style={{ padding: 28, textAlign: 'center', color: C.textMuted, fontSize: 12 }}>
+              No members yet. Use "+ Invite Member" to add your first team member.
+            </div>
           ) : (
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
                 <tr style={{ borderBottom: `1px solid ${C.border}` }}>
-                  {['Member', 'Role', 'Joined'].map(h => (
-                    <th key={h} style={{ fontSize: 9, fontWeight: 700, color: C.textMuted, padding: '7px 14px', textAlign: 'left', textTransform: 'uppercase', letterSpacing: '.5px' }}>{h}</th>
+                  {['Member', 'Role', 'Joined', ''].map(h => (
+                    <th key={h} scope="col" style={{ fontSize: 9, fontWeight: 700, color: C.textMuted, padding: '7px 14px', textAlign: 'left', textTransform: 'uppercase', letterSpacing: '.5px' }}>{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
                 {members.map((m, i) => (
                   <tr key={m.user_id || i} style={{ borderBottom: i < members.length - 1 ? `1px solid ${C.border}` : 'none' }}>
-                    <td style={{ padding: '10px 14px', fontSize: 12, color: C.textPrimary }}>{m.email || m.user_id || '—'}</td>
-                    <td style={{ padding: '10px 14px' }}>
-                      <span style={{
-                        ...mono, fontSize: 9, fontWeight: 700, padding: '2px 7px', borderRadius: 4, textTransform: 'uppercase',
-                        background: m.role === 'owner' ? 'rgba(90,200,208,0.1)' : 'rgba(100,100,120,0.15)',
-                        color: m.role === 'owner' ? C.teal1 : C.textSecondary,
-                      }}>{m.role || 'member'}</span>
+                    <td style={{ padding: '10px 14px', fontSize: 12, color: C.textPrimary }}>
+                      {m.email || <span style={{ ...mono, fontSize: 10, color: C.textMuted }}>{(m.user_id || '').slice(0, 12)}…</span>}
+                    </td>
+                    <td style={{ padding: '8px 14px' }}>
+                      <select
+                        value={m.role || 'viewer'}
+                        disabled={changingRoleId === m.user_id}
+                        onChange={e => handleChangeRole(m, e.target.value)}
+                        style={{
+                          ...mono, fontSize: 10, padding: '3px 8px', borderRadius: 5,
+                          background: m.role === 'owner' ? 'rgba(90,200,208,0.1)' : 'rgba(100,100,120,0.15)',
+                          color: m.role === 'owner' ? C.teal1 : C.textSecondary,
+                          border: `1px solid ${C.border}`, cursor: 'pointer',
+                        }}>
+                        {ORG_ROLES_LIST.map(r => <option key={r} value={r}>{r}</option>)}
+                      </select>
                     </td>
                     <td style={{ ...mono, padding: '10px 14px', fontSize: 10, color: C.textMuted }}>{fmtDate(m.joined_at || m.created_at)}</td>
+                    <td style={{ padding: '8px 14px' }}>
+                      <Btn variant="ghost" size="sm"
+                        disabled={removingId === m.user_id || (m.role === 'owner' && ownerCount <= 1)}
+                        onClick={() => handleRemove(m)}
+                        style={{ fontSize: 10, color: C.error }}>
+                        {removingId === m.user_id ? '…' : 'Remove'}
+                      </Btn>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -138,6 +240,7 @@ function MembersPanel({ org, onClose }) {
           )}
         </div>
       </Card>
+      {showInvite && <InviteMemberModal org={org} onClose={() => setShowInvite(false)} onInvited={fetchMembers} />}
     </div>
   );
 }
@@ -150,6 +253,7 @@ export function OrgsScreen() {
   const [renameOrg, setRenameOrg] = useState(null);
   const [membersOrg, setMembersOrg] = useState(null);
   const [deleting, setDeleting] = useState(null);
+  const [deleteOrgModal, setDeleteOrgModal] = useState(null);
 
   const fetchOrgs = useCallback(async () => {
     setLoading(true);
@@ -207,7 +311,12 @@ export function OrgsScreen() {
           {loading ? (
             <div style={{ padding: 32, textAlign: 'center', color: C.textMuted, fontSize: 12 }}>Loading…</div>
           ) : orgs.length === 0 ? (
-            <div style={{ padding: 32, textAlign: 'center', color: C.textMuted, fontSize: 12 }}>No organizations yet.</div>
+            <div style={{ padding: '32px 24px', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
+              <div style={{ fontSize: 28, color: C.textDim }}>◉</div>
+              <div style={{ fontSize: 13, fontWeight: 600, color: C.textSecondary }}>No organizations yet</div>
+              <div style={{ fontSize: 12, color: C.textMuted, maxWidth: 320, lineHeight: 1.6 }}>Create an organization to collaborate with your team and share documents securely.</div>
+              <Btn variant="primary" size="sm" onClick={() => setShowCreate(true)} style={{ marginTop: 4 }}>+ New Organization</Btn>
+            </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column' }}>
               {orgs.map((org, i) => (
@@ -227,7 +336,7 @@ export function OrgsScreen() {
                   <div style={{ display: 'flex', gap: 6 }}>
                     <Btn variant="ghost" size="sm" onClick={() => setMembersOrg(org)} style={{ fontSize: 10 }}>Members</Btn>
                     <Btn variant="ghost" size="sm" onClick={() => setRenameOrg(org)} style={{ fontSize: 10 }}>Rename</Btn>
-                    <Btn variant="ghost" size="sm" onClick={() => handleDelete(org)} disabled={deleting === org.id} style={{ fontSize: 10, color: C.error }}>
+                    <Btn variant="ghost" size="sm" onClick={() => setDeleteOrgModal(org)} disabled={deleting === org.id} style={{ fontSize: 10, color: C.error }}>
                       {deleting === org.id ? '…' : 'Delete'}
                     </Btn>
                   </div>
@@ -241,6 +350,25 @@ export function OrgsScreen() {
       {showCreate && <CreateOrgModal onClose={() => setShowCreate(false)} onCreated={handleCreated} />}
       {renameOrg && <RenameOrgModal org={renameOrg} onClose={() => setRenameOrg(null)} onRenamed={handleRenamed} />}
       {membersOrg && <MembersPanel org={membersOrg} onClose={() => setMembersOrg(null)} />}
+
+      <Modal open={!!deleteOrgModal} onClose={() => setDeleteOrgModal(null)} title="Delete Organization" width={420}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <div style={{
+            background: C.errorBg, border: `1px solid ${C.errorBdr}`,
+            borderRadius: 8, padding: '12px 14px', fontSize: 13, color: C.textSecondary, lineHeight: 1.6
+          }}>
+            <strong style={{ color: C.error }}>⚠ This cannot be undone.</strong><br />
+            Deleting <strong style={{ color: C.textPrimary }}>"{deleteOrgModal?.name}"</strong> will permanently remove the organization and all its settings. Members will lose access.
+          </div>
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+            <Btn variant="secondary" onClick={() => setDeleteOrgModal(null)}>Cancel</Btn>
+            <Btn variant="danger" loading={deleting === deleteOrgModal?.id}
+              onClick={() => { handleDelete(deleteOrgModal); setDeleteOrgModal(null); }}>
+              Delete Organization
+            </Btn>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }

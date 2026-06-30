@@ -821,6 +821,17 @@ window.SecureDocAPI = {
     return r.json();
   },
 
+  async updateApiKey(keyId, patch) {
+    const r = await fetch(`${API_BASE}/api/api-keys/${keyId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      body: JSON.stringify(patch),
+    });
+    if (r.status === 401) { _clearAndReload(); return; }
+    if (!r.ok) throw await r.json().catch(() => ({ detail: 'Failed to update API key' }));
+    return r.json();
+  },
+
   async revokeApiKey(keyId) {
     const r = await fetch(`${API_BASE}/api/api-keys/${keyId}`, {
       method: 'PATCH',
@@ -902,9 +913,12 @@ window.SecureDocAPI = {
   },
 
   // ── Audit Log ─────────────────────────────────────────────────────────────
-  async getAuditLog(orgId = null, limit = 50, offset = 0) {
+  async getAuditLog(orgId = null, limit = 50, offset = 0, { dateFrom, dateTo, eventType } = {}) {
     const qs = new URLSearchParams({ limit, offset });
     if (orgId) qs.set('org_id', orgId);
+    if (dateFrom) qs.set('date_from', dateFrom);
+    if (dateTo) qs.set('date_to', dateTo);
+    if (eventType) qs.set('event_type', eventType);
     const r = await fetch(`${API_BASE}/api/admin/audit-log?${qs}`, {
       headers: { ...authHeaders() },
     });
@@ -959,5 +973,36 @@ window.SecureDocAPI = {
     if (r.status === 401) { _clearAndReload(); return; }
     if (!r.ok) throw await r.json().catch(() => ({ detail: 'Failed to load members' }));
     return r.json();
+  },
+
+  async inviteOrgMember(orgId, email, role = 'viewer') {
+    const r = await fetch(`${API_BASE}/api/orgs/${orgId}/members/invite`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      body: JSON.stringify({ email, role }),
+    });
+    if (r.status === 401) { _clearAndReload(); return; }
+    if (!r.ok) throw await r.json().catch(() => ({ detail: 'Failed to invite member' }));
+    return r.json();
+  },
+
+  async updateOrgMemberRole(orgId, userId, role) {
+    const r = await fetch(`${API_BASE}/api/orgs/${orgId}/members/${userId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      body: JSON.stringify({ role }),
+    });
+    if (r.status === 401) { _clearAndReload(); return; }
+    if (!r.ok) throw await r.json().catch(() => ({ detail: 'Failed to update member role' }));
+    return r.json();
+  },
+
+  async removeOrgMember(orgId, userId) {
+    const r = await fetch(`${API_BASE}/api/orgs/${orgId}/members/${userId}`, {
+      method: 'DELETE',
+      headers: { ...authHeaders() },
+    });
+    if (r.status === 401) { _clearAndReload(); return; }
+    if (!r.ok) throw await r.json().catch(() => ({ detail: 'Failed to remove member' }));
   },
 };

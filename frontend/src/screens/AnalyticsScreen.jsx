@@ -21,14 +21,21 @@ export function AnalyticsScreen() {
   const [heatmapLoading, setHeatmapLoading] = useState(false);
 
   useEffect(() => {
+    let cancelled = false;
     Promise.all([
       window.SecureDocAPI.getAnalyticsOverview(),
       window.SecureDocAPI.getDocumentAnalytics(),
       window.SecureDocAPI.getGroupAnalytics(),
     ])
-      .then(([ov, ds, gs]) => { setOverview(ov); setDocStats(ds.documents || []); setGroupStats(gs.groups || []); })
-      .catch(e => toast(_errMsg(e, 'Failed to load analytics'), 'error'))
-      .finally(() => setAnalyticsLoading(false));
+      .then(([ov, ds, gs]) => {
+        if (cancelled) return;
+        setOverview(ov);
+        setDocStats(ds.documents || []);
+        setGroupStats(gs.groups || []);
+      })
+      .catch(e => { if (!cancelled) toast(_errMsg(e, 'Failed to load analytics'), 'error'); })
+      .finally(() => { if (!cancelled) setAnalyticsLoading(false); });
+    return () => { cancelled = true; };
   }, []);
 
   const totalViews = overview?.total_views_today || 0;
@@ -40,12 +47,12 @@ export function AnalyticsScreen() {
   const avgCompletion = activeDocs.length > 0
     ? Math.round(activeDocs.reduce((a, d) => a + (d.completion_rate_pct || 0), 0) / activeDocs.length) : 0;
   const kpis = [
-    { label: 'Views Today', value: totalViews.toLocaleString(), icon: '▦' },
-    { label: 'Active Links', value: (overview?.active_links || 0).toString(), icon: '◫' },
-    { label: 'Avg Session', value: avgSessionStr, icon: '⏱' },
-    { label: 'Blocked Attempts', value: (overview?.blocked_attempts_today || 0).toString(), icon: '⊗' },
-    { label: 'Active Docs', value: activeDocs.length.toString(), icon: '◈' },
-    { label: 'Completion', value: avgCompletion > 0 ? `${avgCompletion}%` : '—', icon: '⊕' },
+    { label: 'Views Today', value: totalViews.toLocaleString(), icon: '▦', tooltip: 'Number of document page views recorded today.' },
+    { label: 'Active Links', value: (overview?.active_links || 0).toString(), icon: '◫', tooltip: 'Share links that are not revoked or expired.' },
+    { label: 'Avg Session', value: avgSessionStr, icon: '⏱', tooltip: 'Average time spent per page across all active documents. Documents with zero views are excluded.' },
+    { label: 'Blocked Attempts', value: (overview?.blocked_attempts_today || 0).toString(), icon: '⊗', tooltip: 'DRM events today: blocked prints, copies, downloads, and right-clicks.' },
+    { label: 'Active Docs', value: activeDocs.length.toString(), icon: '◈', tooltip: 'Documents with at least one view recorded.' },
+    { label: 'Completion', value: avgCompletion > 0 ? `${avgCompletion}%` : '—', icon: '⊕', tooltip: 'Average completion rate — percentage of pages viewed per session, averaged across active documents.' },
   ];
 
   const topDocs = docStats.map(d => ({
@@ -251,7 +258,7 @@ export function AnalyticsScreen() {
             {groupStats.length === 0 ? (
               <Card style={{ padding: 32, textAlign: 'center' }}>
                 <div style={{ fontSize: 13, color: C.textMuted, marginBottom: 8 }}>No groups created yet</div>
-                <div style={{ fontSize: 11, color: C.textDim }}>Create groups in the Documents screen to organise your files</div>
+                <div style={{ fontSize: 11, color: C.textDim }}>Create groups in the Documents screen to organize your files</div>
               </Card>
             ) : (
               <>

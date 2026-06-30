@@ -1,4 +1,5 @@
 import uuid
+from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -7,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import get_current_user
 from app.database import get_db
-from app.models.audit import AdminAuditLog
+from app.models.audit import AdminAuditLog, AUDIT_EVENT_TYPES
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
@@ -17,6 +18,9 @@ async def get_audit_log(
     org_id: Optional[str] = Query(None),
     limit: int = Query(50, ge=1, le=500),
     offset: int = Query(0, ge=0),
+    date_from: Optional[str] = Query(None, description="ISO date filter start (inclusive), e.g. 2026-01-01"),
+    date_to: Optional[str] = Query(None, description="ISO date filter end (inclusive), e.g. 2026-06-30"),
+    event_type: Optional[str] = Query(None, description="Filter by event type, e.g. document.deleted"),
     db: AsyncSession = Depends(get_db),
     user: dict = Depends(get_current_user),
 ):
@@ -49,6 +53,28 @@ async def get_audit_log(
         # Without org_id: return only entries where caller is the actor
         query = query.where(AdminAuditLog.actor_user_id == user_uuid)
 
+    # Optional filters
+    if event_type:
+        if event_type not in AUDIT_EVENT_TYPES:
+            raise HTTPException(
+                status_code=422,
+                detail=f"event_type must be one of: {sorted(AUDIT_EVENT_TYPES)}",
+            )
+        query = query.where(AdminAuditLog.event_type == event_type)
+    if date_from:
+        try:
+            dt_from = datetime.fromisoformat(date_from).replace(tzinfo=timezone.utc)
+        except ValueError:
+            raise HTTPException(status_code=422, detail="date_from must be ISO format, e.g. 2026-01-01")
+        query = query.where(AdminAuditLog.created_at >= dt_from)
+    if date_to:
+        try:
+            # Make date_to inclusive of the full day
+            dt_to = datetime.fromisoformat(date_to).replace(hour=23, minute=59, second=59, tzinfo=timezone.utc)
+        except ValueError:
+            raise HTTPException(status_code=422, detail="date_to must be ISO format, e.g. 2026-06-30")
+        query = query.where(AdminAuditLog.created_at <= dt_to)
+
     count_result = await db.execute(
         select(func.count()).select_from(query.subquery())
     )
@@ -75,4 +101,5 @@ async def get_audit_log(
         "total": total,
         "offset": offset,
         "limit": limit,
+        "available_event_types": sorted(AUDIT_EVENT_TYPES),
     }

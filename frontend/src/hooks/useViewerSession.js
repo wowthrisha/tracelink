@@ -56,8 +56,17 @@ export function useViewerSession(doc, publicToken, { onValidated } = {}) {
         // Password wrong or missing — keep gate visible, show error
         setGateError(e.detail === 'Wrong password' ? 'Wrong password. Try again.' : null);
       } else if (status === 403 || status === 429) {
-        // 403: domain/IP/email/concurrent denied — keep gate visible
-        setGateError(_errMsg(e, 'Access denied'));
+        // 403/429: domain/IP/email blocked, or concurrent session limit reached.
+        // Clear session and show the gate so the viewer doesn't hang in a broken state.
+        const detail = (typeof e.detail === 'string' ? e.detail : '').toLowerCase();
+        const isConcurrent = status === 429 || detail.includes('concurrent') || detail.includes('session limit');
+        sessionStorage.removeItem(`securedoc_sess_${token}`);
+        setSession(null);
+        setGateInfo({
+          status: isConcurrent ? 'concurrent_limit' : 'access_denied',
+          requires_password: false, requires_email: false,
+          _detail: isConcurrent ? null : _errMsg(e, 'Access denied'),
+        });
       } else if (status === 410 || status === 404) {
         // Revoked/expired/gone — clear stored session, show terminal gate
         sessionStorage.removeItem(`securedoc_sess_${token}`);
@@ -129,13 +138,13 @@ export function useViewerSession(doc, publicToken, { onValidated } = {}) {
     if (!session) return;
     const perms = session.permissions || {};
 
-    const blockRC = e => { if (!perms.can_right_click) { e.preventDefault(); window.SecureDocAPI?.logEvent(session.link_token, session.session_id, 'right_click_attempt'); toast?.('Right-click disabled in secure viewer.', 'warning'); } };
+    const blockRC = e => { if (!perms.can_right_click) { e.preventDefault(); window.SecureDocAPI?.logEvent(session.link_token, session.session_id, 'right_click_attempt'); toast?.('Right-click is disabled for this document.', 'warning'); } };
     const blockKB = e => {
       const k = e.key?.toLowerCase(), ctrl = e.ctrlKey || e.metaKey;
       if (ctrl) {
-        if (k === 'p' && !perms.can_print) { e.preventDefault(); e.stopPropagation(); window.SecureDocAPI?.logEvent(session.link_token, session.session_id, 'print_attempt'); toast?.('Action disabled in secure viewer.', 'warning'); }
-        if (['a', 'c', 'x', 'u'].includes(k) && !perms.can_copy) { e.preventDefault(); e.stopPropagation(); window.SecureDocAPI?.logEvent(session.link_token, session.session_id, 'copy_attempt'); toast?.('Action disabled in secure viewer.', 'warning'); }
-        if (k === 's' && !perms.can_download) { e.preventDefault(); e.stopPropagation(); window.SecureDocAPI?.logEvent(session.link_token, session.session_id, 'download_attempt'); toast?.('Action disabled in secure viewer.', 'warning'); }
+        if (k === 'p' && !perms.can_print) { e.preventDefault(); e.stopPropagation(); window.SecureDocAPI?.logEvent(session.link_token, session.session_id, 'print_attempt'); toast?.('Printing is disabled for this document.', 'warning'); }
+        if (['a', 'c', 'x', 'u'].includes(k) && !perms.can_copy) { e.preventDefault(); e.stopPropagation(); window.SecureDocAPI?.logEvent(session.link_token, session.session_id, 'copy_attempt'); toast?.('Copying text is disabled for this document.', 'warning'); }
+        if (k === 's' && !perms.can_download) { e.preventDefault(); e.stopPropagation(); window.SecureDocAPI?.logEvent(session.link_token, session.session_id, 'download_attempt'); toast?.('Downloading is disabled for this document.', 'warning'); }
       }
     };
     const onBP = () => { if (!perms.can_print) { document.querySelectorAll('.viewer-page').forEach(el => el.style.visibility = 'hidden'); window.SecureDocAPI?.logEvent(session.link_token, session.session_id, 'print_attempt'); } };

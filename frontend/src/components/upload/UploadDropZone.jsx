@@ -18,7 +18,7 @@ export function UploadDropZone({ dragging, setDragging, simulate, fileRef }) {
         justifyContent: 'center', margin: '0 auto 10px', fontSize: 16, color: C.teal2
       }}>⊕</div>
       <div style={{ fontSize: 13, color: C.textSecondary, fontWeight: 600, marginBottom: 4 }}>
-        Drop file here or <span style={{ color: C.teal2 }}>click to browse</span>
+        Drop document here or <span style={{ color: C.teal2 }}>click to browse</span>
       </div>
       <div style={{ ...mono, fontSize: 10, color: C.textMuted }}>PDF · DOCX · DOC · TXT · MD · LOG · Doc max 100 MB · Text max 10 MB</div>
     </div>

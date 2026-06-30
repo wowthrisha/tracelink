@@ -6,6 +6,7 @@ const { useState, useEffect, useCallback, useRef } = React;
 
 const POLL_INTERVAL = 30000;
 const LS_LAST_SEEN = 'securedoc_notif_last_seen';
+const PAGE_SIZE = 50;
 
 function fmtTime(iso) {
   if (!iso) return '—';
@@ -68,6 +69,9 @@ export function NotificationsScreen() {
   const toast = useToast();
   const [events, setEvents] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
+  const [offset, setOffset] = useState(0);
   const [lastSeen, setLastSeen] = useState(() => localStorage.getItem(LS_LAST_SEEN) || '');
   const [unread, setUnread] = useState(0);
   const intervalRef = useRef(null);
@@ -75,9 +79,11 @@ export function NotificationsScreen() {
   const fetchEvents = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
     try {
-      const data = await window.SecureDocAPI.getEvents(null, null, 50);
+      const data = await window.SecureDocAPI.getEvents(null, null, PAGE_SIZE);
       const rows = data?.events || data?.items || [];
       setEvents(rows);
+      setOffset(rows.length);
+      setHasMore(rows.length === PAGE_SIZE);
       const seen = localStorage.getItem(LS_LAST_SEEN) || '';
       const newCount = seen ? rows.filter(ev => {
         const ts = ev.created_at || ev.timestamp || '';
@@ -90,10 +96,34 @@ export function NotificationsScreen() {
     finally { if (!silent) setLoading(false); }
   }, []);
 
+  const loadMore = async () => {
+    setLoadingMore(true);
+    try {
+      const data = await window.SecureDocAPI.getEvents(null, null, PAGE_SIZE, offset);
+      const rows = data?.events || data?.items || [];
+      setEvents(prev => [...prev, ...rows]);
+      setOffset(o => o + rows.length);
+      setHasMore(rows.length === PAGE_SIZE);
+    } catch (e) { toast(_errMsg(e, 'Failed to load more'), 'error'); }
+    finally { setLoadingMore(false); }
+  };
+
   useEffect(() => {
     fetchEvents(false);
-    intervalRef.current = setInterval(() => fetchEvents(true), POLL_INTERVAL);
-    return () => clearInterval(intervalRef.current);
+    const startPoll = () => {
+      intervalRef.current = setInterval(() => {
+        if (!document.hidden) fetchEvents(true);
+      }, POLL_INTERVAL);
+    };
+    startPoll();
+    const onVisibility = () => {
+      if (!document.hidden) fetchEvents(true);
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      clearInterval(intervalRef.current);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
   }, [fetchEvents]);
 
   const markAllRead = () => {
@@ -174,6 +204,13 @@ export function NotificationsScreen() {
                   </div>
                 );
               })}
+              {hasMore && (
+                <div style={{ padding: '12px 16px', borderTop: `1px solid ${C.border}`, display: 'flex', justifyContent: 'center' }}>
+                  <Btn variant="ghost" size="sm" onClick={loadMore} disabled={loadingMore} style={{ fontSize: 11 }}>
+                    {loadingMore ? 'Loading…' : 'Load more'}
+                  </Btn>
+                </div>
+              )}
             </div>
           )}
         </Card>

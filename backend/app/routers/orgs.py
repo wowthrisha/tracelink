@@ -240,6 +240,90 @@ async def list_members(
     return {"members": [_member_response(m) for m in result.scalars().all()]}
 
 
+@router.post("/{org_id}/members/invite", status_code=201)
+async def invite_member_by_email(
+    org_id: str,
+    body: dict,
+    db: AsyncSession = Depends(get_db),
+    user: dict = Depends(get_current_user),
+):
+    """Invite a user to an organization by email address.
+
+    Looks up the user via the Supabase admin API, then adds them directly
+    if found. Returns 422 if the email does not belong to a registered user.
+    """
+    org, actor = await _get_org_and_member(org_id, user, db, minimum_role="admin")
+    org_uuid = uuid.UUID(org_id)
+
+    email = (body.get("email") or "").strip().lower()
+    if not email or "@" not in email:
+        raise HTTPException(status_code=422, detail="A valid email address is required")
+
+    role = body.get("role", "viewer")
+    if role not in ORG_ROLES:
+        raise HTTPException(status_code=422, detail=f"Invalid role. Allowed: {list(ORG_ROLES)}")
+    if not role_gte(actor.role, role):
+        raise HTTPException(status_code=403, detail="Cannot grant a role higher than your own")
+
+    # Look up user by email via Supabase admin API
+    from app.config import settings as _settings
+    import httpx
+
+    if not _settings.supabase_service_role_key:
+        raise HTTPException(
+            status_code=503,
+            detail="Email lookup is not configured. Ask your admin to set SUPABASE_SERVICE_ROLE_KEY.",
+        )
+
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(
+            f"{_settings.supabase_url}/auth/v1/admin/users",
+            params={"email": email},
+            headers={
+                "apikey": _settings.supabase_service_role_key,
+                "Authorization": f"Bearer {_settings.supabase_service_role_key}",
+            },
+            timeout=8.0,
+        )
+
+    if resp.status_code != 200:
+        raise HTTPException(status_code=503, detail="User lookup service unavailable")
+
+    users_data = resp.json()
+    # Supabase returns {"users": [...]} for admin list endpoint
+    users = users_data.get("users") or (users_data if isinstance(users_data, list) else [])
+    matched = [u for u in users if (u.get("email") or "").lower() == email]
+    if not matched:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No registered user found with email '{email}'. They must sign up for SecureDoc first.",
+        )
+
+    target_uuid = uuid.UUID(matched[0]["id"])
+
+    # Check if already a member
+    existing = await get_membership(db, org_uuid, target_uuid)
+    if existing:
+        raise HTTPException(status_code=409, detail="User is already a member of this organization")
+
+    membership = OrgMembership(
+        org_id=org_uuid,
+        user_id=target_uuid,
+        role=role,
+        invited_by_user_id=uuid.UUID(user["user_id"]),
+    )
+    db.add(membership)
+    from app.services.audit_service import log_audit_event
+    await log_audit_event(
+        db, actor_user_id=user["user_id"], event_type="member.added",
+        org_id=org_id, target_type="member", target_id=str(target_uuid),
+        details={"role": role, "email": email},
+    )
+    await db.commit()
+    await db.refresh(membership)
+    return {**_member_response(membership), "email": email}
+
+
 @router.post("/{org_id}/members", status_code=201)
 async def add_member(
     org_id: str,

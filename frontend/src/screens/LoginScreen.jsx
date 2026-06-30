@@ -52,7 +52,12 @@ export function LoginScreen({ onLogin }) {
       onLogin(token);
     } catch (err) {
       const msg = err.message || 'Authentication failed.';
-      if (msg.toLowerCase().includes('confirm')) { setInfo(msg); }
+      const lc = msg.toLowerCase();
+      if (lc.includes('confirm')) { setInfo(msg); }
+      else if (mode === 'reset' && (lc.includes('expired') || lc.includes('invalid') || lc.includes('otp') || lc.includes('token'))) {
+        setError('Your password reset link has expired or is invalid. Please request a new reset email.');
+        setMode('forgot');
+      }
       else { setError(msg); }
     } finally {
       setLoading(false);
