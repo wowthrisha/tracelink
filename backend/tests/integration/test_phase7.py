@@ -110,7 +110,7 @@ class TestJSONLogFormatter:
 
 class TestWatermarkAngleJitter:
     def _angle(self, session_id: str) -> float:
-        from app.routers.viewer import _session_watermark_angle
+        from app.services.viewer_service import _session_watermark_angle
         return _session_watermark_angle(session_id)
 
     def test_deterministic_for_same_session(self):
@@ -146,9 +146,9 @@ class TestWatermarkAngleJitter:
 
     def test_zero_jitter_gives_base_angle(self):
         from unittest.mock import patch
-        from app.routers.viewer import _session_watermark_angle
+        from app.services.viewer_service import _session_watermark_angle
         # With jitter=0, every session gets exactly the base angle
-        with patch("app.routers.viewer.settings") as mock_settings:
+        with patch("app.services.viewer_service.settings") as mock_settings:
             mock_settings.watermark_angle_jitter_deg = 0.0
             angle = _session_watermark_angle("any_session_id")
         assert angle == -32.0

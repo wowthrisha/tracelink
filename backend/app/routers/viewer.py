@@ -38,26 +38,11 @@ from app.services.viewer_service import (
     _check_link_active,
     _check_doc_ready,
     _get_session_id,
+    _session_watermark_angle,
     clear_page_cache,
     clear_thumb_cache,
     clear_metadata_caches,
 )
-
-import hashlib as _hashlib
-
-
-def _session_watermark_angle(session_id: str, base: float = -32.0) -> float:
-    """Derive a deterministic but session-unique watermark tilt angle.
-
-    Same session always produces the same angle (stable across page loads),
-    but different sessions get slightly different angles within ±jitter_deg
-    of the base.  This makes composite-removal attacks harder — an attacker
-    would need to align multiple differently-angled watermark layers.
-    """
-    h = int(_hashlib.sha256(session_id.encode()).hexdigest()[:8], 16)
-    norm = (h % 10000) / 10000.0           # 0.0 – 1.0, uniform
-    jitter = settings.watermark_angle_jitter_deg
-    return base + (norm - 0.5) * 2.0 * jitter  # base ± jitter_deg
 
 
 async def _load_toc_sidecar(sidecar_key: str):
