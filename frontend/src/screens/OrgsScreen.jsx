@@ -83,7 +83,7 @@ function RenameOrgModal({ org, onClose, onRenamed }) {
   );
 }
 
-const ORG_ROLES_LIST = ['viewer', 'admin', 'owner'];
+const ORG_ROLES_LIST = ['viewer', 'editor', 'admin', 'owner'];
 
 function InviteMemberModal({ org, onClose, onInvited }) {
   const toast = useToast();
@@ -122,6 +122,7 @@ function InviteMemberModal({ org, onClose, onInvited }) {
           <select value={role} onChange={e => setRole(e.target.value)}
             style={{ fontSize: 12, background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 6, padding: '7px 10px', color: C.textPrimary }}>
             <option value="viewer">Viewer — can view shared documents</option>
+            <option value="editor">Editor — can upload and manage documents</option>
             <option value="admin">Admin — can manage members and settings</option>
             <option value="owner">Owner — full control including delete</option>
           </select>

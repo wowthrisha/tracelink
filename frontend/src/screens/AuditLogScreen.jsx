@@ -86,7 +86,7 @@ export function AuditLogScreen() {
       // Fetch all matching events up to 500 (backend max)
       const data = await window.SecureDocAPI.getAuditLog(null, 500, 0, { dateFrom, dateTo, eventType });
       const rows = data?.events || [];
-      const headers = ['Time', 'Event Type', 'Target Type', 'Target ID', 'Actor ID'];
+      const headers = ['Time', 'Event Type', 'Target Type', 'Target ID', 'Actor ID', 'Details'];
       const csvRows = [
         headers.join(','),
         ...rows.map(ev => [
@@ -95,6 +95,7 @@ export function AuditLogScreen() {
           ev.target_type || '',
           ev.target_id || '',
           ev.actor_user_id || '',
+          ev.details ? JSON.stringify(ev.details) : '',
         ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')),
       ];
       const blob = new Blob([csvRows.join('\n')], { type: 'text/csv' });
@@ -184,7 +185,7 @@ export function AuditLogScreen() {
               <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                 <thead>
                   <tr style={{ borderBottom: `1px solid ${C.border}` }}>
-                    {['Time', 'Action', 'Resource', 'Actor', 'IP / Context'].map(h => (
+                    {['Time', 'Action', 'Resource', 'Actor', 'Details'].map(h => (
                       <th key={h} scope="col" style={{ fontSize: 9, fontWeight: 700, color: C.textMuted, padding: '7px 14px', textAlign: 'left', textTransform: 'uppercase', letterSpacing: '.5px' }}>{h}</th>
                     ))}
                   </tr>
@@ -210,8 +211,10 @@ export function AuditLogScreen() {
                       <td style={{ ...mono, padding: '9px 14px', fontSize: 10, color: C.textSecondary }}>
                         {ev.actor_email || (ev.api_key_id ? `API Key (${String(ev.api_key_id).slice(0, 8)}…)` : null) || (ev.actor_user_id && String(ev.actor_user_id).slice(0, 8) + '…') || ev.actor_id || '—'}
                       </td>
-                      <td style={{ ...mono, padding: '9px 14px', fontSize: 10, color: C.textDim }}>
-                        {ev.ip_address || ev.metadata?.ip || ev.context || '—'}
+                      <td style={{ ...mono, padding: '9px 14px', fontSize: 10, color: C.textDim, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {ev.details
+                          ? Object.entries(ev.details).map(([k, v]) => `${k}: ${String(v).slice(0, 40)}`).join(' · ')
+                          : (ev.ip_address || ev.metadata?.ip || ev.context || '—')}
                       </td>
                     </tr>
                   ))}

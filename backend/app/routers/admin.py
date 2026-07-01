@@ -1,3 +1,4 @@
+import json
 import uuid
 from datetime import datetime, timezone
 from typing import Optional
@@ -85,19 +86,26 @@ async def get_audit_log(
     )
     entries = result.scalars().all()
 
+    def _serialize(e: AdminAuditLog) -> dict:
+        details = None
+        if e.details_json:
+            try:
+                details = json.loads(e.details_json)
+            except Exception:
+                details = e.details_json
+        return {
+            "id": str(e.id),
+            "org_id": str(e.org_id) if e.org_id else None,
+            "actor_user_id": str(e.actor_user_id),
+            "event_type": e.event_type,
+            "target_type": e.target_type,
+            "target_id": e.target_id,
+            "details": details,
+            "created_at": e.created_at.isoformat() if e.created_at else None,
+        }
+
     return {
-        "events": [
-            {
-                "id": str(e.id),
-                "org_id": str(e.org_id) if e.org_id else None,
-                "actor_user_id": str(e.actor_user_id),
-                "event_type": e.event_type,
-                "target_type": e.target_type,
-                "target_id": e.target_id,
-                "created_at": e.created_at.isoformat() if e.created_at else None,
-            }
-            for e in entries
-        ],
+        "events": [_serialize(e) for e in entries],
         "total": total,
         "offset": offset,
         "limit": limit,

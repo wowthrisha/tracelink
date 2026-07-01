@@ -59,17 +59,21 @@ def _org_response(org: Organization, member_count: int = 0, my_role: Optional[st
         "created_at": org.created_at.isoformat() if org.created_at else None,
     }
     if my_role is not None:
-        d["my_role"] = my_role
+        d["role"] = my_role      # primary key used by frontend
+        d["my_role"] = my_role   # kept for backward compat
     return d
 
 
-def _member_response(m: OrgMembership) -> dict:
+def _member_response(m: OrgMembership, email: Optional[str] = None) -> dict:
+    joined = m.created_at.isoformat() if m.created_at else None
     return {
         "id": str(m.id),
         "user_id": str(m.user_id),
+        "email": email,
         "role": m.role,
         "invited_by_user_id": str(m.invited_by_user_id) if m.invited_by_user_id else None,
-        "created_at": m.created_at.isoformat() if m.created_at else None,
+        "joined_at": joined,
+        "created_at": joined,
     }
 
 
@@ -237,7 +241,32 @@ async def list_members(
         .where(OrgMembership.org_id == org_uuid)
         .order_by(OrgMembership.created_at)
     )
-    return {"members": [_member_response(m) for m in result.scalars().all()]}
+    members = result.scalars().all()
+
+    # Batch-fetch emails from Supabase admin API (best-effort; falls back to None)
+    email_map: dict[str, str] = {}
+    if members and settings.supabase_service_role_key:
+        import asyncio
+        import httpx as _httpx
+        async with _httpx.AsyncClient() as _client:
+            responses = await asyncio.gather(*[
+                _client.get(
+                    f"{settings.supabase_url}/auth/v1/admin/users/{m.user_id}",
+                    headers={
+                        "apikey": settings.supabase_service_role_key,
+                        "Authorization": f"Bearer {settings.supabase_service_role_key}",
+                    },
+                    timeout=5.0,
+                )
+                for m in members
+            ], return_exceptions=True)
+        for m, resp in zip(members, responses):
+            if isinstance(resp, Exception):
+                continue
+            if resp.status_code == 200:
+                email_map[str(m.user_id)] = resp.json().get("email") or ""
+
+    return {"members": [_member_response(m, email=email_map.get(str(m.user_id))) for m in members]}
 
 
 @router.post("/{org_id}/members/invite", status_code=201)
