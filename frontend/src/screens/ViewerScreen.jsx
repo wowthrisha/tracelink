@@ -7,6 +7,7 @@ import { useAnnotations } from '../hooks/useAnnotations.js';
 import { useViewerLayout } from '../hooks/useViewerLayout.js';
 import { usePageLoader } from '../hooks/usePageLoader.js';
 import { useViewerSession } from '../hooks/useViewerSession.js';
+import { useReadingAnalytics } from '../hooks/useReadingAnalytics.js';
 import { useToast } from '../contexts/toast.jsx';
 import { ViewerToolbar } from '../components/ViewerToolbar.jsx';
 import { C, mono } from '../constants/tokens.js';
@@ -14,6 +15,7 @@ import { LaserPointer } from '../components/LaserPointer.jsx';
 import { RectMagnifier } from '../components/RectMagnifier.jsx';
 import { SearchPanel } from '../components/SearchPanel.jsx';
 import { InsightsModal } from '../components/InsightsModal.jsx';
+import { ReadingStatusBar } from '../components/ReadingStatusBar.jsx';
 import { LinksPanel } from '../components/LinksPanel.jsx';
 import { TocSidebar } from '../components/TocSidebar.jsx';
 import { PageThumb } from '../components/PageThumb.jsx';
@@ -39,6 +41,8 @@ export function ViewerScreen({ doc, publicToken, onSelectDoc, onBack }) {
   const [showInsights, setShowInsights] = useState(false);
   const [insightsData, setInsightsData] = useState(null);
   const [insightsLoading, setInsightsLoading] = useState(false);
+  const [readingData, setReadingData] = useState(null);
+  const [readingLoading, setReadingLoading] = useState(false);
   const [showLinks, setShowLinks] = useState(false);
   const [showPageList, setShowPageList] = useState(typeof window !== 'undefined' ? window.innerWidth > 640 : true);
 
@@ -128,6 +132,11 @@ export function ViewerScreen({ doc, publicToken, onSelectDoc, onBack }) {
     annotCacheRef,
   } = useAnnotations(session, page, isTextDoc);
 
+  // Reading Intelligence Engine — viewer-side active-time tracking
+  // isDocumentReady: true once session exists and the first page image is loaded
+  const isDocumentReady = !!(session && imgReady);
+  const { display: readingDisplay } = useReadingAnalytics(session, page, PAGE_COUNT, isDocumentReady);
+
   useEffect(() => {
     if (document.getElementById('sdoc-vx-styles')) return;
     const s = document.createElement('style');
@@ -179,12 +188,27 @@ export function ViewerScreen({ doc, publicToken, onSelectDoc, onBack }) {
         showInsights={showInsights} setShowInsights={v => {
           setShowInsights(v);
           const heatmapDocId = doc?.id || session?.document_id;
-          if (v && !insightsData && !insightsLoading && heatmapDocId) {
-            setInsightsLoading(true);
-            window.SecureDocAPI.getPageHeatmap(heatmapDocId)
-              .then(d => setInsightsData(d))
-              .catch(() => setInsightsData(null))
-              .finally(() => setInsightsLoading(false));
+          if (v && heatmapDocId) {
+            // Fetch legacy page heatmap
+            if (!insightsData && !insightsLoading) {
+              setInsightsLoading(true);
+              window.SecureDocAPI.getPageHeatmap(heatmapDocId)
+                .then(d => setInsightsData(d))
+                .catch(() => setInsightsData(null))
+                .finally(() => setInsightsLoading(false));
+            }
+            // Fetch reading analytics (summary, heatmap, insights, viewers)
+            if (!readingData && !readingLoading) {
+              setReadingLoading(true);
+              Promise.all([
+                window.SecureDocAPI.getDocumentReadingSummary(heatmapDocId).catch(() => null),
+                window.SecureDocAPI.getDocumentReadingHeatmap(heatmapDocId).catch(() => null),
+                window.SecureDocAPI.getDocumentReadingInsights(heatmapDocId).catch(() => null),
+                window.SecureDocAPI.getDocumentReadingViewers(heatmapDocId).catch(() => null),
+              ]).then(([summary, heatmap, insights, viewers]) => {
+                setReadingData({ summary, heatmap, insights, viewers });
+              }).finally(() => setReadingLoading(false));
+            }
           }
         }}
         hasInsights={!!(doc?.id || session?.document_id)}
@@ -267,6 +291,8 @@ export function ViewerScreen({ doc, publicToken, onSelectDoc, onBack }) {
           docName={docName}
           loading={insightsLoading}
           data={insightsData}
+          readingData={readingData}
+          readingLoading={readingLoading}
           onClose={() => setShowInsights(false)}
           C={C} mono={mono}
         />
@@ -746,6 +772,16 @@ export function ViewerScreen({ doc, publicToken, onSelectDoc, onBack }) {
           </div>
         )}
       </div>
+
+      {/* Reading Intelligence Engine — viewer-side status bar */}
+      {session && (
+        <ReadingStatusBar
+          display={readingDisplay}
+          page={page}
+          pageCount={PAGE_COUNT}
+          isActive={isDocumentReady && !blurred && !document.hidden}
+        />
+      )}
 
       {/* Feature 5: Laser pointer — GPU-accelerated, ref-based (no setState on mousemove) */}
       <LaserPointer active={showLaser} />

@@ -460,6 +460,68 @@ window.SecureDocAPI = {
     }).catch(() => {});
   },
 
+  // ── Reading Intelligence Engine ───────────────────────────────────────────
+
+  batchReadingEvents(token, sessionId, pageData, sessionMeta) {
+    // Fire-and-forget: never blocks the viewer rendering pipeline
+    fetch(`${API_BASE}/api/reading/batch`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        token,
+        session_id: sessionId,
+        page_data: pageData,
+        session_meta: sessionMeta,
+      }),
+    }).catch(() => {});
+  },
+
+  async getViewerReadingSummary(token, sessionId) {
+    const params = new URLSearchParams({ token });
+    const r = await fetch(
+      `${API_BASE}/api/reading/session/${encodeURIComponent(sessionId)}?${params}`,
+      { headers: { 'Content-Type': 'application/json' } },
+    );
+    if (!r.ok) return null;
+    return r.json();
+  },
+
+  async getDocumentReadingSummary(documentId) {
+    const r = await fetch(`${API_BASE}/api/reading/document/${documentId}/summary`, {
+      headers: { ...authHeaders() },
+    });
+    if (r.status === 401) { _clearAndReload(); return null; }
+    if (!r.ok) return null;
+    return r.json();
+  },
+
+  async getDocumentReadingHeatmap(documentId) {
+    const r = await fetch(`${API_BASE}/api/reading/document/${documentId}/heatmap`, {
+      headers: { ...authHeaders() },
+    });
+    if (r.status === 401) { _clearAndReload(); return null; }
+    if (!r.ok) return null;
+    return r.json();
+  },
+
+  async getDocumentReadingInsights(documentId) {
+    const r = await fetch(`${API_BASE}/api/reading/document/${documentId}/insights`, {
+      headers: { ...authHeaders() },
+    });
+    if (r.status === 401) { _clearAndReload(); return null; }
+    if (!r.ok) return null;
+    return r.json();
+  },
+
+  async getDocumentReadingViewers(documentId) {
+    const r = await fetch(`${API_BASE}/api/reading/document/${documentId}/viewers`, {
+      headers: { ...authHeaders() },
+    });
+    if (r.status === 401) { _clearAndReload(); return null; }
+    if (!r.ok) return null;
+    return r.json();
+  },
+
   // ── Analytics ──────────────────────────────────────────────────────────────
 
   async getAnalyticsOverview() {
