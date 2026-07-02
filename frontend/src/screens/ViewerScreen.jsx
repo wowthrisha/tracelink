@@ -132,9 +132,13 @@ export function ViewerScreen({ doc, publicToken, onSelectDoc, onBack }) {
     annotCacheRef,
   } = useAnnotations(session, page, isTextDoc);
 
-  // Reading Intelligence Engine — viewer-side active-time tracking
-  // isDocumentReady: true once session exists and the first page image is loaded
-  const isDocumentReady = !!(session && imgReady);
+  // Reading Intelligence Engine — active-time tracking
+  // isDocumentReady latches true once the first page loads and never resets to false.
+  // This prevents the hook from re-initializing on every page navigation (imgReady toggles
+  // false→true on each page load which would otherwise reset the session timer).
+  const docReadyLatchRef = useRef(false);
+  if (session && imgReady) docReadyLatchRef.current = true;
+  const isDocumentReady = docReadyLatchRef.current;
   const { display: readingDisplay } = useReadingAnalytics(session, page, PAGE_COUNT, isDocumentReady);
 
   useEffect(() => {
@@ -779,7 +783,6 @@ export function ViewerScreen({ doc, publicToken, onSelectDoc, onBack }) {
           display={readingDisplay}
           page={page}
           pageCount={PAGE_COUNT}
-          isActive={isDocumentReady && !blurred && !document.hidden}
         />
       )}
 

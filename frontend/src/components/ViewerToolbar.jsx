@@ -15,8 +15,9 @@ function AnnotToolbar({ btn, on, sep, mono, annotTool, setAnnotTool, annotColor,
   return (<>
     {sep}
     <button onClick={onToggleBookmark} title={bookmarked ? 'Remove bookmark' : 'Bookmark page'}
+      aria-label={bookmarked ? 'Remove bookmark from this page' : 'Bookmark this page'} aria-pressed={bookmarked}
       style={{ ...btn, ...(bookmarked ? { color: '#FFE066', opacity: 1 } : {}), padding: '3px 7px' }}>
-      <svg width="10" height="13" viewBox="0 0 10 13" fill={bookmarked ? '#FFE066' : 'none'} style={{ flexShrink: 0 }}>
+      <svg width="10" height="13" viewBox="0 0 10 13" fill={bookmarked ? '#FFE066' : 'none'} style={{ flexShrink: 0 }} aria-hidden="true">
         <path d="M1 1h8v11l-4-3-4 3V1z" stroke={bookmarked ? '#FFE066' : 'currentColor'} strokeWidth="1.3" strokeLinejoin="round"/>
       </svg>
     </button>
@@ -24,6 +25,9 @@ function AnnotToolbar({ btn, on, sep, mono, annotTool, setAnnotTool, annotColor,
       <button
         onClick={() => setShowFlyout(v => !v)}
         title="Annotation tools"
+        aria-label="Open annotation tools"
+        aria-expanded={showFlyout}
+        aria-haspopup="true"
         style={{ ...btn, padding: '3px 7px', ...(annotTool || showFlyout ? on : {}) }}
       >
         <svg width="12" height="12" viewBox="0 0 12 12" fill="none" style={{ flexShrink: 0 }}>
@@ -43,28 +47,31 @@ function AnnotToolbar({ btn, on, sep, mono, annotTool, setAnnotTool, annotColor,
           {ANNOT_TOOLS.map(({ tool, label, icon }) => (
             <button key={tool}
               onClick={() => setAnnotTool(t => t === tool ? null : tool)}
+              aria-label={annotTool === tool ? `Deactivate ${label} tool` : `Activate ${label} tool`}
+              aria-pressed={annotTool === tool}
               style={{ ...btn, borderRadius: 5, padding: '4px 8px', justifyContent: 'flex-start', gap: 8, width: '100%', ...(annotTool === tool ? on : {}) }}
             >
               {icon}
               <span style={{ fontSize: 11 }}>{label}</span>
-              {annotTool === tool && <span style={{ marginLeft: 'auto', fontSize: 9, color: '#5ac8d0' }}>active</span>}
+              {annotTool === tool && <span style={{ marginLeft: 'auto', fontSize: 9, color: '#5ac8d0' }} aria-hidden="true">active</span>}
             </button>
           ))}
           <div style={{ fontSize: 9, letterSpacing: '0.7px', textTransform: 'uppercase', color: 'rgba(90,200,208,0.5)', marginTop: 6, marginBottom: 4, paddingTop: 4, borderTop: '1px solid rgba(255,255,255,0.06)' }}>Color</div>
-          <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }} role="group" aria-label="Annotation color">
             {ANNOT_COLORS.map(c => (
-              <div key={c} onClick={() => setAnnotColor(c)}
-                style={{ width: 18, height: 18, borderRadius: '50%', background: c, cursor: 'pointer', border: annotColor === c ? '2px solid #fff' : '2px solid transparent', flexShrink: 0, transition: 'border .1s' }}
-                title={c}
+              <button key={c} onClick={() => setAnnotColor(c)}
+                aria-label={`Set annotation color to ${c}`} aria-pressed={annotColor === c}
+                style={{ width: 18, height: 18, borderRadius: '50%', background: c, cursor: 'pointer', border: annotColor === c ? '2px solid #fff' : '2px solid transparent', flexShrink: 0, transition: 'border .1s', padding: 0 }}
               />
             ))}
           </div>
           <div style={{ fontSize: 9, letterSpacing: '0.7px', textTransform: 'uppercase', color: 'rgba(90,200,208,0.5)', marginTop: 6, marginBottom: 4, paddingTop: 4, borderTop: '1px solid rgba(255,255,255,0.06)' }}>Thickness</div>
-          <div style={{ display: 'flex', gap: 5 }}>
+          <div style={{ display: 'flex', gap: 5 }} role="group" aria-label="Stroke thickness">
             {[1, 2, 4, 6].map(t => (
               <button key={t} onClick={() => setAnnotThickness(t)}
+                aria-label={`Thickness ${t}px`} aria-pressed={annotThickness === t}
                 style={{ ...btn, borderRadius: 4, padding: '3px 8px', ...(annotThickness === t ? on : {}) }}>
-                <div style={{ width: 20, height: t, background: 'currentColor', borderRadius: 1 }}/>
+                <div style={{ width: 20, height: t, background: 'currentColor', borderRadius: 1 }} aria-hidden="true"/>
               </button>
             ))}
           </div>
@@ -208,7 +215,7 @@ export function ViewerToolbar({
 
       {/* ── CENTER: page navigation ── */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 1, flexShrink: 0 }}>
-        <button onClick={goPrev} disabled={page <= 1} title="Previous (←)"
+        <button onClick={goPrev} disabled={page <= 1} title="Previous (←)" aria-label="Previous page"
           style={{ ...btn, opacity: page <= 1 ? 0.25 : 1, padding: '3px 5px', fontSize: 15 }}>‹</button>
         <div style={{ display: 'flex', alignItems: 'center', background: 'rgba(255,255,255,0.055)', borderRadius: 4, border: '1px solid rgba(255,255,255,0.09)', overflow: 'hidden' }}>
           <input
@@ -229,7 +236,7 @@ export function ViewerToolbar({
           />
           <span style={{ ...mono, fontSize: 11, color: 'rgba(100,112,128,0.9)', padding: '0 6px 0 2px' }}>/ {PAGE_COUNT}</span>
         </div>
-        <button onClick={goNext} disabled={page >= PAGE_COUNT} title="Next (→)"
+        <button onClick={goNext} disabled={page >= PAGE_COUNT} title="Next (→)" aria-label="Next page"
           style={{ ...btn, opacity: page >= PAGE_COUNT ? 0.25 : 1, padding: '3px 5px', fontSize: 15 }}>›</button>
       </div>
 
@@ -255,7 +262,7 @@ export function ViewerToolbar({
               style={{ ...btn, borderRadius: 0, padding: '3px 5px', fontSize: 9, fontWeight: 700, borderRight: '1px solid rgba(255,255,255,0.07)', ...(layoutMode === LAYOUT.ACTUAL ? on : {}) }}>
               100%
             </button>
-            <button onClick={() => _zoomBy(-ZOOM_STEP)} title="Zoom out"
+            <button onClick={() => _zoomBy(-ZOOM_STEP)} title="Zoom out" aria-label="Zoom out"
               style={{ ...btn, borderRadius: 0, padding: '3px 6px', fontSize: 14, borderRight: '1px solid rgba(255,255,255,0.07)' }}>−</button>
             <select
               value={layoutMode === LAYOUT.CUSTOM ? customZoom : layoutMode === LAYOUT.FIT_WIDTH ? 'fw' : layoutMode === LAYOUT.FIT_HEIGHT ? 'fh' : layoutMode === LAYOUT.AUTO ? 'auto' : layoutMode === LAYOUT.ACTUAL ? 'actual' : customZoom}
@@ -283,7 +290,7 @@ export function ViewerToolbar({
               {layoutMode === LAYOUT.FIT_HEIGHT && <option value="fh">H</option>}
               {layoutMode === LAYOUT.ACTUAL && <option value="actual">100%</option>}
             </select>
-            <button onClick={() => _zoomBy(ZOOM_STEP)} title="Zoom in"
+            <button onClick={() => _zoomBy(ZOOM_STEP)} title="Zoom in" aria-label="Zoom in"
               style={{ ...btn, borderRadius: 0, padding: '3px 6px', fontSize: 14, borderLeft: '1px solid rgba(255,255,255,0.07)' }}>+</button>
           </div>
 
@@ -314,7 +321,7 @@ export function ViewerToolbar({
 
         {/* ── Tools: magnifier + laser (icon only) ── */}
         <button onClick={() => { setShowMagnifier(v => !v); if (showLaser) setShowLaser(false); }}
-          title="Magnifier"
+          title="Magnifier" aria-label={showMagnifier ? 'Hide magnifier' : 'Show magnifier'} aria-pressed={showMagnifier}
           style={{ ...btn, ...(showMagnifier ? on : {}), padding: '3px 7px' }}>
           <svg width="13" height="13" viewBox="0 0 13 13" fill="none" style={{ flexShrink: 0 }}>
             <circle cx="5.5" cy="5.5" r="4" stroke="currentColor" strokeWidth="1.3" fill="none"/>
@@ -324,7 +331,7 @@ export function ViewerToolbar({
           </svg>
         </button>
         <button onClick={() => { setShowLaser(v => !v); if (showMagnifier) setShowMagnifier(false); }}
-          title="Laser pointer"
+          title="Laser pointer" aria-label={showLaser ? 'Turn off laser pointer' : 'Turn on laser pointer'} aria-pressed={showLaser}
           style={{ ...btn, ...(showLaser ? { ...on, color: '#ff4444' } : {}), padding: '3px 7px' }}>
           <svg width="12" height="12" viewBox="0 0 12 12" fill="none" style={{ flexShrink: 0 }}>
             <circle cx="6" cy="6" r="3" fill={showLaser ? '#ff4444' : 'currentColor'} opacity={showLaser ? 1 : 0.7}/>
@@ -338,6 +345,7 @@ export function ViewerToolbar({
       {/* ── RIGHT: info + actions (icon only, with tooltips) ── */}
       {!isTextDoc && (
         <button onClick={() => setShowLinks(v => !v)} title="Links on this page"
+          aria-label={showLinks ? 'Hide links panel' : 'Show links on this page'} aria-pressed={showLinks}
           style={{ ...btn, ...(showLinks ? on : {}), padding: '3px 8px', position: 'relative' }}>
           <svg width="12" height="12" viewBox="0 0 12 12" fill="none" style={{ flexShrink: 0 }}>
             <path d="M4.5 7.5l3-3M7 3.5l1.5-1.5a2.12 2.12 0 013 3L10 6.5M5 8.5l-1.5 1.5a2.12 2.12 0 01-3-3L2 5.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
@@ -355,6 +363,7 @@ export function ViewerToolbar({
       )}
       {hasInsights && (
         <button onClick={() => setShowInsights(v => !v)} title="Page insights"
+          aria-label={showInsights ? 'Hide page insights' : 'Show page insights'} aria-pressed={showInsights}
           style={{ ...btn, ...(showInsights ? on : {}), padding: '3px 8px' }}>
           <svg width="12" height="12" viewBox="0 0 12 12" fill="none" style={{ flexShrink: 0 }}>
             <rect x="1" y="7" width="2" height="4" rx="0.5" fill="currentColor" opacity=".9"/>
@@ -366,6 +375,7 @@ export function ViewerToolbar({
       )}
       {sep}
       <button onClick={toggleFullscreen} title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+        aria-label={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
         style={{ ...btn, padding: '3px 7px' }}>
         {isFullscreen
           ? <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M4 1H1v3M8 1h3v3M4 11H1V8M8 11h3V8" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>
@@ -384,13 +394,13 @@ export function ViewerToolbar({
         />
       )}
       {sep}
-      <button onClick={onDownload} disabled={!canDownload} title="Download" style={{ ...btn, opacity: canDownload ? 1 : 0.28, padding: '3px 7px' }}>
+      <button onClick={onDownload} disabled={!canDownload} title={canDownload ? 'Download document' : 'Download not allowed'} aria-label={canDownload ? 'Download document' : 'Download not permitted'} style={{ ...btn, opacity: canDownload ? 1 : 0.28, padding: '3px 7px' }}>
         <svg width="11" height="12" viewBox="0 0 11 12" fill="none" style={{ flexShrink: 0 }}>
           <path d="M5.5 1v7M2.5 5.5l3 3 3-3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
           <path d="M1 10h9" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
         </svg>
       </button>
-      <button onClick={onPrint} disabled={!canPrint} title="Print" style={{ ...btn, opacity: canPrint ? 1 : 0.28, padding: '3px 7px' }}>
+      <button onClick={onPrint} disabled={!canPrint} title={canPrint ? 'Print document' : 'Print not allowed'} aria-label={canPrint ? 'Print document' : 'Print not permitted'} style={{ ...btn, opacity: canPrint ? 1 : 0.28, padding: '3px 7px' }}>
         <svg width="12" height="11" viewBox="0 0 12 11" fill="none" style={{ flexShrink: 0 }}>
           <rect x="2" y="4" width="8" height="5" rx="1" stroke="currentColor" strokeWidth="1.2" fill="none"/>
           <path d="M3 4V2h6v2" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>

@@ -225,24 +225,34 @@ export function Modal({ open, onClose, title, children, width = 440 }) {
 }
 
 /* ─── TOGGLE ───────────────────────────────────────────────── */
-export function Toggle({ enabled, locked, onChange }) {
+export function Toggle({ enabled, locked, onChange, label: ariaLabel }) {
   return (
-    <div onClick={() => !locked && onChange(!enabled)}
+    <button
+      role="switch"
+      aria-checked={enabled}
+      aria-label={ariaLabel}
+      disabled={locked}
+      onClick={() => !locked && onChange(!enabled)}
+      onKeyDown={e => { if ((e.key === 'Enter' || e.key === ' ') && !locked) { e.preventDefault(); onChange(!enabled); } }}
       style={{
         width: 32, height: 18, borderRadius: 9,
         background: enabled ? C.teal2 : C.surface3,
         border: `1px solid ${enabled ? C.teal3 : C.border}`,
         position: 'relative', cursor: locked ? 'not-allowed' : 'pointer',
-        opacity: locked ? 0.4 : 1, transition: 'all .2s', flexShrink: 0
-      }}>
+        opacity: locked ? 0.4 : 1, transition: 'all .2s', flexShrink: 0,
+        padding: 0, outline: 'none',
+      }}
+      onFocus={e => { if (!locked) e.currentTarget.style.boxShadow = `0 0 0 2px ${C.teal4}`; }}
+      onBlur={e => { e.currentTarget.style.boxShadow = 'none'; }}>
       <div style={{
         position: 'absolute', top: 2,
         left: enabled ? 15 : 2,
         width: 12, height: 12, borderRadius: '50%',
         background: enabled ? '#080B0C' : C.textMuted,
-        transition: 'left .18s cubic-bezier(.22,1,.36,1)'
+        transition: 'left .18s cubic-bezier(.22,1,.36,1)',
+        pointerEvents: 'none',
       }} />
-    </div>
+    </button>
   );
 }
 
