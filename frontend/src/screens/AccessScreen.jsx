@@ -289,10 +289,10 @@ export function AccessScreen({ doc, onSelectDoc, defaultTab }) {
                 <Field label="Expiry Date">
                   <input type="date" value={expiry} onChange={e => setExpiry(e.target.value)} />
                 </Field>
-                <Field label="Max View Count">
+                <Field label="View Limit" hint="Total number of times this link can be opened">
                   <input type="number" value={maxViews} onChange={e => setMaxViews(e.target.value)} placeholder="Unlimited" />
                 </Field>
-                <Field label="Max Concurrent Sessions">
+                <Field label="Max Simultaneous Viewers" hint="How many people can view at the same time">
                   <input type="number" value={maxConcurrentSessions} onChange={e => setMaxConcurrentSessions(e.target.value)} placeholder="Unlimited" min="1" />
                 </Field>
                 <Field label="IP Allowlist" hint="CIDR or exact, e.g. 10.0.0.0/24">
@@ -958,7 +958,7 @@ function EditLinkModal({ link, saving, onClose, onSave }) {
           <Field label="Max Views">
             <input type="number" value={maxViews} onChange={e => setMaxViews(e.target.value)} placeholder="Unlimited" />
           </Field>
-          <Field label="Max Concurrent Sessions">
+          <Field label="Max Simultaneous Viewers" hint="Viewers at the same time">
             <input type="number" value={maxConcurrentSessions} onChange={e => setMaxConcurrentSessions(e.target.value)} placeholder="Unlimited" min="1" />
           </Field>
           <Field label="Allowed Domains" hint="Comma-separated">

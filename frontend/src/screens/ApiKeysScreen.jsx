@@ -122,8 +122,10 @@ export function ApiKeysScreen() {
   const [showCreate, setShowCreate] = useState(false);
   const [newKey, setNewKey] = useState(null);
   const [revoking, setRevoking] = useState(null);
+  const [rotating, setRotating] = useState(null);
   const [deleting, setDeleting] = useState(null);
   const [revokeKeyModal, setRevokeKeyModal] = useState(null);
+  const [rotateKeyModal, setRotateKeyModal] = useState(null);
   const [deleteKeyModal, setDeleteKeyModal] = useState(null);
   const [editKeyModal, setEditKeyModal] = useState(null);
   const [editName, setEditName] = useState('');
@@ -155,6 +157,18 @@ export function ApiKeysScreen() {
       fetchKeys();
     } catch (e) { toast(_errMsg(e, 'Failed to revoke key'), 'error'); }
     finally { setRevoking(null); }
+  };
+
+  const handleRotate = async (key) => {
+    setRotating(key.id);
+    try {
+      const rotated = await window.SecureDocAPI.rotateApiKey(key.id);
+      toast(`"${key.name}" rotated — new key generated`, 'success');
+      setRotateKeyModal(null);
+      setNewKey(rotated);
+      fetchKeys();
+    } catch (e) { toast(_errMsg(e, 'Failed to rotate key'), 'error'); }
+    finally { setRotating(null); }
   };
 
   const handleDelete = async (key) => {
@@ -240,6 +254,13 @@ export function ApiKeysScreen() {
                         <Btn variant="ghost" size="sm" onClick={() => { setEditKeyModal(k); setEditName(k.name); setEditScopes(k.scopes || []); }}
                           style={{ fontSize: 10 }}>Edit</Btn>
                         {k.is_active && (
+                          <Btn variant="ghost" size="sm" disabled={rotating === k.id} onClick={() => setRotateKeyModal(k)}
+                            title="Generate a new key value — old key is immediately invalidated"
+                            style={{ fontSize: 10 }}>
+                            {rotating === k.id ? '…' : 'Rotate'}
+                          </Btn>
+                        )}
+                        {k.is_active && (
                           <Btn variant="ghost" size="sm" disabled={revoking === k.id} onClick={() => setRevokeKeyModal(k)}
                             style={{ fontSize: 10, color: C.warning }}>
                             {revoking === k.id ? '…' : 'Revoke'}
@@ -302,6 +323,28 @@ export function ApiKeysScreen() {
                 finally { setEditSaving(false); }
               }}>
               Save Changes
+            </Btn>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal open={!!rotateKeyModal} onClose={() => setRotateKeyModal(null)} title="Rotate API Key" width={420}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <div style={{
+            background: 'rgba(245,158,11,0.08)', border: `1px solid rgba(245,158,11,0.3)`,
+            borderRadius: 8, padding: '12px 14px', fontSize: 13, color: C.textSecondary, lineHeight: 1.6
+          }}>
+            <strong style={{ color: C.warning }}>⚠ The current key will stop working immediately.</strong><br />
+            A new key will be generated for <strong style={{ color: C.textPrimary }}>"{rotateKeyModal?.name}"</strong>. Update any integrations using the old key before rotating.
+          </div>
+          <div style={{ fontSize: 12, color: C.textMuted, lineHeight: 1.6 }}>
+            The new key will be shown once — copy it and store it safely.
+          </div>
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+            <Btn variant="secondary" onClick={() => setRotateKeyModal(null)}>Cancel</Btn>
+            <Btn variant="danger" loading={rotating === rotateKeyModal?.id}
+              onClick={() => handleRotate(rotateKeyModal)}>
+              Rotate Key
             </Btn>
           </div>
         </div>

@@ -38,8 +38,11 @@ export function AuditLogScreen() {
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [eventType, setEventType] = useState('');
+  const [search, setSearch] = useState('');
   const [availableEventTypes, setAvailableEventTypes] = useState([]);
   const [exporting, setExporting] = useState(false);
+  const [sortKey, setSortKey] = useState('created_at');
+  const [sortDir, setSortDir] = useState('desc');
 
   const fetchPage = useCallback(async (off, filters = {}) => {
     setLoading(true);
@@ -80,21 +83,24 @@ export function AuditLogScreen() {
     fetchPage(0, { dateFrom: '', dateTo: '', eventType: '' });
   };
 
+  const _fetchAllForExport = async () => {
+    const data = await window.SecureDocAPI.getAuditLog(null, 500, 0, { dateFrom, dateTo, eventType });
+    return data?.events || [];
+  };
+
   const handleExportCSV = async () => {
-    setExporting(true);
+    setExporting('csv');
     try {
-      // Fetch all matching events up to 500 (backend max)
-      const data = await window.SecureDocAPI.getAuditLog(null, 500, 0, { dateFrom, dateTo, eventType });
-      const rows = data?.events || [];
-      const headers = ['Time', 'Event Type', 'Target Type', 'Target ID', 'Actor ID', 'Details'];
+      const rows = await _fetchAllForExport();
+      const headers = ['Time', 'Event Type', 'Target Type', 'Target ID', 'Actor', 'Details'];
       const csvRows = [
         headers.join(','),
         ...rows.map(ev => [
           ev.created_at || '',
-          ev.event_type || '',
-          ev.target_type || '',
-          ev.target_id || '',
-          ev.actor_user_id || '',
+          ev.event_type || ev.action || '',
+          ev.target_type || ev.resource_type || '',
+          ev.target_id || ev.resource_id || '',
+          ev.actor_email || ev.actor_user_id || '',
           ev.details ? JSON.stringify(ev.details) : '',
         ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')),
       ];
@@ -105,19 +111,74 @@ export function AuditLogScreen() {
       a.download = `audit-log-${new Date().toISOString().slice(0, 10)}.csv`;
       a.click();
       URL.revokeObjectURL(url);
-      toast(`Exported ${rows.length} events`, 'success');
+      toast(`Exported ${rows.length} events as CSV`, 'success');
     } catch (e) { toast(_errMsg(e, 'Export failed'), 'error'); }
     finally { setExporting(false); }
   };
 
-  const hasActiveFilters = dateFrom || dateTo || eventType;
+  const handleExportJSON = async () => {
+    setExporting('json');
+    try {
+      const rows = await _fetchAllForExport();
+      const blob = new Blob([JSON.stringify({ audit_log: rows, exported_at: new Date().toISOString(), count: rows.length }, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `audit-log-${new Date().toISOString().slice(0, 10)}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast(`Exported ${rows.length} events as JSON`, 'success');
+    } catch (e) { toast(_errMsg(e, 'Export failed'), 'error'); }
+    finally { setExporting(false); }
+  };
+
+  const hasActiveFilters = dateFrom || dateTo || eventType || search;
+
+  // Client-side search filter (applied after fetch to avoid extra round-trips)
+  const filteredEvents = search.trim()
+    ? events.filter(ev => {
+        const q = search.toLowerCase();
+        return (
+          (ev.event_type || ev.action || '').toLowerCase().includes(q) ||
+          (ev.target_type || ev.resource_type || '').toLowerCase().includes(q) ||
+          (ev.actor_email || '').toLowerCase().includes(q) ||
+          (ev.actor_user_id || '').toLowerCase().includes(q) ||
+          JSON.stringify(ev.details || {}).toLowerCase().includes(q)
+        );
+      })
+    : events;
+
+  // Client-side sort
+  const sortedEvents = [...filteredEvents].sort((a, b) => {
+    let av = a[sortKey] || a.timestamp || '';
+    let bv = b[sortKey] || b.timestamp || '';
+    if (sortKey === 'event_type') { av = a.event_type || a.action || ''; bv = b.event_type || b.action || ''; }
+    if (sortKey === 'actor') { av = a.actor_email || a.actor_user_id || ''; bv = b.actor_email || b.actor_user_id || ''; }
+    const cmp = av < bv ? -1 : av > bv ? 1 : 0;
+    return sortDir === 'asc' ? cmp : -cmp;
+  });
+
+  const handleSort = (key) => {
+    if (sortKey === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+    else { setSortKey(key); setSortDir('asc'); }
+  };
+
+  const SortIcon = ({ col }) => {
+    if (sortKey !== col) return <span style={{ opacity: 0.25, marginLeft: 3 }}>↕</span>;
+    return <span style={{ marginLeft: 3, color: C.teal1 }}>{sortDir === 'asc' ? '↑' : '↓'}</span>;
+  };
 
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }} className="fade-in">
       <Header screen="auditlog">
-        <Btn variant="secondary" size="sm" loading={exporting} onClick={handleExportCSV} style={{ fontSize: 10 }}>
-          ↓ Export CSV
-        </Btn>
+        <div style={{ display: 'flex', gap: 6 }}>
+          <Btn variant="secondary" size="sm" loading={exporting === 'json'} disabled={!!exporting} onClick={handleExportJSON} style={{ fontSize: 10 }}>
+            ↓ JSON
+          </Btn>
+          <Btn variant="secondary" size="sm" loading={exporting === 'csv'} disabled={!!exporting} onClick={handleExportCSV} style={{ fontSize: 10 }}>
+            ↓ CSV
+          </Btn>
+        </div>
       </Header>
 
       <div style={{ flex: 1, overflow: 'auto', padding: 20, display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -136,6 +197,11 @@ export function AuditLogScreen() {
         {/* Filters */}
         <Card style={{ padding: '12px 16px' }}>
           <div style={{ display: 'flex', alignItems: 'flex-end', gap: 10, flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1, minWidth: 160 }}>
+              <span style={{ fontSize: 9, fontWeight: 700, color: C.textMuted, textTransform: 'uppercase', letterSpacing: '.5px' }}>Search</span>
+              <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search events, actors, details…"
+                style={{ fontSize: 11, background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 6, padding: '5px 8px', color: C.textPrimary }} />
+            </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
               <span style={{ fontSize: 9, fontWeight: 700, color: C.textMuted, textTransform: 'uppercase', letterSpacing: '.5px' }}>From</span>
               <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)}
@@ -158,7 +224,7 @@ export function AuditLogScreen() {
             </div>
             <Btn variant="primary" size="sm" onClick={applyFilters} disabled={loading} style={{ fontSize: 11 }}>Apply</Btn>
             {hasActiveFilters && (
-              <Btn variant="ghost" size="sm" onClick={clearFilters} style={{ fontSize: 11, color: C.textMuted }}>Clear</Btn>
+              <Btn variant="ghost" size="sm" onClick={() => { setSearch(''); clearFilters(); }} style={{ fontSize: 11, color: C.textMuted }}>Clear</Btn>
             )}
           </div>
         </Card>
@@ -168,7 +234,10 @@ export function AuditLogScreen() {
             <SectionLabel>Events</SectionLabel>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               {hasActiveFilters && <Chip color={C.teal2} bg="rgba(90,200,208,0.08)" border="rgba(90,200,208,0.2)">Filtered</Chip>}
-              {total != null && (
+              {search.trim() && (
+                <Chip color={C.teal2} bg="rgba(90,200,208,0.08)" border="rgba(90,200,208,0.2)">{sortedEvents.length} match{sortedEvents.length !== 1 ? 'es' : ''}</Chip>
+              )}
+              {total != null && !search.trim() && (
                 <Chip color={C.textMuted} bg="transparent" border={C.border}>{total.toLocaleString()} events</Chip>
               )}
             </div>
@@ -176,7 +245,7 @@ export function AuditLogScreen() {
 
           {loading && events.length === 0 ? (
             <div style={{ padding: 32, textAlign: 'center', color: C.textMuted, fontSize: 12 }}>Loading…</div>
-          ) : events.length === 0 ? (
+          ) : sortedEvents.length === 0 ? (
             <div style={{ padding: 32, textAlign: 'center', color: C.textMuted, fontSize: 12 }}>
               {hasActiveFilters ? 'No events match the current filters.' : 'No audit events yet.'}
             </div>
@@ -185,14 +254,27 @@ export function AuditLogScreen() {
               <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                 <thead>
                   <tr style={{ borderBottom: `1px solid ${C.border}` }}>
-                    {['Time', 'Action', 'Resource', 'Actor', 'Details'].map(h => (
-                      <th key={h} scope="col" style={{ fontSize: 9, fontWeight: 700, color: C.textMuted, padding: '7px 14px', textAlign: 'left', textTransform: 'uppercase', letterSpacing: '.5px' }}>{h}</th>
+                    {[
+                      { label: 'Time', key: 'created_at' },
+                      { label: 'Action', key: 'event_type' },
+                      { label: 'Resource', key: null },
+                      { label: 'Actor', key: 'actor' },
+                      { label: 'Details', key: null },
+                    ].map(({ label: h, key }) => (
+                      <th key={h} scope="col" onClick={key ? () => handleSort(key) : undefined}
+                        style={{
+                          fontSize: 9, fontWeight: 700, color: sortKey === key ? C.teal1 : C.textMuted,
+                          padding: '7px 14px', textAlign: 'left', textTransform: 'uppercase', letterSpacing: '.5px',
+                          cursor: key ? 'pointer' : 'default', userSelect: 'none',
+                        }}>
+                        {h}{key && <SortIcon col={key} />}
+                      </th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {events.map((ev, i) => (
-                    <tr key={ev.id || i} style={{ borderBottom: i < events.length - 1 ? `1px solid ${C.border}` : 'none' }}>
+                  {sortedEvents.map((ev, i) => (
+                    <tr key={ev.id || i} style={{ borderBottom: i < sortedEvents.length - 1 ? `1px solid ${C.border}` : 'none' }}>
                       <td style={{ ...mono, padding: '9px 14px', fontSize: 10, color: C.textDim, whiteSpace: 'nowrap' }}>{fmtTime(ev.created_at || ev.timestamp)}</td>
                       <td style={{ padding: '9px 14px' }}>
                         <span style={{ ...mono, fontSize: 10, fontWeight: 600, color: actionColor(ev.event_type || ev.action) }}>{ev.event_type || ev.action || '—'}</span>

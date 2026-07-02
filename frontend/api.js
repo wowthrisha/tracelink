@@ -914,6 +914,16 @@ window.SecureDocAPI = {
     if (!r.ok) throw await r.json().catch(() => ({ detail: 'Failed to delete API key' }));
   },
 
+  async rotateApiKey(keyId) {
+    const r = await fetch(`${API_BASE}/api/api-keys/${keyId}/rotate`, {
+      method: 'POST',
+      headers: { ...authHeaders() },
+    });
+    if (r.status === 401) { _clearAndReload(); return; }
+    if (!r.ok) throw await r.json().catch(() => ({ detail: 'Failed to rotate API key' }));
+    return r.json();
+  },
+
   // ── Webhooks ──────────────────────────────────────────────────────────────
   async listWebhooks() {
     const r = await fetch(`${API_BASE}/api/webhooks`, { headers: { ...authHeaders() } });

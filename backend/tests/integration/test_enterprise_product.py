@@ -570,6 +570,29 @@ class TestPublicAPI:
         assert r.status_code == 422
 
     @pytest.mark.asyncio
+    async def test_rotate_key_generates_new_key_value(self, client):
+        cr = await self._create_key(client)
+        body = cr.json()
+        key_id = body["id"]
+        old_prefix = body["key_prefix"]
+        old_key = body["key"]
+
+        r = await client.post(f"/api/api-keys/{key_id}/rotate")
+        assert r.status_code == 200
+        rb = r.json()
+        assert "key" in rb, "rotate must return the new full key once"
+        assert rb["key"].startswith("sd_"), "rotated key must have sd_ prefix"
+        assert rb["key"] != old_key, "rotated key must differ from original"
+        assert rb["key_prefix"] != old_prefix, "key_prefix must be updated"
+        assert rb["is_active"] is True, "rotated key must be active"
+
+    @pytest.mark.asyncio
+    async def test_rotate_nonexistent_key_returns_404(self, client):
+        import uuid
+        r = await client.post(f"/api/api-keys/{uuid.uuid4()}/rotate")
+        assert r.status_code == 404
+
+    @pytest.mark.asyncio
     async def test_all_valid_scopes_accepted(self, client):
         r = await client.post(
             "/api/api-keys",

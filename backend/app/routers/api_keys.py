@@ -188,6 +188,42 @@ async def update_api_key(
     return _key_response(key)
 
 
+@router.post("/{key_id}/rotate", status_code=200)
+async def rotate_api_key(
+    key_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: dict = Depends(get_current_user),
+):
+    """
+    Rotate an API key: generate a new key value for the same key entry.
+    The old key is immediately invalidated. The new full key is returned once.
+    """
+    key = await _get_user_key(key_id, user, db)
+
+    raw_key = generate_api_key()
+    key.key_prefix = raw_key[:10]
+    key.key_hash = hash_api_key(raw_key)
+    key.is_active = True
+
+    await db.commit()
+    await db.refresh(key)
+
+    try:
+        from app.services.audit_service import log_audit_event as _log_audit
+        await _log_audit(
+            db,
+            event_type="api_key.rotated",
+            actor_user_id=user["user_id"],
+            target_type="api_key",
+            target_id=str(key.id),
+            details={"name": key.name},
+        )
+    except Exception:
+        pass
+
+    return _key_response(key, full_key=raw_key)
+
+
 @router.delete("/{key_id}", status_code=204)
 async def delete_api_key(
     key_id: str,
