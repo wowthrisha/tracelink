@@ -24,6 +24,7 @@ export function LoginScreen({ onLogin }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [info, setInfo] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
 
   const handleSubmit = async (e) => {
     e && e.preventDefault();
@@ -57,6 +58,9 @@ export function LoginScreen({ onLogin }) {
       else if (mode === 'reset' && (lc.includes('expired') || lc.includes('invalid') || lc.includes('otp') || lc.includes('token'))) {
         setError('Your password reset link has expired or is invalid. Please request a new reset email.');
         setMode('forgot');
+      }
+      else if (lc.includes('failed to fetch') || lc.includes('network') || lc.includes('load failed')) {
+        setError('Unable to reach the server. Check your connection and try again.');
       }
       else { setError(msg); }
     } finally {
@@ -163,12 +167,27 @@ export function LoginScreen({ onLogin }) {
                   </button>
                 )}
               </div>
-              <input
-                type="password" value={password} autoComplete={mode === 'signup' ? 'new-password' : 'current-password'}
-                onChange={e => setPassword(e.target.value)}
-                onFocus={e => e.target.style.borderColor = C.borderActive}
-                onBlur={e => e.target.style.borderColor = C.borderMed}
-                placeholder="••••••••" style={inputStyle} />
+              <div style={{ position: 'relative' }}>
+                <input
+                  type={showPassword ? 'text' : 'password'} value={password} autoComplete={mode === 'signup' ? 'new-password' : 'current-password'}
+                  onChange={e => setPassword(e.target.value)}
+                  onFocus={e => e.target.style.borderColor = C.borderActive}
+                  onBlur={e => e.target.style.borderColor = C.borderMed}
+                  placeholder="••••••••" style={{ ...inputStyle, paddingRight: 40 }} />
+                <button type="button"
+                  onClick={() => setShowPassword(v => !v)}
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                  style={{
+                    position: 'absolute', right: 4, top: '50%', transform: 'translateY(-50%)',
+                    background: 'none', border: 'none', cursor: 'pointer', padding: 6,
+                    fontSize: 11, color: C.textMuted, fontFamily: "'DM Sans', sans-serif"
+                  }}>
+                  {showPassword ? 'Hide' : 'Show'}
+                </button>
+              </div>
+              {mode === 'signup' && (
+                <span style={{ fontSize: 10, color: C.textDim }}>At least 6 characters.</span>
+              )}
             </div>
           )}
 

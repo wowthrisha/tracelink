@@ -252,6 +252,17 @@ export function UploadScreen({ onViewDoc, onAccessDoc }) {
 
       <div style={{ flex: 1, overflow: 'auto', padding: 20, display: 'flex', flexDirection: 'column', gap: 14 }}>
 
+        {/* Security notice */}
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 8, padding: '9px 14px',
+          background: C.infoBg, border: `1px solid ${C.infoBdr}`, borderRadius: 8
+        }}>
+          <StatusDot status="active" size={6} />
+          <span style={{ fontSize: 12, color: C.textSecondary, lineHeight: 1.4 }}>
+            All documents are converted to images — downloads are disabled by default.
+          </span>
+        </div>
+
         {/* Stats */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 10 }}>
           {stats.map(s => <StatCard key={s.label} s={s} />)}
@@ -368,12 +379,6 @@ export function UploadScreen({ onViewDoc, onAccessDoc }) {
               </div>
             )}
           </Card>
-        </div>
-
-        {/* Footer hint */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '2px 0' }}>
-          <StatusDot status="active" size={5} />
-          <span style={{ fontSize: 10, color: C.textMuted }}>All documents converted to images — download disabled by default</span>
         </div>
 
       </div>

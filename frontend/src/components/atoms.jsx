@@ -464,7 +464,7 @@ export function NavItem({ item, isActive, onClick, badge }) {
 
 /* ─── HEADER ───────────────────────────────────────────────── */
 export function Header({ screen, breadcrumb, children }) {
-  const titles = { upload: 'Upload Dashboard', viewer: 'Document Viewer', access: 'Access Control', analytics: 'Analytics', storage: 'Storage', billing: 'Billing', apikeys: 'API Keys', webhooks: 'Webhooks', auditlog: 'Audit Log', orgs: 'Organizations', notifications: 'Notifications' };
+  const titles = { upload: 'Documents', viewer: 'Document Viewer', access: 'Access Control', analytics: 'Analytics', storage: 'Storage', billing: 'Billing', apikeys: 'API Keys', webhooks: 'Webhooks', auditlog: 'Audit Log', orgs: 'Organizations', notifications: 'Notifications' };
   const icons = { upload: '⊕', viewer: '◫', access: '◈', analytics: '▦' };
   return (
     <div className="header-root" style={{

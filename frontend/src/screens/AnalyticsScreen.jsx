@@ -19,6 +19,7 @@ export function AnalyticsScreen() {
   const [selectedHeatmapDoc, setSelectedHeatmapDoc] = useState(null); // {id, filename}
   const [heatmapData, setHeatmapData] = useState(null);
   const [heatmapLoading, setHeatmapLoading] = useState(false);
+  const [showAllGroups, setShowAllGroups] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -408,7 +409,7 @@ export function AnalyticsScreen() {
               <SectionLabel style={{ marginBottom: 10 }}>Groups at a Glance</SectionLabel>
               {groupStats.length === 0 ? (
                 <div style={{ fontSize: 11, color: C.textMuted, padding: '8px 0' }}>No groups yet</div>
-              ) : groupStats.slice(0, 5).map(g => (
+              ) : (showAllGroups ? groupStats : groupStats.slice(0, 5)).map(g => (
                 <div key={g.group_id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                     <div style={{ width: 7, height: 7, borderRadius: '50%', background: g.group_color, flexShrink: 0 }} />
@@ -420,6 +421,15 @@ export function AnalyticsScreen() {
                   </div>
                 </div>
               ))}
+              {groupStats.length > 5 && (
+                <button onClick={() => setShowAllGroups(v => !v)}
+                  style={{
+                    fontSize: 10, color: C.teal3, background: 'none', border: 'none',
+                    cursor: 'pointer', padding: '2px 0', fontFamily: "'DM Sans', sans-serif"
+                  }}>
+                  {showAllGroups ? 'Show fewer' : `Show all ${groupStats.length}`}
+                </button>
+              )}
               <Divider style={{ margin: '12px 0' }} />
               <SectionLabel style={{ marginBottom: 8 }}>Security Activity</SectionLabel>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
