@@ -52,7 +52,14 @@ class WatermarkService:
                 rotated = tile.rotate(angle, expand=False)
                 rx = x - tile_size // 2 + text_width // 2
                 ry = y - tile_size // 2 + text_height // 2
-                overlay.paste(rotated, (rx, ry), rotated)
+                # Composite via a same-size transparent layer rather than pasting
+                # `rotated` using itself as the mask — paste-with-self-as-mask
+                # blends the alpha value twice (once for color, once for the
+                # resulting alpha), squaring it: a 22%-opacity watermark landed
+                # at ~5% opacity, invisible after WEBP compression.
+                layer = Image.new("RGBA", overlay.size, (0, 0, 0, 0))
+                layer.paste(rotated, (rx, ry))
+                overlay = Image.alpha_composite(overlay, layer)
 
         combined = Image.alpha_composite(img, overlay)
         result = combined.convert("RGB")

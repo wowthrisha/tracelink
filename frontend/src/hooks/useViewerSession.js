@@ -72,7 +72,9 @@ export function useViewerSession(doc, publicToken, { onValidated } = {}) {
         sessionStorage.removeItem(`securedoc_sess_${token}`);
         const detail = (typeof e.detail === 'string' ? e.detail : '').toLowerCase();
         const terminalStatus = status === 404 ? 'not_found'
-          : detail.includes('revoked') ? 'revoked' : 'expired';
+          : detail.includes('revoked') ? 'revoked'
+          : detail.includes('view') ? 'view_limit_reached'
+          : 'expired';
         setGateInfo({ status: terminalStatus, requires_password: false, requires_email: false });
       } else {
         toast?.(_errMsg(e, 'Failed to open viewer'), 'error');
@@ -109,7 +111,13 @@ export function useViewerSession(doc, publicToken, { onValidated } = {}) {
           try {
             const data = await window.SecureDocAPI.getLinks(docId);
             const active = (data.links || []).filter(l => !l.revoked_at && (!l.expires_at || new Date(l.expires_at) > new Date()));
-            if (active.length > 0) { token = active[0].token; }
+            // Prefer a link with no viewer-facing restrictions for the owner's own
+            // preview — reusing the first active link regardless of its settings
+            // could hand the owner a password/email/domain-gated link they created
+            // for external sharing, locking them out of their own document.
+            const unrestricted = active.find(l => !l.has_password && !(l.allowed_emails || []).length && !(l.allowed_domains || []).length)
+              || active.find(l => l.label === 'Admin Preview');
+            if (unrestricted) { token = unrestricted.token; }
           } catch { }
           if (!token) {
             const nl = await window.SecureDocAPI.createLink({ document_id: docId, label: 'Admin Preview' });

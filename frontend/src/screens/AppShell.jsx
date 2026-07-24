@@ -59,6 +59,20 @@ export function AppShell() {
     }
   }, []);
 
+  // Fetch the real plan on mount instead of leaving the sidebar badge on its
+  // 'free' default until the user happens to visit the Billing screen (which
+  // was the only place that ever called setPlan) — a Pro user would otherwise
+  // see "FREE" everywhere else in the app for the entire session.
+  useEffect(() => {
+    if (!token) return;
+    fetch(`${window.SecureDocAPI?.apiBase || ''}/api/billing/status`, {
+      headers: { 'Authorization': `Bearer ${token}` },
+    })
+      .then(r => r.ok ? r.json() : null)
+      .then(data => { if (data) setPlan(data.plan || 'free'); })
+      .catch(() => {});
+  }, [token]);
+
   // Fetch open (unresolved) feedback count when activeDoc changes
   useEffect(() => {
     if (!activeDoc?.id || !window.SecureDocAPI?.getFeedback) return;

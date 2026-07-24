@@ -39,6 +39,36 @@ class TestWatermarkService:
         assert isinstance(r1, bytes) and isinstance(r2, bytes)
         assert r1 != r2
 
+    def test_apply_visible_watermark_is_actually_visible(self):
+        """
+        Regression test: at the app's real default opacity (0.22), the watermark
+        text must land in the output at a visually meaningful strength, not merely
+        differ from the input at the byte level (that alone doesn't catch a bug
+        where alpha compositing crushes the effective opacity to near-zero).
+        """
+        img = Image.new("RGB", (1200, 1600), (255, 255, 255))
+        buf = io.BytesIO()
+        img.save(buf, format="WEBP", quality=90)
+        blank = buf.getvalue()
+
+        svc = WatermarkService()
+        result = svc.apply_visible_watermark(blank, "test@example.com · 2026-07-24 · sess:abc123")
+
+        out = Image.open(io.BytesIO(result)).convert("L")
+        darkest, lightest = out.getextrema()
+        # Text drawn at fill=(128,128,128) and opacity=0.22 should land noticeably
+        # below white (255) — well outside WEBP-compression noise on a blank page.
+        assert darkest <= 240, (
+            f"watermark barely/not visible: darkest pixel={darkest} (expected <=240 "
+            "at default 0.22 opacity) — check for double alpha-blending in the "
+            "tile paste/composite step"
+        )
+        nonwhite_pixels = sum(out.histogram()[:250])
+        assert nonwhite_pixels > 1000, (
+            f"only {nonwhite_pixels} non-white pixels found — watermark tiling "
+            "appears to have collapsed to a near no-op"
+        )
+
     # ── Forensic stamp tests ───────────────────────────────────────────────────
 
     def test_apply_forensic_stamp_returns_valid_webp(self, sample_webp_bytes):
