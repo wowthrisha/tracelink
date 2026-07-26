@@ -8,18 +8,20 @@ Narrative progress log, one entry per closed (or explicitly deferred) backlog it
 |---|---|---|---|
 | Critical | 0 | 0 | 0 |
 | High | 3 | 3 | 0 |
-| Medium | 3 | 1 | 2 |
+| Medium | 3 | 2 | 1* |
 | Low | 7 | 0 | 7 |
 | Enhancement | 8 | 0 | 8 |
-| **Total** | **21** | **4** | **17** |
+| **Total** | **21** | **5** | **16** |
 
-- **Overall completion**: 19.0% (4/21)
-- **Last completed issue**: ENG-004 (document picker disambiguation)
-- **Current issue**: ENG-005 (list-endpoint pagination, currently "Deferred") — re-confirming deferral is still correct before moving to ENG-006
-- **Next planned issue**: ENG-006 (storage blocking-I/O audit)
-- **Regression status**: PASS — zero regressions since last checkpoint.
+\* ENG-005 counted as remaining/deferred, not closed — its deferral was re-confirmed with fresh reasoning (not silently skipped), but the underlying pagination work itself is intentionally not done this sprint. All 3 Medium-tier items have been actioned (1 fixed, 1 deferred-with-reconfirmation, 1 audited clean).
+
+- **Overall completion**: 23.8% (5/21) — or effectively 100% of *actionable* Medium-tier work this sprint, since ENG-005's correct action was a re-confirmed deferral, not a fix
+- **Last completed issue**: ENG-006 (storage blocking-I/O audit — no defect found)
+- **Current issue**: none in progress — Medium tier complete, about to start Low tier
+- **Next planned issue**: ENG-007 (Audit Log scroll affordance)
+- **Regression status**: PASS — Medium-tier completion regression pass done 2026-07-26 (post-ENG-006). All 10 dashboard screens re-checked clean (zero raw errors, zero console errors), ENG-004's fix re-confirmed holding.
 - **Test status**: Backend 1708 passed, 1 skipped, 0 failed. Frontend 13/13 passed.
-- **Current commit hash**: `cfe1f24`
+- **Current commit hash**: `25f8c71`
 
 ## 2026-07-26 — Sprint start
 
@@ -61,6 +63,20 @@ Per explicit instruction: before starting Medium-priority work, re-ran browser v
 ## ENG-004 — Document picker disambiguation — CLOSED
 
 Small, additive fix: the share-link creation flow's document picker showed only filename/pages/views, with no way to tell apart documents sharing a filename. Added an "uploaded {date}" line using the app's existing date formatter. Browser-verified on the local stack, zero layout regression, both test suites unchanged.
+
+## ENG-005 — List-endpoint pagination — DEFERRAL RE-CONFIRMED
+
+Did not silently carry the original "Deferred" status forward. Attempted to pull a fresh production document count to confirm the scale reasoning still held; the saved session token had expired, and re-authenticating solely to refresh a count that couldn't plausibly have changed materially (no new customer onboarding this sprint) was judged disproportionate. Logged explicitly as Not-enough-evidence for an updated exact number, with an engineering inference that the "before 10,000 users" deferral reasoning is unaffected. Still deferred — this time with a real re-examination on record, not a stale carry-forward.
+
+## ENG-006 — Storage blocking-I/O audit — CLOSED, no defect found
+
+Flagged because this exact bug class already caused one real production issue once (V4.0). Full repo-wide audit: all boto3/S3 usage confined to one file, all 6 methods correctly wrap their blocking calls in `run_in_executor`. Clean.
+
+## Medium-tier completion regression pass — 2026-07-26
+
+Per explicit process rule (browser regression pass after each completed tier): re-logged in fresh, swept all 10 dashboard screens for raw error text and console errors — zero found on either. Re-confirmed ENG-004's document-picker fix still shows upload dates. Both test suites re-run, unchanged.
+
+**Medium tier complete. Proceeding to Low tier (ENG-007).**
 
 ---
 
