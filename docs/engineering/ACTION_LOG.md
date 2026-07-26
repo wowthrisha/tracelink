@@ -161,3 +161,26 @@ Format per entry: Timestamp / Module / Screen / Observation / Root Cause / Decis
 - **Verification (Browser-verified)**: Local Docker stack, Access Control screen — both of Account A's real local documents now show `"uploaded May 9, 2026"` in the picker row. Screenshot confirms no layout regression.
 - **Result**: ENG-004 closed.
 - **Next Action**: proceed to ENG-005 (list-endpoint pagination) — currently marked "Deferred" in the backlog; will re-confirm that deferral is still the right call (rather than silently skip) before moving to ENG-006.
+
+### Entry 13 — Sprint V14.0, ENG-005 re-confirmation (2026-07-26)
+
+- **Timestamp**: 2026-07-26T18:20
+- **Module**: N/A — deferral re-confirmation, not a code change
+- **Observation**: Per explicit process instruction, did not silently carry ENG-005's "Deferred" status forward without checking. Attempted to re-fetch a current production document count as a fresh data point; the saved production auth token had expired.
+- **Decision**: Judged re-authenticating to production solely to refresh a count disproportionate — no new customer onboarding occurred this sprint, so the ~30-document scale from `SCALABILITY_CERTIFICATION.md` §1 (captured earlier the same day) is not expected to have materially changed. Logged this explicitly as **Not enough evidence** for an updated exact number, with **Engineering inference** that the underlying "before 10,000 users" deferral reasoning is unaffected by the gap. Deferral reconfirmed, not silently repeated.
+- **Files Modified**: None.
+- **Tests Executed**: N/A.
+- **Result**: ENG-005 remains Deferred, now with an explicit re-confirmation record instead of a stale unexamined status.
+- **Next Action**: proceed to ENG-006 (storage blocking-I/O audit).
+
+### Entry 14 — Sprint V14.0, ENG-006 (2026-07-26)
+
+- **Timestamp**: 2026-07-26T18:25
+- **Module**: Backend (`app/services/storage.py`) — audit only
+- **Observation**: `ENGINEERING_BACKLOG.md` ENG-006 (last Medium-tier item). Flagged because this exact bug class — a synchronous boto3 call blocking the async event loop — already caused one confirmed real issue in this codebase (fixed in `viewer.py`'s download path, V4.0). Never re-audited elsewhere.
+- **Root Cause**: N/A — audit found no defect.
+- **Decision**: Grepped the full backend for every `boto3`/S3-call-shaped reference. All real usage is confined to `services/storage.py`; the one other match (`workers/pipeline/pdf.py`) was PyPDF's unrelated `get_object()` method (PDF object model, not S3), and that file runs inside the Celery worker process, not the async API event loop, so it wouldn't be in scope for this concern even if it had been real. Read all 6 methods on `StorageService` directly (not assumed from the docstring) — every one wraps its boto3 call in `run_in_executor(_STORAGE_EXECUTOR, ...)`. The module's own docstring already states this as a deliberate contract; the code verifiably lives up to it.
+- **Files Modified**: None — no defect found, nothing to fix.
+- **Tests Executed**: N/A (audit only, no code changed).
+- **Result**: ENG-006 closed, no defect found. **This closes the Medium-priority tier** (ENG-004 fixed, ENG-005 deferral re-confirmed, ENG-006 audited clean).
+- **Next Action**: per process rule, perform a browser-based regression pass before moving into the Low-priority tier.

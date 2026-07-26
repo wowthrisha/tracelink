@@ -449,3 +449,9 @@ Method: `ruff` (installed for this session) for AST-verified unused-import/unuse
 **Tests**: Frontend 13/13 passed. Backend 1708 passed, 1 skipped, 0 failed (unchanged — frontend-only change).
 
 **Files**: `frontend/src/components/DocumentPicker.jsx`.
+
+## Sprint V14.0 — ENG-006: Storage blocking-I/O audit (2026-07-26)
+
+**Not a fix — a clean audit.** `ENGINEERING_BACKLOG.md` ENG-006, flagged because this exact bug class already caused one real production issue once before (V4.0, `viewer.py`'s download path). Grepped the full backend for boto3/S3 usage — confined entirely to `services/storage.py`. Read all 6 methods directly: every one wraps its blocking boto3 call in `run_in_executor(_STORAGE_EXECUTOR, ...)`. No defect found — the pattern is already correct and self-documented in the module's own docstring.
+
+**Files**: None changed.

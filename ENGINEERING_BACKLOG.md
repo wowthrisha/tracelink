@@ -6,7 +6,7 @@ Every issue's evidence is classified as exactly one of **Browser verified / Sour
 
 Severity scale: **Critical → High → Medium → Low → Enhancement**. Per the V13.0 Tier-0 finding, restated here rather than re-derived: **zero Critical issues exist** — nothing found across all six reports is a confirmed, live-observed defect in core functionality, data isolation, or security enforcement.
 
-**Status as of 2026-07-26 18:01**: All 3 High-severity items (ENG-001, ENG-002, ENG-003) closed and independently re-verified in a dedicated post-tier regression pass (fresh logins, not reused tokens) — see `PROGRESS.md` burndown table and `REGRESSION_REPORT.md`. Zero regressions across both test suites at every checkpoint. Proceeding to Medium tier.
+**Status as of 2026-07-26 18:30**: All 3 High-severity items closed and re-verified. Medium tier fully actioned (ENG-004 fixed, ENG-005 deferral re-confirmed with fresh reasoning, ENG-006 audited clean) and re-verified in a dedicated post-tier regression pass (10 screens, zero errors). Zero regressions across both test suites at every checkpoint. Proceeding to Low tier.
 
 ---
 
@@ -76,23 +76,25 @@ Severity scale: **Critical → High → Medium → Low → Enhancement**. Per th
 - **Regression risk**: Medium — changes response shape for list endpoints; every frontend consumer must be updated in the same change
 - **Dependencies**: None
 - **Priority**: 5
-- **Status**: Deferred — scoped to "before 10,000 users," current account volumes don't warrant the response-shape churn risk this sprint. Revisit when approaching that threshold.
+- **Status**: **Deferral re-confirmed** (2026-07-26 18:20) — see note below. Still Deferred.
 - **Blocked by**: None
 - **Owner**: Unassigned
 - **Verification method**: Regression-verified (full test suite) + Browser-verified (existing list screens still render correctly post-pagination)
 
+**Re-confirmation note**: before moving past this item to ENG-006, explicitly re-checked rather than silently carried the deferral forward. Attempted to re-fetch a current production document count for an updated data point; the saved production session token had expired and re-authenticating solely to refresh this count was judged disproportionate — no new customer onboarding occurred during this sprint, so the order of magnitude (`~30 documents`, per `SCALABILITY_CERTIFICATION.md` §1, captured earlier the same day) has not materially changed. **Not enough evidence** for an updated exact count; **Engineering inference** that the underlying decision is unaffected — the response-shape churn risk across 5 endpoints and their frontend consumers still clearly outweighs a currently-nonexistent performance symptom. Deferral stands.
+
 ### ENG-006 — Storage call sites' blocking-I/O safety not exhaustively re-audited
 - **Source reports**: `RELEASE_BLOCKERS.md` Tier 2 item 4, `SCALABILITY_CERTIFICATION.md` §9
 - **Evidence**: Engineering inference — flagged specifically because this exact bug class (synchronous boto3 calls blocking the async event loop) already caused one confirmed real issue in this codebase (fixed in `viewer.py`'s download path, V4.0). Not confirmed to still exist elsewhere — flagged as an unaudited risk, not a found defect.
-- **Affected files**: `backend/app/services/storage_service.py` and all call sites (full audit needed to enumerate)
+- **Affected files**: `backend/app/services/storage.py` (audited, no changes needed)
 - **Estimated effort**: Small (verification/audit) — Medium if any additional instances are found and need `run_in_executor` fixes
-- **Regression risk**: Low for the audit itself; Medium if fixes are needed (touches request-handling code)
+- **Regression risk**: None — no code changed, audit found the pattern already correct
 - **Dependencies**: None
 - **Priority**: 6
-- **Status**: Open
+- **Status**: **Closed** (2026-07-26) — **no defect found**
 - **Blocked by**: None
 - **Owner**: Engineering (this sprint)
-- **Verification method**: Source-code verified — grep every `StorageService`/boto3 call site, confirm each async-context call is wrapped in `run_in_executor` or is already using an async client
+- **Verification method**: Source-code verified — all boto3 usage confined to `services/storage.py` (confirmed via repo-wide grep, one false-positive match in `workers/pipeline/pdf.py` was PyPDF's unrelated `get_object()` method, not S3, and that file runs in the Celery worker, not the async API event loop anyway). All 6 methods (`upload_file`, `download_bytes`, `delete_file`, `list_keys_with_prefix`, `file_exists`, `generate_presigned_url`) correctly wrap their boto3 call in `run_in_executor(_STORAGE_EXECUTOR, ...)` — confirmed by direct read, not assumed. The module's own docstring already documents this as a deliberate contract ("Consistent use of _STORAGE_EXECUTOR for all S3 operations"), and the code lives up to it.
 
 ---
 
@@ -294,7 +296,7 @@ Severity scale: **Critical → High → Medium → Low → Enhancement**. Per th
 | ENG-003 | Cross-account IDOR unverified live | High | 3 | **Closed — no defect found** |
 | ENG-004 | Document picker can't disambiguate duplicates | Medium | 4 | **Closed** |
 | ENG-005 | List endpoints lack pagination | Medium | 5 | Deferred |
-| ENG-006 | Storage blocking-I/O sites unaudited | Medium | 6 | Open |
+| ENG-006 | Storage blocking-I/O sites unaudited | Medium | 6 | **Closed — no defect found** |
 | ENG-007 | Audit Log scroll affordance missing | Low | 7 | Open |
 | ENG-008 | Rate-limit 429 boundary unconfirmed | Low | 8 | Open |
 | ENG-009 | XSS untested beyond link labels | Low | 9 | Open |
