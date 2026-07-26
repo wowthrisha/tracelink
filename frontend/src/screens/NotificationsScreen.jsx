@@ -59,6 +59,7 @@ function eventLabel(ev) {
 function eventDetail(ev) {
   const parts = [];
   if (ev.document_title) parts.push(ev.document_title);
+  if (ev.event_type === 'page_viewed' && ev.page_number) parts.push(`page ${ev.page_number}`);
   if (ev.viewer_email) parts.push(`by ${ev.viewer_email}`);
   if (ev.ip_address) parts.push(`from ${ev.ip_address}`);
   if (ev.country) parts.push(ev.country);

@@ -2,7 +2,7 @@
 
 Running state snapshot, updated after every closed backlog item. See `PROGRESS.md` for the narrative log and `ENGINEERING_BACKLOG.md` for full issue detail.
 
-**Last updated**: 2026-07-26, after ENG-001.
+**Last updated**: 2026-07-26, after ENG-002.
 
 ## Environment state
 
@@ -15,9 +15,10 @@ Running state snapshot, updated after every closed backlog item. See `PROGRESS.m
 | ID | Status |
 |---|---|
 | ENG-001 | **Closed** — Analytics grid overflow fixed, verified, zero regressions |
-| ENG-002 | Next up |
-| ENG-003 – ENG-020 | Open, per priority order in `ENGINEERING_BACKLOG.md` |
+| ENG-002 | **Closed** — Notifications feed now shows document name + page number, verified live, zero regressions |
+| ENG-003 | Next up |
+| ENG-004 – ENG-020 | Open, per priority order in `ENGINEERING_BACKLOG.md` |
 
 ## Immediate next step
 
-ENG-002 (Notifications feed lacks document identity) — requires a backend query join, not just a frontend change. Higher regression risk than ENG-001; will verify against the local Docker stack the same way before considering it closed.
+ENG-003 (cross-account IDOR — architecturally sound but never proven live). This is a verification task, not expected to require a code change: create a second disposable test account, attempt to access Account A's resources by ID as Account B, confirm 404 across every resource type per the existing query-scoping pattern.

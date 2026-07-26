@@ -417,3 +417,15 @@ Method: `ruff` (installed for this session) for AST-verified unused-import/unuse
 **Tests**: Frontend 13/13 passed. Backend 1708 passed, 1 skipped, 0 failed — identical to baseline (frontend-only change).
 
 **Files**: `frontend/src/screens/AnalyticsScreen.jsx` (lines 339, 344, 390 — 3 lines changed, no logic touched).
+
+## Sprint V14.0 — ENG-002: Notifications feed lacks document identity (2026-07-26)
+
+**Issue**: `ENGINEERING_BACKLOG.md` ENG-002. `GET /api/analytics/events` (`backend/app/routers/analytics.py`) never returned a document title/filename — only an opaque `link_id` — so the Notifications screen's Activity Feed rendered every event as a generic "Page viewed" / "Viewer opened" with no way to identify which document was involved, even though the frontend already had a code path (`NotificationsScreen.jsx eventDetail()`) designed to display `document_title` if it were present.
+
+**Fix**: The endpoint already builds `doc_ids` and `link_ids` to scope its query — extended both existing queries to also select `Document.filename` and `ShareLink.document_id`, building two small in-process maps to attach `document_title` to each event in the response. No new database query added. Also surfaced `page_number` (already present in the payload, never displayed) in the frontend detail line for `page_viewed` events.
+
+**Verification**: Browser-verified against the local Docker stack — created a real share link, generated live view events by opening it anonymously and navigating pages, confirmed the owner's Notifications feed now shows the real document name and page number on every entry (e.g. `"sem6 (1).pdf · page 3"`) instead of a bare, undifferentiated "Page viewed".
+
+**Tests**: Backend 1708 passed, 1 skipped, 0 failed (unchanged — additive response field only). Frontend 13/13 passed.
+
+**Files**: `backend/app/routers/analytics.py`, `frontend/src/screens/NotificationsScreen.jsx`.

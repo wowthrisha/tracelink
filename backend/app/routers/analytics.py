@@ -11,7 +11,7 @@ from app.models.link import ShareLink
 from app.models.document import Document
 from app.services.analytics_service import AnalyticsService
 from app.middleware.rate_limit import limiter
-from app.auth import get_current_user, require_scope
+from app.auth import require_scope
 
 logger = logging.getLogger(__name__)
 
@@ -129,21 +129,25 @@ async def get_events(
             group_uuid = None
 
     # Build user-scoped document ID filter, optionally narrowed by document_id / group_id
-    user_docs_q = select(Document.id).where(Document.user_id == user_uuid)
+    user_docs_q = select(Document.id, Document.filename).where(Document.user_id == user_uuid)
     if doc_uuid:
         user_docs_q = user_docs_q.where(Document.id == doc_uuid)
     if group_uuid:
         user_docs_q = user_docs_q.where(Document.group_id == group_uuid)
 
     doc_ids_result = await db.execute(user_docs_q)
-    doc_ids = [r[0] for r in doc_ids_result.all()]
+    doc_rows = doc_ids_result.all()
+    doc_ids = [r[0] for r in doc_rows]
+    doc_titles = {r[0]: r[1] for r in doc_rows}
     if not doc_ids:
         return {"events": [], "total": 0}
 
     links_result = await db.execute(
-        select(ShareLink.id).where(ShareLink.document_id.in_(doc_ids))
+        select(ShareLink.id, ShareLink.document_id).where(ShareLink.document_id.in_(doc_ids))
     )
-    link_ids = [row[0] for row in links_result.all()]
+    link_rows = links_result.all()
+    link_ids = [row[0] for row in link_rows]
+    link_document_titles = {row[0]: doc_titles.get(row[1]) for row in link_rows}
     if not link_ids:
         return {"events": [], "total": 0}
 
@@ -180,6 +184,7 @@ async def get_events(
                 "session_id": e.session_id[:8] if e.session_id else None,
                 "created_at": e.created_at.isoformat() if e.created_at else None,
                 "link_id": str(e.link_id),
+                "document_title": link_document_titles.get(e.link_id),
             }
             for e in events
         ],

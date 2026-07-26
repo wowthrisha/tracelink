@@ -14,6 +14,12 @@ Real, reproducible bug: at the app's own stated minimum supported width, a whole
 
 **Next**: ENG-002, Notifications feed.
 
+## ENG-002 — Notifications feed lacks document identity — CLOSED
+
+Real, high-impact usability defect: the endpoint backing the Notifications screen never returned a document identifier, so every entry rendered as an undifferentiated "Page viewed" — the screen could not do what its own subtitle claims. Fixed by extending two queries the endpoint already ran (no new query added) to also carry `Document.filename` through to the response, plus surfacing the already-present-but-unused `page_number` field on the frontend. Browser-verified end-to-end on the local stack: created a real link, generated real view events, confirmed the owner's feed now names the actual document and page for every entry. Both test suites unchanged.
+
+**Next**: ENG-003, cross-account IDOR verification.
+
 ---
 
 *(This file is appended to after every closed or explicitly-deferred backlog item — see `ENGINEERING_BACKLOG.md` for the full remaining queue.)*

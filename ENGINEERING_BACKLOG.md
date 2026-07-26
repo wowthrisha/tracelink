@@ -26,15 +26,15 @@ Severity scale: **Critical → High → Medium → Low → Enhancement**. Per th
 ### ENG-002 — Notifications / Activity Feed cannot identify which document had activity
 - **Source reports**: `FIXES_TODO.md` §2
 - **Evidence**: Source-code verified — `NotificationsScreen.jsx` `eventDetail()` (lines 59-66) checks `ev.document_title`, `ev.viewer_email`, `ev.ip_address`, `ev.country`. Browser verified via raw API response (`GET /api/analytics/events?limit=50&offset=0`): actual payload contains `event_type`, `page_number`, `link_id`, `ip_hash`, `session_id`, `created_at` — **no `document_title` field exists**, and `ip_hash` ≠ `ip_address` so that check silently never matches either. `page_number`, which is present, is never displayed.
-- **Affected files**: `backend/app/routers/analytics.py` (or wherever `/api/analytics/events` is served — needs a join to include document title), `frontend/src/screens/NotificationsScreen.jsx` (lines 23-66)
+- **Affected files**: `backend/app/routers/analytics.py`, `frontend/src/screens/NotificationsScreen.jsx`
 - **Estimated effort**: Medium (requires a backend query join, not just a frontend fix)
 - **Regression risk**: Low-Medium — touches a real query path; must confirm the join doesn't change response shape for other consumers of the same endpoint
 - **Dependencies**: None
 - **Priority**: 2
-- **Status**: Open
+- **Status**: **Closed** (2026-07-26) — see `docs/engineering/FIX_LOG.md` "Sprint V14.0 — ENG-002"
 - **Blocked by**: None
 - **Owner**: Engineering (this sprint)
-- **Verification method**: Browser-verified — trigger a fresh page-view event on a named test document, confirm the Notifications feed shows that document's name/title in the entry; regression-verified — full backend test suite re-run after the query change
+- **Verification method**: Browser-verified — real share link created on local Docker stack, real page-view events generated anonymously, confirmed Notifications feed shows document name + page number on every entry; regression-verified — both test suites re-run unchanged (1708 backend, 13 frontend)
 
 ### ENG-003 — Cross-account IDOR: architecturally sound, never proven live
 - **Source reports**: `RELEASE_BLOCKERS.md` Tier 1 item 1, `SECURITY_CERTIFICATION.md` §2 (referenced), `FINAL_RELEASE_CERTIFICATION.md`
@@ -276,7 +276,7 @@ Severity scale: **Critical → High → Medium → Low → Enhancement**. Per th
 | ID | Title | Severity | Priority | Status |
 |---|---|---|---|---|
 | ENG-001 | Analytics screen clips data at 768px | High | 1 | **Closed** |
-| ENG-002 | Notifications feed lacks document identity | High | 2 | Open |
+| ENG-002 | Notifications feed lacks document identity | High | 2 | **Closed** |
 | ENG-003 | Cross-account IDOR unverified live | High | 3 | Open |
 | ENG-004 | Document picker can't disambiguate duplicates | Medium | 4 | Open |
 | ENG-005 | List endpoints lack pagination | Medium | 5 | Deferred |

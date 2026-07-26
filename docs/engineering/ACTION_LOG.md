@@ -119,3 +119,17 @@ Format per entry: Timestamp / Module / Screen / Observation / Root Cause / Decis
 - **Verification (Browser-verified)**: At 768px, "Completion" label right edge now at x=663.9 (was 844.5, viewport is 768) — fully inside viewport. "Groups at a glance" panel right edge now at x=729 (was clipped/truncated) — fully inside viewport and fully legible. At 834px and 1440px, same measurements confirm no clipping, and 1440px screenshot shows no visual regression (charts now render at 50/50 instead of 2:1, still clean and well-proportioned).
 - **Result**: ENG-001 closed. Zero regressions across both test suites.
 - **Next Action**: proceed to ENG-002 (Notifications feed lacks document identity).
+
+### Entry 10 — Sprint V14.0, ENG-002 (2026-07-26)
+
+- **Timestamp**: 2026-07-26T16:52
+- **Module**: Backend (`app/routers/analytics.py`) + Frontend (`NotificationsScreen.jsx`)
+- **Screen**: Notifications
+- **Observation**: `ENGINEERING_BACKLOG.md` ENG-002. `GET /api/analytics/events` never returned a document identifier — only `link_id` — so every Notifications feed entry rendered as generic "Page viewed" with zero way to tell which document had activity, despite the frontend's `eventDetail()` already being written to display `ev.document_title` if it existed.
+- **Root Cause**: the endpoint already computed `doc_ids` (user's documents) and `link_ids` (their share links) to scope the query, but discarded the document-filename association once it had the ID lists — no join back to `Document.filename` was ever added to the response payload.
+- **Decision**: Extended the existing `user_docs_q` query to also select `Document.filename`, and the existing links query to also select `ShareLink.document_id`, building two small in-memory maps (`doc_titles`, `link_document_titles`) to attach `document_title` to each returned event — no new query, no N+1, reuses data the endpoint already fetches. Also added `page_number` to the frontend's `eventDetail()` for `page_viewed` events specifically, since the field was already present in the API response but never displayed.
+- **Files Modified**: `backend/app/routers/analytics.py` (lines ~131-186), `frontend/src/screens/NotificationsScreen.jsx` (lines 59-67)
+- **Tests Executed**: Backend full suite 1708 passed, 1 skipped, 0 failed (unchanged from baseline — additive field, no existing test asserts on exact response shape). Frontend suite 13/13 passed.
+- **Verification (Browser-verified)**: Local Docker stack — created a real share link on a real local document (`sem6 (1).pdf`), opened it anonymously, navigated pages to generate live `page_viewed`/`opened`/`right_click_attempt` events, then confirmed as the owner that the Notifications feed now shows `"sem6 (1).pdf · page 3"`, `"sem6 (1).pdf · page 2"`, etc. for every entry instead of the previous bare `"Page viewed"` with no document reference. Screenshot: `eng002_notifications_after.png`.
+- **Result**: ENG-002 closed. The Notifications screen can now actually answer its own stated purpose ("recent activity across your documents").
+- **Next Action**: proceed to ENG-003 (cross-account IDOR verification).

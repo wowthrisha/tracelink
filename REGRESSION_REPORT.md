@@ -79,6 +79,7 @@ Full backend + frontend suite run after every fix, plus live browser re-verifica
 |---|---|---|---|---|
 | Baseline (start of V14.0) | 1708 passed, 1 skipped | 13/13 passed | clean | — |
 | After ENG-001 (Analytics grid overflow fix) | **1708 passed**, 1 skipped (unchanged) | **13/13 passed** (unchanged) | not rebuilt as a static bundle — verified via full Docker image rebuild instead | 768px/834px/1440px re-measured, zero clipping, zero visual regression |
+| After ENG-002 (Notifications feed document identity) | **1708 passed**, 1 skipped (unchanged) | **13/13 passed** (unchanged) | Docker image rebuild (API + frontend bundle) | Live event generated via a real share link on the local stack; Notifications feed confirmed showing real document name + page number on every entry |
 
 **Zero regressions.** ENG-001 was a CSS-only change (3 `gridTemplateColumns` values); no backend code touched, so the identical backend pass count was expected and confirmed, not just assumed.
 
