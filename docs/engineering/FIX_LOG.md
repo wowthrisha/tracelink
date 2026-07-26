@@ -429,3 +429,11 @@ Method: `ruff` (installed for this session) for AST-verified unused-import/unuse
 **Tests**: Backend 1708 passed, 1 skipped, 0 failed (unchanged — additive response field only). Frontend 13/13 passed.
 
 **Files**: `backend/app/routers/analytics.py`, `frontend/src/screens/NotificationsScreen.jsx`.
+
+## Sprint V14.0 — ENG-003: Cross-account IDOR verification (2026-07-26)
+
+**Not a fix — a verification.** `ENGINEERING_BACKLOG.md` ENG-003 was the largest cited evidence gap from V13.0's security work: the authorization pattern was sound by code inspection but never proven live against a real second account. Created a genuine second account against the local Docker stack (separate local DB, zero production risk) and directly attempted cross-account access to Account A's document, share link, and a disposable API key. Every attempt was correctly blocked (404 on documents/API-keys, 403 on links) with zero data leakage and zero unauthorized modification, confirmed by re-checking Account A's resources afterward.
+
+**Result**: No defect found. **New finding logged, not fixed yet**: link-mutation endpoints (`links.py` revoke/update/hard-delete) return 403 for cross-account access instead of the 404 used everywhere else in the app — tracked as ENG-021 (Low priority, not practically exploitable since link IDs are unguessable UUIDs).
+
+**Files**: None changed. Test API key created for this verification was deleted immediately after (`DELETE /api/api-keys/{id}` as its rightful owner, 204).

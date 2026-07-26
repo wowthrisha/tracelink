@@ -39,15 +39,15 @@ Severity scale: **Critical → High → Medium → Low → Enhancement**. Per th
 ### ENG-003 — Cross-account IDOR: architecturally sound, never proven live
 - **Source reports**: `RELEASE_BLOCKERS.md` Tier 1 item 1, `SECURITY_CERTIFICATION.md` §2 (referenced), `FINAL_RELEASE_CERTIFICATION.md`
 - **Evidence**: Source-code verified — every resource-scoped router filters `WHERE {Resource}.user_id == current_user_id` (or org-membership join). **Not enough evidence** for the live claim — only one real test account existed as of V13.0, so cross-tenant access was never exercised end-to-end. Explicitly flagged in `RELEASE_BLOCKERS.md` as "the single largest gap in this sprint's security work."
-- **Affected files**: None (verification task, not a code-change task, unless a defect is actually found)
+- **Affected files**: None — verification confirmed the existing pattern is sound; no defect found, no code change needed
 - **Estimated effort**: Small (create a second disposable test account, attempt cross-account access to Account A's resources by ID, observe result)
-- **Regression risk**: None (read-only verification against disposable test data)
-- **Dependencies**: Requires creating a second real account — evaluate whether this is safe/appropriate to do against the live production instance before proceeding
+- **Regression risk**: None (read-only/reverted verification against disposable test data)
+- **Dependencies**: Requires creating a second real account — resolved by testing against the **local Docker stack** (separate local database, same shared Supabase auth project) rather than production, so zero production risk
 - **Priority**: 3
-- **Status**: Open
+- **Status**: **Closed** (2026-07-26) — see `docs/engineering/ACTION_LOG.md` Entry 11. **No defect found.**
 - **Blocked by**: None
 - **Owner**: Engineering (this sprint)
-- **Verification method**: Browser-verified — attempt to fetch/modify Account A's document/link/API-key by ID while authenticated as Account B; expect 404 on every resource type per the existing query-scoping pattern
+- **Verification method**: Browser/API-verified — created a second real account (`eng003.idor.test2@mailinator.com`, confirmed via its own signup email), authenticated as Account B, and directly attempted: `GET /api/documents/{A_doc_id}` → 404; `GET /api/documents/{A_doc_id}/status` → 404; `GET/DELETE /api/api-keys/{A_key_id}` → 404; `GET /api/links?document_id={A_doc_id}` → 404; `PATCH/DELETE/DELETE-hard /api/links/{A_link_id}` → 403. Account B's own document list does not contain Account A's document ID. Confirmed Account A's document, link, and API key were all still present and unmodified after every attempt.
 
 ---
 
@@ -263,6 +263,18 @@ Severity scale: **Critical → High → Medium → Low → Enhancement**. Per th
 
 ---
 
+### ENG-021 — Link mutation endpoints return 403 (not 404) for cross-account access, inconsistent with documents/API-keys
+- **Source reports**: none — newly discovered during ENG-003 verification, not present in any V13.0 report
+- **Evidence**: Browser/API-verified — `PATCH /api/links/{id}`, `DELETE /api/links/{id}`, `DELETE /api/links/{id}/hard` all returned `403 Not authorized` when Account B targeted Account A's link ID, whereas the equivalent cross-account attempts on `/api/documents/{id}` and `/api/api-keys/{id}` both returned `404`. The rest of the app's documented pattern (`SECURITY_CERTIFICATION.md` §2) deliberately uses 404 everywhere specifically to avoid confirming a resource's existence to an unauthorized caller. A 403 on links technically confirms "a link with this ID exists, just not yours" — a minor deviation from that pattern. Not practically exploitable (link IDs are random UUIDs, not enumerable), but an inconsistency worth fixing for defense-in-depth consistency.
+- **Affected files**: `backend/app/routers/links.py` (`revoke_link` ~line 209, `update_link` ~line 257, hard-delete ~line 346)
+- **Estimated effort**: Small (change the authorization-failure branch from `403` to `404` in the 3 link-mutation handlers, matching the pattern already used in `documents.py`/`api_keys.py`)
+- **Regression risk**: Low-Medium — any existing frontend/test code that specifically expects `403` on these 3 endpoints would need updating
+- **Dependencies**: None
+- **Priority**: 21 (Low — found during this sprint, not blocking, not practically exploitable)
+- **Status**: Open
+- **Owner**: Engineering (if time permits this sprint)
+- **Verification method**: Regression-verified (check for any test asserting 403 on these paths before changing) + Browser/API-verified re-check that cross-account attempts now return 404
+
 ## Explicitly not on this backlog (verified non-issues)
 
 - **Storage screen usage bars** (`FIXES_TODO.md` §5) — investigated and ruled out; the fill-bar computation is correct (`width: 0.0032554%` for a 328-byte file, verified via DOM inline-style inspection). An earlier automated check mismeasured the empty track div. No action needed.
@@ -277,7 +289,7 @@ Severity scale: **Critical → High → Medium → Low → Enhancement**. Per th
 |---|---|---|---|---|
 | ENG-001 | Analytics screen clips data at 768px | High | 1 | **Closed** |
 | ENG-002 | Notifications feed lacks document identity | High | 2 | **Closed** |
-| ENG-003 | Cross-account IDOR unverified live | High | 3 | Open |
+| ENG-003 | Cross-account IDOR unverified live | High | 3 | **Closed — no defect found** |
 | ENG-004 | Document picker can't disambiguate duplicates | Medium | 4 | Open |
 | ENG-005 | List endpoints lack pagination | Medium | 5 | Deferred |
 | ENG-006 | Storage blocking-I/O sites unaudited | Medium | 6 | Open |
@@ -295,5 +307,6 @@ Severity scale: **Critical → High → Medium → Low → Enhancement**. Per th
 | ENG-018 | Large-PDF stress not retested | Enhancement | 18 | Open |
 | ENG-019 | Dashboard modals not re-exercised | Enhancement | 19 | Open |
 | ENG-020 | Reading Intelligence hand-verification | Enhancement | 20 | Open |
+| ENG-021 | Links return 403 not 404 cross-account (new finding) | Low | 21 | Open |
 
-**Critical: 0. High: 3. Medium: 3. Low: 6. Enhancement: 8.**
+**Critical: 0. High: 3 (all closed). Medium: 3. Low: 7. Enhancement: 8.**

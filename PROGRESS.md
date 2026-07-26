@@ -20,6 +20,14 @@ Real, high-impact usability defect: the endpoint backing the Notifications scree
 
 **Next**: ENG-003, cross-account IDOR verification.
 
+## ENG-003 — Cross-account IDOR verification — CLOSED, no defect found
+
+The largest evidence gap cited across all of V13.0's security work: the authorization pattern was architecturally sound by code inspection but had never been proven live against a genuine second account. Created one (against the local stack only — separate database, zero production risk) and directly attempted cross-account access to a real document, share link, and API key. Every attempt was blocked correctly, with zero leakage and zero unauthorized modification, confirmed by re-checking Account A's data afterward. This is now genuinely closed, not just architecturally inferred.
+
+One small side-finding surfaced during this test and logged as a new, low-priority item (ENG-021): link-mutation endpoints answer cross-account attempts with 403 instead of the 404 used everywhere else, a minor inconsistency in the "never confirm resource existence" pattern — not practically exploitable, not yet fixed.
+
+**Next**: ENG-004, document picker disambiguation.
+
 ---
 
 *(This file is appended to after every closed or explicitly-deferred backlog item — see `ENGINEERING_BACKLOG.md` for the full remaining queue.)*

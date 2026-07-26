@@ -2,7 +2,7 @@
 
 Running state snapshot, updated after every closed backlog item. See `PROGRESS.md` for the narrative log and `ENGINEERING_BACKLOG.md` for full issue detail.
 
-**Last updated**: 2026-07-26, after ENG-002.
+**Last updated**: 2026-07-26, after ENG-003.
 
 ## Environment state
 
@@ -16,9 +16,14 @@ Running state snapshot, updated after every closed backlog item. See `PROGRESS.m
 |---|---|
 | ENG-001 | **Closed** — Analytics grid overflow fixed, verified, zero regressions |
 | ENG-002 | **Closed** — Notifications feed now shows document name + page number, verified live, zero regressions |
-| ENG-003 | Next up |
-| ENG-004 – ENG-020 | Open, per priority order in `ENGINEERING_BACKLOG.md` |
+| ENG-003 | **Closed — no defect found.** Cross-account IDOR verified live with a genuine second account; every attempt correctly blocked. New low-priority finding ENG-021 logged (link 403 vs 404 inconsistency). |
+| ENG-004 | Next up |
+| ENG-005 – ENG-021 | Open, per priority order in `ENGINEERING_BACKLOG.md` |
 
 ## Immediate next step
 
-ENG-003 (cross-account IDOR — architecturally sound but never proven live). This is a verification task, not expected to require a code change: create a second disposable test account, attempt to access Account A's resources by ID as Account B, confirm 404 across every resource type per the existing query-scoping pattern.
+ENG-004 (document picker can't disambiguate duplicate filenames) — small, additive frontend change, low regression risk.
+
+## Disposable test accounts created this sprint (local stack only)
+
+- `eng003.idor.test2@mailinator.com` — Account B for ENG-003's IDOR test. Confirmed, logged in, holds zero real resources. Local database only, does not exist in production.
