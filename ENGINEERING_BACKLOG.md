@@ -6,6 +6,8 @@ Every issue's evidence is classified as exactly one of **Browser verified / Sour
 
 Severity scale: **Critical → High → Medium → Low → Enhancement**. Per the V13.0 Tier-0 finding, restated here rather than re-derived: **zero Critical issues exist** — nothing found across all six reports is a confirmed, live-observed defect in core functionality, data isolation, or security enforcement.
 
+**Status as of 2026-07-26 18:01**: All 3 High-severity items (ENG-001, ENG-002, ENG-003) closed and independently re-verified in a dedicated post-tier regression pass (fresh logins, not reused tokens) — see `PROGRESS.md` burndown table and `REGRESSION_REPORT.md`. Zero regressions across both test suites at every checkpoint. Proceeding to Medium tier.
+
 ---
 
 ## HIGH severity

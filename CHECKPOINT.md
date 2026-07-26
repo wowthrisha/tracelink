@@ -2,7 +2,20 @@
 
 Running state snapshot, updated after every closed backlog item. See `PROGRESS.md` for the narrative log and `ENGINEERING_BACKLOG.md` for full issue detail.
 
-**Last updated**: 2026-07-26, after ENG-003.
+**Last updated**: 2026-07-26 18:01, after post-High-tier regression pass.
+
+## Burndown
+
+| Priority | Total | Closed | Remaining |
+|---|---|---|---|
+| Critical | 0 | 0 | 0 |
+| High | 3 | 3 | 0 |
+| Medium | 3 | 0 | 3 |
+| Low | 7 | 0 | 7 |
+| Enhancement | 8 | 0 | 8 |
+| **Total** | **21** | **3** | **18** |
+
+Overall completion: **14.3%**. See `PROGRESS.md` for the narrative version of this table plus the full status block (last/current/next issue, regression status, test status, commit hash).
 
 ## Environment state
 
@@ -22,7 +35,7 @@ Running state snapshot, updated after every closed backlog item. See `PROGRESS.m
 
 ## Immediate next step
 
-ENG-004 (document picker can't disambiguate duplicate filenames) — small, additive frontend change, low regression risk.
+ENG-004 (document picker can't disambiguate duplicate filenames) — small, additive frontend change, low regression risk. Per explicit process rule: if this or any Medium-tier issue uncovers a broader architectural problem, pause it, document the finding, add it to `ENGINEERING_BACKLOG.md` with a dependency link, and move to the next independent item rather than getting stuck.
 
 ## Disposable test accounts created this sprint (local stack only)
 

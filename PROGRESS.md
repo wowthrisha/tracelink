@@ -2,6 +2,25 @@
 
 Narrative progress log, one entry per closed (or explicitly deferred) backlog item. Mechanical detail lives in `ACTION_LOG.md` / `FIX_LOG.md` / `REGRESSION_REPORT.md`; this file is the readable summary of "what's done, what's left, in what order."
 
+## Burndown
+
+| Priority | Total | Closed | Remaining |
+|---|---|---|---|
+| Critical | 0 | 0 | 0 |
+| High | 3 | 3 | 0 |
+| Medium | 3 | 0 | 3 |
+| Low | 7 | 0 | 7 |
+| Enhancement | 8 | 0 | 8 |
+| **Total** | **21** | **3** | **18** |
+
+- **Overall completion**: 14.3% (3/21)
+- **Last completed issue**: ENG-003 (cross-account IDOR verification — no defect found)
+- **Current issue**: ENG-004 (document picker disambiguation) — starting next
+- **Next planned issue**: ENG-005 (list-endpoint pagination) — currently status "Deferred," will re-confirm deferral reasoning before skipping
+- **Regression status**: PASS — post-High-tier browser regression pass completed 2026-07-26 18:01. Analytics screen re-verified clean at 768/834/1440px, Notifications feed re-confirmed showing document names, IDOR cross-account block re-confirmed with fresh tokens. Zero regressions found.
+- **Test status**: Backend 1708 passed, 1 skipped, 0 failed. Frontend 13/13 passed.
+- **Current commit hash**: `e129580`
+
 ## 2026-07-26 — Sprint start
 
 Read all six V13.0 reports (`FIXES_TODO.md`, `RELEASE_BLOCKERS.md`, `FINAL_RELEASE_CERTIFICATION.md`, `UI_EXCELLENCE_SCORECARD.md`, `ARCHITECTURE_CERTIFICATION.md`, `CODE_QUALITY_CERTIFICATION.md`) and merged every issue into `ENGINEERING_BACKLOG.md` — 20 canonical issues (0 Critical, 3 High, 3 Medium, 6 Low, 8 Enhancement), deduplicated across reports, each with severity/evidence/affected files/effort/regression risk/priority/status.
@@ -27,6 +46,17 @@ The largest evidence gap cited across all of V13.0's security work: the authoriz
 One small side-finding surfaced during this test and logged as a new, low-priority item (ENG-021): link-mutation endpoints answer cross-account attempts with 403 instead of the 404 used everywhere else, a minor inconsistency in the "never confirm resource existence" pattern — not practically exploitable, not yet fixed.
 
 **Next**: ENG-004, document picker disambiguation.
+
+## Post-High-tier regression pass — 2026-07-26 18:01
+
+Per explicit instruction: before starting Medium-priority work, re-ran browser verification on every workflow touched by ENG-001/002/003, against fresh logins (original tokens were ~1hr old, re-authenticated both accounts rather than assume they were still valid).
+
+- Analytics screen re-checked at 768px/834px/1440px — Completion card and Groups-at-a-glance panel both still fully within viewport at all three widths, zero clipping.
+- Notifications feed re-checked — still shows the real document name (`sem6 (1).pdf`) on activity entries, not generic undifferentiated text.
+- IDOR re-checked — fresh cross-account `GET /api/documents/{A_doc_id}` as Account B still returns 404.
+- Backend suite: 1708 passed, 1 skipped, 0 failed (unchanged). Frontend suite: 13/13 passed (unchanged).
+
+**Zero regressions.** Proceeding to Medium-priority tier (ENG-004).
 
 ---
 
