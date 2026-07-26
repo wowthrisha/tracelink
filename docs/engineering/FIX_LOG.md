@@ -437,3 +437,15 @@ Method: `ruff` (installed for this session) for AST-verified unused-import/unuse
 **Result**: No defect found. **New finding logged, not fixed yet**: link-mutation endpoints (`links.py` revoke/update/hard-delete) return 403 for cross-account access instead of the 404 used everywhere else in the app — tracked as ENG-021 (Low priority, not practically exploitable since link IDs are unguessable UUIDs).
 
 **Files**: None changed. Test API key created for this verification was deleted immediately after (`DELETE /api/api-keys/{id}` as its rightful owner, 204).
+
+## Sprint V14.0 — ENG-004: Document picker disambiguation (2026-07-26)
+
+**Issue**: `ENGINEERING_BACKLOG.md` ENG-004. `components/DocumentPicker.jsx` rendered only filename + page count + view count, with no date or ID — documents sharing a filename (common with repeated drafts) were completely indistinguishable in the share-link creation flow.
+
+**Fix**: Added an "uploaded {date}" suffix using the app's existing `fmtDate()` helper (`utils/viewer.js`), matching the disambiguation pattern already used on the Upload and Storage screens.
+
+**Verification**: Browser-verified on the local Docker stack — both real local documents now display their upload date in the picker.
+
+**Tests**: Frontend 13/13 passed. Backend 1708 passed, 1 skipped, 0 failed (unchanged — frontend-only change).
+
+**Files**: `frontend/src/components/DocumentPicker.jsx`.

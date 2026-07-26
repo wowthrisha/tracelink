@@ -147,3 +147,17 @@ Format per entry: Timestamp / Module / Screen / Observation / Root Cause / Decis
 - **Tests Executed**: N/A — no code changed, no regression risk. Full test suites not re-run for this entry (nothing to regress).
 - **Result**: ENG-003 closed with **no defect found** — this sprint's largest cited evidence gap is now closed with genuine live proof, not just architectural confidence. One new, unrelated, low-priority finding (ENG-021) surfaced and logged rather than left unrecorded.
 - **Next Action**: proceed to ENG-004 (document picker disambiguation) or ENG-021 (link 403/404 consistency), per backlog priority order.
+
+### Entry 12 — Sprint V14.0, ENG-004 (2026-07-26)
+
+- **Timestamp**: 2026-07-26T18:10
+- **Module**: Frontend (`components/DocumentPicker.jsx`)
+- **Screen**: Access Control (document picker used when creating a share link)
+- **Observation**: `ENGINEERING_BACKLOG.md` ENG-004 (first Medium-tier item). The document picker rendered only filename, page count, and view count — two documents with the same filename (common with repeated drafts, and visibly the case in this account's own test data with a dozen-plus `test.pdf` entries) were completely indistinguishable before clicking.
+- **Root Cause**: `DocumentPicker.jsx:63-68` never read `d.created_at`, unlike the Upload/Storage tables elsewhere in the app which both show a date/ID for exactly this reason.
+- **Decision**: Added an "uploaded {date}" suffix to the existing metadata line, reusing the already-existing `fmtDate()` helper from `utils/viewer.js` (same formatter used elsewhere in the app) rather than writing a new one.
+- **Files Modified**: `frontend/src/components/DocumentPicker.jsx` (1 import line + 1 line changed)
+- **Tests Executed**: Frontend 13/13 passed. Backend 1708 passed, 1 skipped, 0 failed (unchanged — frontend-only change). Grepped test files for `DocumentPicker`/`doc-picker-item` references first — none found, confirming low regression risk before starting.
+- **Verification (Browser-verified)**: Local Docker stack, Access Control screen — both of Account A's real local documents now show `"uploaded May 9, 2026"` in the picker row. Screenshot confirms no layout regression.
+- **Result**: ENG-004 closed.
+- **Next Action**: proceed to ENG-005 (list-endpoint pagination) — currently marked "Deferred" in the backlog; will re-confirm that deferral is still the right call (rather than silently skip) before moving to ENG-006.

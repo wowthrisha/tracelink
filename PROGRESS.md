@@ -8,18 +8,18 @@ Narrative progress log, one entry per closed (or explicitly deferred) backlog it
 |---|---|---|---|
 | Critical | 0 | 0 | 0 |
 | High | 3 | 3 | 0 |
-| Medium | 3 | 0 | 3 |
+| Medium | 3 | 1 | 2 |
 | Low | 7 | 0 | 7 |
 | Enhancement | 8 | 0 | 8 |
-| **Total** | **21** | **3** | **18** |
+| **Total** | **21** | **4** | **17** |
 
-- **Overall completion**: 14.3% (3/21)
-- **Last completed issue**: ENG-003 (cross-account IDOR verification — no defect found)
-- **Current issue**: ENG-004 (document picker disambiguation) — starting next
-- **Next planned issue**: ENG-005 (list-endpoint pagination) — currently status "Deferred," will re-confirm deferral reasoning before skipping
-- **Regression status**: PASS — post-High-tier browser regression pass completed 2026-07-26 18:01. Analytics screen re-verified clean at 768/834/1440px, Notifications feed re-confirmed showing document names, IDOR cross-account block re-confirmed with fresh tokens. Zero regressions found.
+- **Overall completion**: 19.0% (4/21)
+- **Last completed issue**: ENG-004 (document picker disambiguation)
+- **Current issue**: ENG-005 (list-endpoint pagination, currently "Deferred") — re-confirming deferral is still correct before moving to ENG-006
+- **Next planned issue**: ENG-006 (storage blocking-I/O audit)
+- **Regression status**: PASS — zero regressions since last checkpoint.
 - **Test status**: Backend 1708 passed, 1 skipped, 0 failed. Frontend 13/13 passed.
-- **Current commit hash**: `e129580`
+- **Current commit hash**: `6dccb33` (ENG-004 commit pending)
 
 ## 2026-07-26 — Sprint start
 
@@ -57,6 +57,10 @@ Per explicit instruction: before starting Medium-priority work, re-ran browser v
 - Backend suite: 1708 passed, 1 skipped, 0 failed (unchanged). Frontend suite: 13/13 passed (unchanged).
 
 **Zero regressions.** Proceeding to Medium-priority tier (ENG-004).
+
+## ENG-004 — Document picker disambiguation — CLOSED
+
+Small, additive fix: the share-link creation flow's document picker showed only filename/pages/views, with no way to tell apart documents sharing a filename. Added an "uploaded {date}" line using the app's existing date formatter. Browser-verified on the local stack, zero layout regression, both test suites unchanged.
 
 ---
 

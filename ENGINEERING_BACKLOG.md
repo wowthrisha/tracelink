@@ -63,10 +63,10 @@ Severity scale: **Critical → High → Medium → Low → Enhancement**. Per th
 - **Regression risk**: Low — additive UI change only
 - **Dependencies**: None
 - **Priority**: 4
-- **Status**: Open
+- **Status**: **Closed** (2026-07-26) — see `docs/engineering/FIX_LOG.md` "Sprint V14.0 — ENG-004"
 - **Blocked by**: None
 - **Owner**: Engineering (this sprint)
-- **Verification method**: Browser-verified — confirm two same-named documents now render distinguishable rows (date or ID visible)
+- **Verification method**: Browser-verified — confirmed both of Account A's local documents now render an "uploaded {date}" line using the app's existing `fmtDate()` formatter; zero layout regression; both test suites unchanged
 
 ### ENG-005 — 5 of 6 list endpoints have no pagination
 - **Source reports**: `RELEASE_BLOCKERS.md` Tier 2 item 3, `SCALABILITY_CERTIFICATION.md` §1
@@ -292,7 +292,7 @@ Severity scale: **Critical → High → Medium → Low → Enhancement**. Per th
 | ENG-001 | Analytics screen clips data at 768px | High | 1 | **Closed** |
 | ENG-002 | Notifications feed lacks document identity | High | 2 | **Closed** |
 | ENG-003 | Cross-account IDOR unverified live | High | 3 | **Closed — no defect found** |
-| ENG-004 | Document picker can't disambiguate duplicates | Medium | 4 | Open |
+| ENG-004 | Document picker can't disambiguate duplicates | Medium | 4 | **Closed** |
 | ENG-005 | List endpoints lack pagination | Medium | 5 | Deferred |
 | ENG-006 | Storage blocking-I/O sites unaudited | Medium | 6 | Open |
 | ENG-007 | Audit Log scroll affordance missing | Low | 7 | Open |

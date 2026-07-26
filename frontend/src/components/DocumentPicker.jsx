@@ -1,6 +1,7 @@
 import { C } from '../constants/tokens.js';
 import { SectionLabel, StatusDot } from './atoms.jsx';
 import { useToast } from '../contexts/toast.jsx';
+import { fmtDate } from '../utils/viewer.js';
 
 const { useState, useEffect } = React;
 
@@ -64,7 +65,7 @@ export function DocumentPicker({ onSelect }) {
               {d.filename || d.name}
             </div>
             <div style={{ fontSize: 10, color: C.textMuted, marginTop: 2 }}>
-              {(() => { const p = d.page_count ?? 0; const v = d.total_views || 0; return `${p} ${p === 1 ? 'page' : 'pages'} · ${v.toLocaleString()} ${v === 1 ? 'view' : 'views'}`; })()}
+              {(() => { const p = d.page_count ?? 0; const v = d.total_views || 0; return `${p} ${p === 1 ? 'page' : 'pages'} · ${v.toLocaleString()} ${v === 1 ? 'view' : 'views'} · uploaded ${fmtDate(d.created_at)}`; })()}
             </div>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
