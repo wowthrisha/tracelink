@@ -51,7 +51,7 @@ export function AnalyticsScreen() {
     { label: 'Views Today', value: totalViews.toLocaleString(), icon: '▦', tooltip: 'Number of document page views recorded today.' },
     { label: 'Active Links', value: (overview?.active_links || 0).toString(), icon: '◫', tooltip: 'Share links that are not revoked or expired.' },
     { label: 'Avg Session', value: avgSessionStr, icon: '⏱', tooltip: 'Average time spent per page across all active documents. Documents with zero views are excluded.' },
-    { label: 'Blocked Attempts', value: (overview?.blocked_attempts_today || 0).toString(), icon: '⊗', tooltip: 'DRM events today: blocked prints, copies, downloads, and right-clicks.' },
+    { label: 'Blocked Attempts', value: (overview?.blocked_attempts_today || 0).toString(), icon: '⊗', tooltip: 'Prints, copies, downloads, and right-clicks blocked today — your protections working as intended.' },
     { label: 'Active Docs', value: activeDocs.length.toString(), icon: '◈', tooltip: 'Documents with at least one view recorded.' },
     { label: 'Completion', value: avgCompletion > 0 ? `${avgCompletion}%` : '—', icon: '⊕', tooltip: 'Average completion rate — percentage of pages viewed per session, averaged across active documents.' },
   ];
@@ -130,6 +130,11 @@ export function AnalyticsScreen() {
 
       <div style={{ flex: 1, overflow: 'auto', padding: 20, display: 'flex', flexDirection: 'column', gap: 14 }}>
 
+        {analyticsLoading && (
+          <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: C.textMuted, fontSize: 13, minHeight: 200 }}>Loading analytics…</div>
+        )}
+
+        {!analyticsLoading && <>
         {/* ── BY DOCUMENT TAB ── */}
         {analyticsTab === 'documents' && (
           <>
@@ -331,12 +336,12 @@ export function AnalyticsScreen() {
         {analyticsTab === 'overview' && <>
 
           {/* KPI row */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6,1fr)', gap: 10 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 10 }}>
             {kpis.map(k => <KpiCard key={k.label} k={k} />)}
           </div>
 
           {/* Charts */}
-          <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 12 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 12 }}>
             <Card>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
                 <div>
@@ -382,7 +387,7 @@ export function AnalyticsScreen() {
           </div>
 
           {/* Table + security events */}
-          <div style={{ display: 'grid', gridTemplateColumns: '3fr 1fr', gap: 12 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 12 }}>
             <Card noPad>
               <div style={{
                 padding: '10px 14px', borderBottom: `1px solid ${C.border}`,
@@ -448,6 +453,7 @@ export function AnalyticsScreen() {
               </div>
             </Card>
           </div>
+        </>}
         </>}
       </div>
     </div>

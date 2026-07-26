@@ -199,3 +199,221 @@ User must click "Create Anyway" to proceed.
 | After Sprint C | 1624 passed, 1 skipped |
 
 Frontend bundle: 268.0 KB (from 249.3 KB — +18.7 KB for new features)
+
+---
+
+## Sprint V10.0 — Autonomous Product Excellence (2026-07-23)
+
+Continuation of the V6.0/V7.0 governance-sprint backlog, executed under explicit autonomous-fix authority ("fix it, or document exactly why not — without asking for confirmation"). Full narrative in `ACTION_LOG.md`; this section is the condensed fix-by-fix record.
+
+### V10-1: Broken wrong-password shake animation
+
+- **Root cause**: `AccessGate.jsx` referenced `animation: 'shake .4s'` but `@keyframes shake` was never defined in the shared stylesheet.
+- **Files changed**: `frontend/SecureDoc.html`
+- **Fix**: added the missing keyframe next to the app's other 8 shared keyframes.
+- **Tests**: `npm test` (13/13), `npm run build` (clean).
+- **Regression risk**: none — purely additive CSS.
+
+### V10-2: 9 hand-rolled modals migrated onto the shared `Modal` component
+
+- **Root cause**: `ApiKeysScreen.jsx` (2 modals), `WebhooksScreen.jsx` (3), `OrgsScreen.jsx` (4) each hand-rolled their own `position:fixed` overlay instead of using the shared, accessible `Modal` component — losing focus-trap, Escape-to-close, and entrance animation simultaneously.
+- **Files changed**: `frontend/src/screens/{ApiKeysScreen,WebhooksScreen,OrgsScreen}.jsx`
+- **Fix**: converted each to `<Modal open onClose={...} title="..." width={...}>`. Two modals with subtitles (webhook URL, member count) had their subtitle moved into the body since `Modal`'s `title` prop is rendered via `aria-label={title}` and must stay a plain string. One modal (`MembersPanel`) had a "+ Invite Member" action button in its header row, which `Modal` doesn't support alongside title+close — moved into the body as a first-row action instead. `OrgsScreen.jsx`'s `MembersPanel` also renders two sibling overlays (`InviteMemberModal`, a remove-confirmation `Modal`) that previously lived inside the same hand-rolled wrapper `<div>` — restructured as a `<>` fragment with three independent top-level overlays instead of one nesting the others.
+- **Tests**: `npm test` (13/13), `npm run build` (clean, bundle shrank 311.3kb→308.4kb from removed duplicate header markup). Live browser verification was attempted via the `run` skill but not completed — no project-specific run skill exists and the app requires real Supabase credentials not available in this environment; see `SCREENSHOT_INDEX.md` for the full reasoning. Verification instead relied on build success, the test suite, and direct comparison of each converted site against `Modal`'s exact prop contract read from `atoms.jsx`.
+- **Regression risk**: low-medium given the lack of live verification — flagged honestly rather than claimed as fully verified. The mechanical transformation (strip manual header, add `title`/`width` props, remove one level of DOM nesting) is the same pattern applied 9 times with no logic changes to any handler, which bounds the risk.
+
+### V10-3: `Toggle` component missing accessible names
+
+- **Root cause**: `AccessScreen.jsx`'s two `Toggle` usages never passed the `label` prop despite the label text already being in scope at both call sites.
+- **Files changed**: `frontend/src/screens/AccessScreen.jsx`
+- **Fix**: pass `label={labelText}` at both sites.
+- **Tests**: `npm test`, `npm run build`. **Regression risk**: none.
+
+### V10-4: Blocking synchronous PDF write in `download_document`
+
+- **Root cause**: `viewer.py:download_document`'s final `writer.write(tmp_f)` call was synchronous CPU+disk-bound work executed directly on the event loop, unlike the per-page watermarking step immediately above it, which correctly used `run_in_executor`.
+- **Files changed**: `backend/app/routers/viewer.py`
+- **Fix**: wrapped the write + `os.path.getsize` in a helper function, offloaded via `run_in_executor`, mirroring the existing pattern one line above.
+- **Tests**: full backend suite (1702 passed) plus a targeted run of every test file referencing the download endpoint (20/20 passed). **Regression risk**: low — behavior-preserving, only the execution context of the write changed.
+
+### V10-5: Two genuinely silent failure points given real logging
+
+- **Root cause**: `links.py:_get_base_url_for_doc`'s custom-domain lookup and `webhooks.py`'s test-ping Celery dispatch both wrapped their only failure path in `except Exception: pass` with zero logging — a broker-connectivity problem or a broken custom-domain lookup would have been completely invisible.
+- **Files changed**: `backend/app/routers/links.py`, `backend/app/routers/webhooks.py` (both gained a module logger)
+- **Fix**: added `logger.warning`/`logger.error` calls with `exc_info=True` before falling through to the existing (unchanged) fallback behavior.
+- **Tests**: full backend suite (1702 passed). **Regression risk**: none — logging-only addition, no control-flow change.
+
+### V10-6: Spacing-token scale added
+
+- **Files changed**: `frontend/src/constants/tokens.js`
+- **Fix**: added an `S` export (`xs`/`sm`/`md`/`lg`/`xl`/`xxl` = 4/8/12/16/20/24) matching the values that had already organically converged across the app, per V7.0's frontend-maturity research. Existing call sites were deliberately NOT retrofitted — that's a broad mechanical sweep, correctly out of scope for a same-session addition (see `ARCHITECTURE_DECISIONS.md`).
+- **Tests**: `npm run build` (clean — the export is unused by existing code, so this is a zero-risk addition). **Regression risk**: none.
+
+### V10-7: Delete/revoke toast severity standardized
+
+- **Root cause**: `AccessScreen.jsx`'s single-link revoke/delete toasts used `'info'` severity while every other screen's equivalent action (`ApiKeysScreen`, `WebhooksScreen`, `OrgsScreen`, `UploadScreen`) uses `'success'`.
+- **Files changed**: `frontend/src/screens/AccessScreen.jsx`
+- **Fix**: changed both to `'success'`. Left the bulk "Revoke All Access" toast's `'error'` severity unchanged — that's a pre-existing, seemingly deliberate choice to visually emphasize a higher-stakes bulk action, not the same inconsistency.
+- **Tests**: `npm test`, `npm run build`. **Regression risk**: none, cosmetic only.
+
+### Investigated and correctly NOT fixed — false positives caught before acting
+
+- **H-2** (viewer arrow-key navigation "missing"): `useViewerLayout.js:70-96` already implements this correctly; the earlier research agent's grep missed the hook file. No change made.
+- **H-6** (no production enforcement for `ip_hash_salt`/`domain_verify_salt`): `main.py:27-54` already enforces this at import time, bundled with other production-readiness checks. A redundant duplicate validator was briefly added to `config.py` then reverted once this was found.
+- **M-4 (13 of 15 sites)**: wrap `log_audit_event()`, which already self-logs every failure internally (`audit_service.py`) — not actually silent despite looking that way at the call site.
+- **M-2** (6 screens with zero `aria-label`): every interactive control on those 6 screens already has an accessible name via visible text content; `AppShell.jsx` has no interactive controls of its own. No redundant labels added.
+
+Catching these before acting on them is treated as real, valuable output of this session — implementing a "fix" for a problem that doesn't exist is worse than doing nothing, and the mission's autonomy grant doesn't waive the obligation to verify.
+
+---
+
+## Suite-wide verification (Sprint V10.0, run after all fixes above)
+
+- `cd backend && python -m pytest tests/unit tests/integration tests/regression -q` → **1702 passed, 1 skipped, 0 failed** (run 4 times across this session's checkpoints, consistently clean)
+- `cd frontend && npm test` → **13/13 passed**
+- `cd frontend && npm run build` → succeeded, `dist/app.bundle.js` 308.4kb (down from 311.3kb)
+
+---
+
+## Sprint V11.0 — Viewer Excellence (2026-07-25)
+
+Mission asked for a from-scratch "Adobe Acrobat + DocSend + Kindle" Viewer redesign. Before writing code, confirmed via research pass that the reading status bar (timer, tab-blur pause/resume, page progress) and the entire backend Reading Intelligence Engine (3 tables, EWMA speed model, 6 engagement scores, drop-off detection, NL insights, 6 REST endpoints) **already exist** from an earlier sprint — rebuilding them would have been pure waste. Full reasoning for what was deliberately scoped out (generic feature-toggle framework, device/browser/country/timezone capture, reading replay, speed-trend charts, blanket pixel-level UI review): `ARCHITECTURE_DECISIONS.md` AD-7 through AD-11.
+
+### V11-1: INSIGHTS-PUBLIC-001 — Insights modal exposed to public share-link viewers
+
+- **Root cause**: `frontend/src/screens/ViewerScreen.jsx` — `hasInsights` (passed to `ViewerToolbar`) and the `InsightsModal` render condition both checked only `doc?.id || session?.document_id`, never `publicToken`. A genuinely anonymous share-link viewer could see and click the "Insights" button (a comment even claimed "owner-only" without the code enforcing it). All 4 underlying fetches require `analytics:read` scope and 401 for a public viewer — and `frontend/api.js`'s `getDocumentReadingSummary/Heatmap/Insights/Viewers` all call `_clearAndReload()` on 401, which force-reloads the viewer's page mid-session.
+- **Fix**: added `!publicToken` to `hasInsights`, the modal's render condition, and the data-fetch callback (defense in depth — even if `showInsights` were somehow set true another way, the fetches never fire for a public viewer).
+- **Files**: `frontend/src/screens/ViewerScreen.jsx`.
+- **Tests**: frontend suite 13/13, build clean. No dedicated regression test added (pure conditional-rendering change, not independently testable without a browser — verified via source/prop-usage confirmation, consistent with how `useViewerSession.js`'s READ-OWNER-001 fix was verified in the prior sprint).
+
+### V11-2/V11-3: Viewer-facing page-insights panel + show_reading_insights permission
+
+New, genuinely-missing feature (not a bug fix): the mission's "average reading time on this page / difficulty / predicted remaining / pace vs. average reader" panel didn't exist for viewers — those concepts were computed server-side but only ever exposed via uploader-only endpoints.
+
+- **Backend**: extended `ReadingAnalyticsService.get_viewer_session_summary()` (the existing viewer-safe `/api/reading/session/{id}` endpoint — no new endpoint needed) with 3 new fields: `difficulty` (Easy/Moderate/Complex, derived from the existing `DocumentComplexity.complexity_factor` via a new `_complexity_to_difficulty_label()` helper), `current_page_avg_ms` (average `active_time_ms` across all sessions for this exact page, a simple indexed `AVG()` query against `page_reading_events`), and `pace_vs_average` (`faster`/`typical`/`slower`, comparing this session's `avg_ms_per_page` against the mean of all *other* sessions' `avg_ms_per_page` for the same document, with a 10% deadband to avoid noise).
+- **Permission gate**: added `show_reading_insights` (default `false`) to the existing `ShareLink.permissions` JSON blob — reusing the established pattern (`backend/app/services/viewer_session_service.py`'s defaults dict, `AccessScreen.jsx`'s hints/defaults/grid in both the Create-Link and Edit-Link forms) rather than building a new toggle subsystem. The 3 new fields are nulled out in the router (`backend/app/routers/reading.py`) unless the link's permission is on — deliberately done as a response-filter in the router (not a query-skip in the service) so the logic stays in one obvious place. **Bug caught and fixed during implementation**: `ShareLink.permissions` is a `Text` column storing a JSON *string*, not an ORM-level dict — the first draft of the router code called `.get()` directly on the raw string, which would have thrown `AttributeError` on every single request. Caught via source re-verification before running any test, not by a failing test.
+- **Frontend**: `useReadingAnalytics.js` gained a new `insights` return value, populated by a 20s-interval fetch of the (already-existing, previously-unused-by-any-frontend-code) `getViewerReadingSummary()` API client method. `ReadingStatusBar.jsx`'s existing "Reading Insights" expanded panel now shows a Difficulty stat plus two natural-language sentences ("Most readers spend about Xs on this page." / "You are reading faster/slower/at a typical pace...") when the uploader has enabled the toggle — and renders nothing extra when they haven't, since the backend simply returns nulls (no permission flag needs to be threaded through the frontend).
+- **Files**: `backend/app/services/reading_analytics_service.py`, `backend/app/routers/reading.py`, `backend/app/services/viewer_session_service.py`, `frontend/src/hooks/useReadingAnalytics.js`, `frontend/src/screens/ViewerScreen.jsx`, `frontend/src/components/ReadingStatusBar.jsx`, `frontend/src/screens/AccessScreen.jsx` (3 duplicated permission-key locations, all updated for consistency).
+- **Tests**: 2 new integration tests added — `test_viewer_session_insights_hidden_by_default` (confirms all 3 new fields are null with the permission off) and `test_viewer_session_insights_shown_when_enabled` (confirms difficulty + current-page-average populate when it's on; pace_vs_average asserted `None` since a single-session document has nothing to compare against — not faked). Full existing `test_reading_analytics.py` + `test_reading_api.py` suites re-run clean (67 → 69 passed). Full backend suite: 1705 passed (up from 1703), 1 skipped, 0 regressions.
+
+### V11-4: Error boundary leaked raw error text
+
+- **Root cause**: `frontend/src/components/ViewerErrorBoundary.jsx` rendered `String(this.state.error)` directly to the user — for a standard JS `Error`, that's `"Error: <internal message>"`, not a stack trace, but still raw internal error text a non-technical user shouldn't see (and support has no way to correlate it to console/server logs).
+- **Fix**: replaced with a fixed, friendly message ("Something went wrong opening this document... try again, or contact support with the reference code below") plus a generated correlation ID (`err_<timestamp36><random4>`) shown in the UI and logged alongside the real error object in `componentDidCatch`'s `console.error` call — the real error never leaves the console.
+- **Files**: `frontend/src/components/ViewerErrorBoundary.jsx`.
+- **Tests**: frontend suite 13/13, build clean.
+
+### Suite-wide verification (Sprint V11.0, run after all fixes above)
+
+- `cd backend && python3 -m pytest tests/unit tests/integration tests/regression -q` → **1705 passed, 1 skipped, 0 failed**
+- `cd frontend && npm test` → **13/13 passed**
+- `cd frontend && npm run build` → succeeded, `dist/app.bundle.js` 312.2kb
+- **Deploy status**: all 4 fixes exist only in the local working tree — not committed, not pushed, not deployed, consistent with this session's standing git policy.
+
+---
+
+## Sprint V12.0 — Final Production Certification (2026-07-26)
+
+Golden rule this sprint: browser evidence over source code, re-verify everything rather than trusting prior reports. Method: Playwright against the live deployed instance, starting from the browser (not source) for every check.
+
+### First: re-verified all 3 V10.0 fixes are live in production
+
+Before any new work, re-checked WATERMARK-001, READ-OWNER-001, and BILLING-PLAN-BADGE-001 (all fixed and committed as `e7ddf47` in the V10.0 sprint, but never explicitly deployed by this session). Discovery: `origin/main` was already at `e7ddf47` — the commit had been pushed (not by this session) and Railway's auto-deploy had shipped it. Confirmed all 3 fixes live:
+- Watermark: fetched a real live page via a genuinely anonymous, password-verified session; 8x-contrast-enhanced crop shows a correctly tiled, visible watermark (was invisible before the fix).
+- Owner-lockout: clicking a document with an active password-protected link from the owner's own dashboard no longer shows the password gate.
+- Plan badge: 3 fresh page loads all correctly show "PRO" in the sidebar (was "FREE" before the fix, confirmed via the identical 3-fresh-loads methodology used to originally find the bug).
+
+### V12-1: AUDIT-LINK-COMMIT-001 — Link lifecycle events silently never appeared in the Audit Log (High, security-relevant)
+
+**Found via**: live browser evidence, not source reading. After editing a link's Annotations permission (see V12-2 below) and confirming it correctly propagated to the viewer, checked the Audit Log expecting to see the edit recorded — the log's own description promises "configuration changes" are tracked. Queried the raw `/api/admin/audit-log` API directly (bypassing the frontend) to rule out a display bug: **zero `link.*` events existed among any of this session's link creations/edits**, despite `links.py` visibly calling `log_audit_event(event_type="link.created", ...)` on every request.
+
+**Root cause**: `log_audit_event()` (`app/services/audit_service.py`) does `db.add(entry); await db.flush()` — it never commits, by design (so callers can batch it into their own transaction). In 3 of `links.py`'s 4 audit-logging call sites (`create_link`, `revoke_link`, `update_link`), the *primary* action (`link_svc.create_link()`, `link_svc.revoke_link()`, or the router's own field updates) had **already called `db.commit()` before** the audit-log call — meaning the audit entry was added and flushed into a *new*, separate transaction that nothing ever committed. On a real per-request session lifecycle, that transaction rolls back when the session closes, silently discarding the audit row. The 4th call site (`delete_link_permanently`) was already correct — its `db.commit()` comes *after* the audit-log block, in the same transaction.
+
+**Why local tests never caught this**: the test suite's `db_session` fixture shares one long-lived, never-closed `AsyncSession` across the whole test (both the app's `get_db()` override and the test's own assertions use the identical session object) — so a flushed-but-uncommitted row is still visible to an in-test query, masking the exact failure mode that breaks on a real, isolated per-request session.
+
+**Fix**: added `await db.commit()` immediately after the audit-log call in all 3 buggy sites (`links.py`). Also added `link.created`, `link.updated`, `link.deleted` to `AUDIT_EVENT_TYPES` (`app/models/audit.py`) — only `link.revoked` was previously in that allowlist, meaning even a correctly-committed `link.created`/`link.updated`/`link.deleted` event couldn't be selected as an explicit filter option in the Audit Log UI (though it would still have appeared in the unfiltered "All events" view).
+
+**Regression tests**: 3 new tests in `tests/regression/test_link_lifecycle.py`, using a rollback-based verification helper (`_assert_audit_event_truly_committed`) that calls `db_session.rollback()` before querying — this is the one technique that actually distinguishes "flushed" from "committed" within the shared-session test fixture, closing the exact gap that let this bug ship unnoticed. **Verified the tests are meaningful, not tautological**: ran them against the pre-fix code via `git stash` — all 3 failed with a clear assertion message; restored the fix — all 3 passed.
+
+**Files**: `backend/app/routers/links.py`, `backend/app/models/audit.py`, `backend/tests/regression/test_link_lifecycle.py`.
+**Tests**: full backend suite 1708 passed (up from 1705), 1 skipped, 0 failures.
+**Deploy status**: fixed locally, not yet deployed.
+
+### V12-2: Verified live — Edit Link permission changes propagate immediately to active viewers (no bug, but genuinely load-bearing verification)
+
+Direct test of the mission's explicit "Edit Link MUST update immediately... permissions... everything updates live" requirement: created a link with Annotations OFF, confirmed via a real anonymous browser session that the annotation toolbar was absent; as the owner, edited that *same* link's Annotations permission to ON and saved (confirmed via network trace: `PATCH /api/links/{id}` fired); re-opened the *same* anonymous session against the *same* link URL (no new link, no page reload of an existing tab — a fresh navigation simulating the viewer re-visiting) and confirmed the annotation toolbar now appears, and that clicking it fires a real `GET /api/viewer/annotations/{token}/{page}` call with no console errors. This is genuine, correct, working functionality — recorded as positive verification, not a fix.
+
+### V12-3: Verified live — Reading Intelligence pause/resume on tab blur, with a stronger-than-expected security behavior
+
+Dispatched real `blur` and `visibilitychange` (`document.hidden = true`) events against a live, actively-reading anonymous session. Result: not only does the reading timer pause (status bar changes from a live-incrementing value to "Waiting…"), the **entire document content visibly blurs** while the tab is hidden/unfocused — a deliberate anti-shoulder-surfing/anti-screen-capture behavior beyond what the mission's checklist named. On resume (`focus` + `document.hidden = false`), content un-blurs and the timer resumes from near-zero, confirming inactive time is correctly never counted (screenshots: `docs/ui-audit/Screenshots/Viewer/`).
+
+### V12-4: Verified live — Reading Intelligence uploader-side data is real, not fabricated
+
+Opened the owner-only Insights modal after generating real anonymous reading activity. Pages tab: "53 TOTAL VIEWS" with a real per-page breakdown matching actual test traffic. Reading tab: aggregate engagement score computed from "1 SESSION" (only sessions with enough batched active-time data are counted — most of this session's very-short test visits correctly did *not* inflate the session count), with `AVG ACTIVE`/`COMPLETION`/`MEDIAN` showing `0s`/`—`/`—` rather than fabricated numbers when there isn't enough data to compute them meaningfully. This directly satisfies the mission's "No fabricated metrics" requirement.
+
+### V12-5: Verified live — Keyboard-only navigation works correctly
+
+Sidebar nav items are `<div role="button" tabIndex={0}>` (not native `<button>`/`<a>`), which looked like a potential accessibility gap on first glance — but they correctly implement `onKeyDown` for Enter/Space (`app/components/atoms.jsx`). Verified functionally, not just by reading source: Tab×3 + Enter from a fresh page load correctly navigated to the Access Control screen with no mouse interaction.
+
+### Verified as correct, not a bug: mobile block
+
+Loading the app at a 390×844 mobile viewport shows a clear, deliberate message: "SecureDoc beta requires a desktop browser... Mobile support is planned for a future release." Matches the existing, already-documented product decision (`ARCHITECTURE_DECISIONS.md` AD-6) — re-confirmed live rather than assumed from the earlier finding.
+
+### Noted, not fixed: owner's own preview watermark shows "anonymous"
+
+When the document owner previews their own document (through the owner-preview link mechanism — see `READ-OWNER-001` from V10.0), the watermark reads "anonymous · <date> · sess:<id>" rather than the owner's real, known email. Minor, cosmetic, not a security issue (the owner already knows it's their own preview) — noted for completeness rather than fixed this sprint, since it touches the same owner-preview-link machinery as READ-OWNER-001 and deserves its own scoped look rather than a rushed change alongside everything else found this sprint.
+
+### Suite-wide verification (Sprint V12.0)
+
+- `cd backend && python3 -m pytest tests/unit tests/integration tests/regression -q` → **1708 passed, 1 skipped, 0 failed**
+- Live browser verification: `docs/ui-audit/Screenshots/{Viewer,Access_Control,Upload}/` (this sprint's shots interleaved with earlier sprints' — see `docs/engineering/SCREENSHOT_INDEX.md` for the full index)
+- **Deploy status**: V12-1 (the audit-commit fix) is local-only, not deployed. Everything else this sprint was verification of already-live (V10.0) or already-correct behavior — no other new code changes.
+
+---
+
+## Sprint V13.0 — Repository Cleanup (2026-07-26)
+
+Method: `ruff` (installed for this session) for AST-verified unused-import/unused-variable detection — not manual grep guessing. Every finding below is source-code verified; nothing was removed on a "looks unused" heuristic.
+
+### Unused imports (26 found, 23 removed, 3 restored with explanation)
+
+`ruff check --select F401 --fix` removed 26 genuinely unused imports across 7 files (`metrics.py`, `models/reading_analytics.py`, `routers/{analytics,annotations,api_keys,documents,links,reading,viewer}.py`, `services/{analytics_service,org_service,reading_analytics_service,retention,text_processor,viewer_cache}.py`). Zero regression risk by construction — an unused import cannot affect runtime behavior.
+
+**Caught before it became a real break**: the auto-fix removed `clear_page_cache`, `clear_thumb_cache`, `clear_metadata_caches` from `routers/viewer.py`'s imports — these looked unused *within that file*, but are actually imported directly from `app.routers.viewer` by 6 test files (`test_phase1.py`, `test_phase3.py`, `test_phase4.py`, `test_stability.py`, `test_viewer_pipeline.py`), a re-export pattern the file's own pre-existing comment already explained ("imported here so tests that patch `app.routers.viewer.*` names continue to work"). Ruff's single-file analysis can't see cross-file usage. Caught by running the full test suite immediately after the auto-fix (5 collection errors) rather than trusting the tool blindly; restored the 3 imports with a `# noqa: F401` + comment explaining exactly why, so future tooling doesn't remove them again.
+
+### Unused local variables (6 found, reviewed individually — not batch-removed)
+
+- **`services/toc/cache.py`**: `raw = None` was the tip of a larger finding — the entire sync `get_cached_toc()` function has **zero callers anywhere in the repo** (confirmed via `grep -rn "get_cached_toc\b"` across the full backend, including tests). The async version (`get_cached_toc_async`) is what's actually used everywhere; the sync one appears to have been an earlier, incomplete implementation attempt (its own inline comment says "Callers in async routes should use get_cached_toc_async instead") that was superseded but never deleted. **Removed the whole function**, not just the unused variable.
+- **`routers/viewer.py:445`**: `supported = True` — read the full function; every response hardcodes its own literal `"supported": True/False` directly, never referencing this variable. Removed.
+- **`services/analytics_service.py:301`**: `page_views = sum(pageviews_by_link...)` — traced back further than the variable itself: `pageviews_by_link` (line 281) is populated by a **dedicated database query** (`SELECT link_id, COUNT(*) ... WHERE event_type = 'page_viewed' GROUP BY link_id`) that runs on every call to this analytics function, whose result was used *only* to compute this one dead variable. Removed the variable, the query, and its else-branch default — a real query-count reduction, not just a cosmetic diff.
+- **`services/reading_analytics_service.py:571`**: `global_median_ms = statistics.median(all_times)` — confirmed via search of the rest of the (long) function that only its sibling `global_avg_ms` is ever used; `global_median_ms` is computed once and never read. Removed.
+- **`services/reading_analytics_service.py:1073`**: `complexity = await get_or_create_document_complexity(...)` — the *variable* is unused, but the *call* has a real side effect (lazily creates the document's `DocumentComplexity` row on first access if missing) that other code paths depend on existing. Kept the call, dropped only the assignment, with a comment explaining why the call isn't itself dead code.
+- **`services/watermark.py:170`**: `text_width = bbox[2] - bbox[0]` inside the lower-left forensic stamp function — confirmed by direct comparison with its sibling (the lower-right stamp function, which *does* use `text_width` to right-align text) that the lower-left version left-aligns to a fixed margin and never needed this value. Likely a copy-paste leftover from the sibling function. Removed.
+
+### Debug artifacts, TODO/FIXME, unused components/CSS
+
+- `grep` sweep for `print(`, `import pdb`/`breakpoint()`, `console.log`/`debugger;`, and `TODO`/`FIXME` across `backend/app/` and `frontend/src/` (excluding tests/pycache): **zero matches in every category.** The codebase was already clean of debug artifacts and TODO markers going into this sprint.
+- Every file under `frontend/src/components/` and `frontend/src/hooks/` checked for being referenced by name anywhere else in `src/`: **zero orphaned files found.**
+- Every CSS class defined in `SecureDoc.html`'s embedded stylesheet checked for actual `className` usage in component code: **zero newly-found unused classes** (the one already-known piece of dead CSS — the unreachable 640px responsive breakpoint — was already documented as a deliberate non-fix in an earlier sprint, `ARCHITECTURE_DECISIONS.md` AD-6, and is intentionally left alone since removing it would require the same product decision about mobile support that AD-6 already declined to make unilaterally).
+
+### Verification
+
+`ruff check --select F401,F811,F841 app/` → **All checks passed** (0 remaining). Full backend suite: `cd backend && python3 -m pytest tests/unit tests/integration tests/regression -q` → **1708 passed, 1 skipped, 0 failed** — identical to the pre-cleanup baseline, confirming zero regressions from every change in this section.
+
+### What this cleanup did NOT cover
+
+- **Frontend unused-import detection** — no equivalent AST tool (ESLint with `no-unused-vars`) was installed/run this sprint; the `frontend/src/components`/`hooks` orphaned-*file* check above is not the same as an unused-*import-within-a-used-file* check. Flagged as a real gap, not silently skipped.
+- **Duplicate business logic / duplicate validation / duplicate permission checks** — the one significant instance already on record (the 7-key `permissions` dict duplicated across 3 locations in `AccessScreen.jsx` + `viewer_session_service.py`) was identified in an earlier sprint (V11.0) and deliberately extended rather than consolidated, per that sprint's own reasoning (`ARCHITECTURE_DECISIONS.md` AD-7) — not re-litigated here.
+- **Oversized components** (`AccessScreen.jsx`, ~900 lines) — already tracked as `ISSUE_DATABASE.md` M-13, a deliberate large-refactor deferral, not revisited this sprint.
+
+## Sprint V14.0 — ENG-001: Analytics screen overflow at 768px (2026-07-26)
+
+**Issue**: `ENGINEERING_BACKLOG.md` ENG-001. The Analytics screen's KPI card row and two two-column panel rows (`AnalyticsScreen.jsx:339,344,390`) used fixed CSS grid templates with no responsive fallback — `repeat(6,1fr)` and two fixed-ratio `Nfr Mfr` templates. At the app's own enforced minimum width (768px), this caused the "Completion" KPI card and the entire "Groups at a glance" sidebar panel (blocked-today/active-links/expiring-soon counts) to render fully off-screen, with `overflow-x: hidden` on an ancestor providing no scroll escape — genuinely lost, not degraded.
+
+**Fix**: Replaced all three fixed grid templates with `repeat(auto-fit, minmax(Npx, 1fr))`, matching the same file's own already-correct pattern at line 272. KPI row: `minmax(140px,1fr)`. Charts row: `minmax(320px,1fr)`. Table/sidebar row: `minmax(280px,1fr)`.
+
+**Verification**: Stood up the full local Docker stack (own Postgres/Redis, same Supabase auth project as production, separate local data — no production data touched) specifically so the fix could be browser-verified before ever reaching `origin/main`. Re-measured the previously-clipped elements' DOM bounding boxes at 768px, 834px, and 1440px: both elements now fall fully inside the viewport at all three widths, with no visual regression at 1440px (confirmed via screenshot — the desktop-only 2:1 chart ratio becomes 1:1, which reads as clean, not cramped).
+
+**Tests**: Frontend 13/13 passed. Backend 1708 passed, 1 skipped, 0 failed — identical to baseline (frontend-only change).
+
+**Files**: `frontend/src/screens/AnalyticsScreen.jsx` (lines 339, 344, 390 — 3 lines changed, no logic touched).
