@@ -19,7 +19,7 @@ Narrative progress log, one entry per closed (or explicitly deferred) backlog it
 - **Next planned issue**: ENG-006 (storage blocking-I/O audit)
 - **Regression status**: PASS — zero regressions since last checkpoint.
 - **Test status**: Backend 1708 passed, 1 skipped, 0 failed. Frontend 13/13 passed.
-- **Current commit hash**: `6dccb33` (ENG-004 commit pending)
+- **Current commit hash**: `cfe1f24`
 
 ## 2026-07-26 — Sprint start
 
