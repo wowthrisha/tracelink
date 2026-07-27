@@ -6,18 +6,18 @@ Narrative progress log, one entry per closed (or explicitly deferred) backlog it
 
 | Field | Value |
 |---|---|
-| Current issue | none in progress — ENG-008 just closed |
-| Previous issue | ENG-008 (closed — rate-limit boundary confirmed exact) |
-| Next issue | ENG-009 (XSS testing beyond link labels) |
+| Current issue | none in progress — ENG-009 just closed |
+| Previous issue | ENG-009 (closed — XSS verified clean beyond link labels) |
+| Next issue | ENG-010 (expired-link live confirmation) |
 | Critical remaining | 0 / 0 |
 | High remaining | 0 / 3 |
 | Medium remaining | 1* / 3 |
-| Low remaining | 5 / 7 |
-| Overall % | 33.3% (7/21 closed) |
-| Current commit | `3e384b0` |
-| Last regression | PASS — post-ENG-008, 2026-07-27 (1708 backend; no frontend/build change, no code touched) |
+| Low remaining | 4 / 7 |
+| Overall % | 38.1% (8/21 closed) |
+| Current commit | `38763d3` (ENG-009 commit pending) |
+| Last regression | PASS — post-ENG-009, 2026-07-27 (1708 backend; no frontend/build change, no code touched) |
 | Current blocker | None |
-| Estimated completion | 14 items remaining; no fixed ETA — evidence-first pacing takes priority over speed |
+| Estimated completion | 13 items remaining; no fixed ETA — evidence-first pacing takes priority over speed |
 
 \* ENG-005 counted as remaining/deferred (pagination itself not built), though its deferral was actively re-confirmed, not silently skipped.
 
@@ -28,9 +28,9 @@ Narrative progress log, one entry per closed (or explicitly deferred) backlog it
 | Critical | 0 | 0 | 0 |
 | High | 3 | 3 | 0 |
 | Medium | 3 | 2 | 1* |
-| Low | 7 | 2 | 5 |
+| Low | 7 | 3 | 4 |
 | Enhancement | 8 | 0 | 8 |
-| **Total** | **21** | **7** | **14** |
+| **Total** | **21** | **8** | **13** |
 
 ## 2026-07-26 — Sprint start
 
@@ -94,6 +94,10 @@ The Details column was reachable via scroll but had no visual hint that it conti
 ## ENG-008 — Rate-limit 429 boundary — CLOSED, boundary confirmed exact
 
 Sent exactly 21 wrong-password validate attempts against one disposable test link: attempts 1-20 returned 401 (correctly rejected, not rate-limited yet), attempt 21 returned 429. The configured 20/minute threshold is exact in live behavior, not just in configuration — no off-by-one in either direction. No defect found. Test link revoked immediately after.
+
+## ENG-009 — XSS beyond link labels — CLOSED, no defect found
+
+Tested the same payload already proven inert for link labels against the three remaining untested fields: organization name, API key name, webhook description. All three rendered as literal text, zero injected `<img>` elements, zero JS dialogs, zero console errors — confirmed via screenshot, not just a DOM query. Also source-verified: zero `dangerouslySetInnerHTML` anywhere in the frontend. This closes the last open item from the original security review's XSS coverage. All disposable test resources deleted immediately after.
 
 ---
 

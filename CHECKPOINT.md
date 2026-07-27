@@ -2,7 +2,7 @@
 
 Running state snapshot, updated after every closed backlog item. See `PROGRESS.md` for the narrative log and `ENGINEERING_BACKLOG.md` for full issue detail.
 
-**Last updated**: 2026-07-27 08:45, after ENG-008.
+**Last updated**: 2026-07-27 08:55, after ENG-009.
 
 ## Burndown
 
@@ -11,13 +11,13 @@ Running state snapshot, updated after every closed backlog item. See `PROGRESS.m
 | Critical | 0 | 0 | 0 |
 | High | 3 | 3 | 0 |
 | Medium | 3 | 2 | 1* |
-| Low | 7 | 2 | 5 |
+| Low | 7 | 3 | 4 |
 | Enhancement | 8 | 0 | 8 |
-| **Total** | **21** | **7** | **14** |
+| **Total** | **21** | **8** | **13** |
 
 \* ENG-005 remains counted as open/deferred (pagination itself not built), but its deferral was actively re-confirmed this sprint, not silently skipped — see `PROGRESS.md`.
 
-Overall completion: **33.3%** (7/21). See `PROGRESS.md` for the full dashboard (current/previous/next issue, regression status, test status, commit hash, blocker, ETA).
+Overall completion: **38.1%** (8/21). See `PROGRESS.md` for the full dashboard (current/previous/next issue, regression status, test status, commit hash, blocker, ETA).
 
 ## V15.0 process refinements now in effect
 
@@ -43,7 +43,7 @@ Overall completion: **33.3%** (7/21). See `PROGRESS.md` for the full dashboard (
 
 ## Immediate next step
 
-ENG-009 (XSS testing beyond link labels) — bounded live test, reuse the same payload pattern already proven safe for link labels against the remaining untested fields (document filenames, org names, webhook descriptions, API key names). Per explicit process rule: if any issue uncovers a broader architectural problem, pause it, document the finding, add it to `ENGINEERING_BACKLOG.md` with a dependency link, and move to the next independent item rather than getting stuck.
+ENG-010 (expired-link live confirmation) — create a disposable test link via the app's own API with a short future `expires_at`, wait it out, confirm 410 on access. Per explicit process rule: if any issue uncovers a broader architectural problem, pause it, document the finding, add it to `ENGINEERING_BACKLOG.md` with a dependency link, and move to the next independent item rather than getting stuck.
 
 ## Disposable test accounts created this sprint (local stack only)
 

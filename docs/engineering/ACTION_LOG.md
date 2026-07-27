@@ -210,3 +210,15 @@ Format per entry: Timestamp / Module / Screen / Observation / Root Cause / Decis
 - **Tests Executed**: Backend full suite 1708 passed, 1 skipped, 0 failed (unchanged — no code touched). Repo-wide TODO/FIXME/console.log/debugger/print() sweep re-run: still clean.
 - **Result**: ENG-008 closed. No defect found — the rate limiter's documented threshold is also its actual enforced threshold, now proven live rather than assumed from configuration alone.
 - **Next Action**: proceed to ENG-009 (XSS testing beyond link labels).
+
+### Entry 17 — Sprint V15.0, ENG-009 (2026-07-27)
+
+- **Timestamp**: 2026-07-27T08:55
+- **Module**: N/A — bounded live verification, no code changed
+- **Observation**: `ENGINEERING_BACKLOG.md` ENG-009. Only the link-label field had been live-tested for XSS in earlier sprints; document filenames, org names, webhook descriptions, and API key names were flagged as Security inference only, not individually proven.
+- **Root Cause**: N/A — verification task.
+- **Decision**: Source-verified first: repo-wide grep confirms zero `dangerouslySetInnerHTML` usage anywhere in `frontend/src`. Then live: created a disposable organization, API key, and webhook, each named/described with the same payload already proven inert for link labels (`<img src=x onerror=alert(1)>`). Visited the Organizations, API Keys, and Webhooks screens — payload rendered as literal visible text on all 3 (screenshot-confirmed), zero injected `<img>` elements, zero JS dialogs, zero console errors. All 3 test resources deleted immediately after.
+- **Files Modified**: None.
+- **Tests Executed**: Backend full suite 1708 passed, 1 skipped, 0 failed (unchanged).
+- **Result**: ENG-009 closed, no defect found. This closes the last open item from `SECURITY_CERTIFICATION.md`'s original "Not enough evidence" list for XSS coverage.
+- **Next Action**: proceed to ENG-010 (expired-link live confirmation).

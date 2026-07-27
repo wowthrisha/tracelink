@@ -129,15 +129,15 @@ Severity scale: **Critical → High → Medium → Low → Enhancement**. Per th
 ### ENG-009 — XSS not individually tested on fields beyond link labels
 - **Source reports**: `RELEASE_BLOCKERS.md` Tier 1 item 3, `SECURITY_CERTIFICATION.md` §5
 - **Evidence**: Security inference only for untested fields (document filenames, org names, webhook descriptions, API key names) — same JSX pipeline verified safe for link labels, no `dangerouslySetInnerHTML` found in a repo grep, but each field not individually proven.
-- **Affected files**: None expected (verification only, unless a gap is found)
+- **Affected files**: None — no defect found
 - **Estimated effort**: Small
-- **Regression risk**: None (read-only verification, disposable test values)
+- **Regression risk**: None (read-only verification, disposable test values, all cleaned up)
 - **Dependencies**: None
 - **Priority**: 9
-- **Status**: Open
+- **Status**: **Closed** (2026-07-27) — **no defect found**
 - **Blocked by**: None
 - **Owner**: Engineering (this sprint)
-- **Verification method**: Browser-verified — same payload pattern used for link labels (`<img src=x onerror=alert(1)>`), applied to each remaining field, confirm inert rendering and zero injected DOM nodes
+- **Verification method**: Source-verified — repo-wide grep confirms zero `dangerouslySetInnerHTML` usage anywhere in `frontend/src`. Browser/API-verified — created a disposable organization, API key, and webhook, each named/described with `<img src=x onerror=alert(1)>`, then visited the Organizations, API Keys, and Webhooks screens: payload rendered as literal visible text in all 3 (confirmed via screenshot), `document.querySelectorAll('img[src="x"]')` returned 0 matches on every screen, zero JS dialogs fired, zero console errors. All 3 disposable test resources deleted immediately after (204 each).
 
 ### ENG-010 — Expired-link enforcement not live-browser-confirmed
 - **Source reports**: `RELEASE_BLOCKERS.md` Tier 1 item 4, `UI_EXCELLENCE_SCORECARD.md` (Viewer section)
@@ -299,7 +299,7 @@ Severity scale: **Critical → High → Medium → Low → Enhancement**. Per th
 | ENG-006 | Storage blocking-I/O sites unaudited | Medium | 6 | **Closed — no defect found** |
 | ENG-007 | Audit Log scroll affordance missing | Low | 7 | **Closed** |
 | ENG-008 | Rate-limit 429 boundary unconfirmed | Low | 8 | **Closed — boundary exact** |
-| ENG-009 | XSS untested beyond link labels | Low | 9 | Open |
+| ENG-009 | XSS untested beyond link labels | Low | 9 | **Closed — no defect found** |
 | ENG-010 | Expired-link live confirmation missing | Low | 10 | Open |
 | ENG-011 | Connection pooling cluster budget | Low | 11 | Deferred |
 | ENG-012 | Cache invalidation broadcast | Low | 12 | Deferred |

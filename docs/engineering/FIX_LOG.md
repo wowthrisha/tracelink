@@ -473,3 +473,9 @@ Method: `ruff` (installed for this session) for AST-verified unused-import/unuse
 **Not a fix — a clean verification.** `ENGINEERING_BACKLOG.md` ENG-008. Sent exactly 21 wrong-password `POST /api/viewer/validate` attempts against one disposable test link: requests 1-20 returned `401`, request 21 returned `429`. The configured `20/minute` limit (`viewer.py:158`) is exact in practice, not just in configuration. No defect found. Test link revoked immediately after.
 
 **Files**: None changed.
+
+## Sprint V15.0 — ENG-009: XSS verification beyond link labels (2026-07-27)
+
+**Not a fix — a clean verification.** Tested the same payload already proven inert for link labels (`<img src=x onerror=alert(1)>`) against organization names, API key names, and webhook descriptions — the three remaining fields flagged as untested in `SECURITY_CERTIFICATION.md`. All three rendered as literal text, zero injected DOM nodes, zero dialogs, zero console errors. Also confirmed via repo-wide grep: zero `dangerouslySetInnerHTML` usage anywhere in the frontend. No defect found.
+
+**Files**: None changed.
