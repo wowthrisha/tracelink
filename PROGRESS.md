@@ -1,6 +1,25 @@
-# Progress Log — V14.0 Owner Mode Sprint
+# Progress Log — V14.0/V15.0 Owner Mode Sprint (continuous)
 
-Narrative progress log, one entry per closed (or explicitly deferred) backlog item. Mechanical detail lives in `ACTION_LOG.md` / `FIX_LOG.md` / `REGRESSION_REPORT.md`; this file is the readable summary of "what's done, what's left, in what order."
+Narrative progress log, one entry per closed (or explicitly deferred) backlog item. Mechanical detail lives in `ACTION_LOG.md` / `FIX_LOG.md` / `REGRESSION_REPORT.md`; this file is the readable summary of "what's done, what's left, in what order." V15.0 continues V14.0's backlog and evidence — no work is redone, only the process (commit format, per-issue dead-code sweep, dashboard shape) is refined going forward.
+
+## Dashboard
+
+| Field | Value |
+|---|---|
+| Current issue | none in progress — ENG-007 just closed |
+| Previous issue | ENG-007 (closed — Audit Log scroll affordance) |
+| Next issue | ENG-008 (rate-limit 429 boundary verification) |
+| Critical remaining | 0 / 0 |
+| High remaining | 0 / 3 |
+| Medium remaining | 1* / 3 |
+| Low remaining | 6 / 7 |
+| Overall % | 28.6% (6/21 closed) |
+| Current commit | `28c3573` |
+| Last regression | PASS — post-ENG-007, 2026-07-27 (1708 backend / 13 frontend / build 312.9kb / migration exit 0 / dead-code sweep clean) |
+| Current blocker | None |
+| Estimated completion | 15 items remaining; no fixed ETA — evidence-first pacing takes priority over speed |
+
+\* ENG-005 counted as remaining/deferred (pagination itself not built), though its deferral was actively re-confirmed, not silently skipped.
 
 ## Burndown
 
@@ -9,19 +28,9 @@ Narrative progress log, one entry per closed (or explicitly deferred) backlog it
 | Critical | 0 | 0 | 0 |
 | High | 3 | 3 | 0 |
 | Medium | 3 | 2 | 1* |
-| Low | 7 | 0 | 7 |
+| Low | 7 | 1 | 6 |
 | Enhancement | 8 | 0 | 8 |
-| **Total** | **21** | **5** | **16** |
-
-\* ENG-005 counted as remaining/deferred, not closed — its deferral was re-confirmed with fresh reasoning (not silently skipped), but the underlying pagination work itself is intentionally not done this sprint. All 3 Medium-tier items have been actioned (1 fixed, 1 deferred-with-reconfirmation, 1 audited clean).
-
-- **Overall completion**: 23.8% (5/21) — or effectively 100% of *actionable* Medium-tier work this sprint, since ENG-005's correct action was a re-confirmed deferral, not a fix
-- **Last completed issue**: ENG-006 (storage blocking-I/O audit — no defect found)
-- **Current issue**: none in progress — Medium tier complete, about to start Low tier
-- **Next planned issue**: ENG-007 (Audit Log scroll affordance)
-- **Regression status**: PASS — Medium-tier completion regression pass done 2026-07-26 (post-ENG-006). All 10 dashboard screens re-checked clean (zero raw errors, zero console errors), ENG-004's fix re-confirmed holding.
-- **Test status**: Backend 1708 passed, 1 skipped, 0 failed. Frontend 13/13 passed.
-- **Current commit hash**: `25f8c71`
+| **Total** | **21** | **6** | **15** |
 
 ## 2026-07-26 — Sprint start
 
@@ -77,6 +86,10 @@ Flagged because this exact bug class already caused one real production issue on
 Per explicit process rule (browser regression pass after each completed tier): re-logged in fresh, swept all 10 dashboard screens for raw error text and console errors — zero found on either. Re-confirmed ENG-004's document-picker fix still shows upload dates. Both test suites re-run, unchanged.
 
 **Medium tier complete. Proceeding to Low tier (ENG-007).**
+
+## ENG-007 — Audit Log scroll affordance — CLOSED (first V15.0 issue)
+
+The Details column was reachable via scroll but had no visual hint that it continued off-screen at narrow widths. Gave the table its own dedicated scroll container and a scroll-position-aware fade — shown only while there's genuinely more to scroll to. Browser-verified: fade present at 834px (real overflow), absent at 900px/1440px (no overflow). First issue processed under V15.0's refined process: expanded regression sweep (TODO/FIXME/console.log/debugger/print() — clean, 5 backend matches all confirmed as instructional comments not real debug code) and migration validation (exit 0) now run alongside the existing test-suite + browser-verification routine.
 
 ---
 

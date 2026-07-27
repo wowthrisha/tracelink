@@ -2,7 +2,7 @@
 
 Running state snapshot, updated after every closed backlog item. See `PROGRESS.md` for the narrative log and `ENGINEERING_BACKLOG.md` for full issue detail.
 
-**Last updated**: 2026-07-26 18:30, after Medium-tier completion regression pass.
+**Last updated**: 2026-07-27 08:33, after ENG-007 (first V15.0 issue).
 
 ## Burndown
 
@@ -11,13 +11,19 @@ Running state snapshot, updated after every closed backlog item. See `PROGRESS.m
 | Critical | 0 | 0 | 0 |
 | High | 3 | 3 | 0 |
 | Medium | 3 | 2 | 1* |
-| Low | 7 | 0 | 7 |
+| Low | 7 | 1 | 6 |
 | Enhancement | 8 | 0 | 8 |
-| **Total** | **21** | **5** | **16** |
+| **Total** | **21** | **6** | **15** |
 
 \* ENG-005 remains counted as open/deferred (pagination itself not built), but its deferral was actively re-confirmed this sprint, not silently skipped — see `PROGRESS.md`.
 
-**Medium tier fully actioned.** Overall completion: **23.8%** (5/21). See `PROGRESS.md` for the narrative version of this table plus the full status block (last/current/next issue, regression status, test status, commit hash).
+Overall completion: **28.6%** (6/21). See `PROGRESS.md` for the full dashboard (current/previous/next issue, regression status, test status, commit hash, blocker, ETA).
+
+## V15.0 process refinements now in effect
+
+- Commit format: `fix(ENG-###): concise description`
+- After every issue: full regression sweep now includes build + migration validation + repo-wide grep for TODO/FIXME/console.log/debugger/print()/unused imports, in addition to the existing test-suite + browser-verification routine
+- Backlog file paths are verified against the real repo before editing (ENG-007's originally-guessed file was wrong; corrected before implementation, not after)
 
 ## Environment state
 
@@ -37,7 +43,7 @@ Running state snapshot, updated after every closed backlog item. See `PROGRESS.m
 
 ## Immediate next step
 
-ENG-007 (Audit Log scroll affordance) — first Low-priority item. Per explicit process rule: if any issue uncovers a broader architectural problem, pause it, document the finding, add it to `ENGINEERING_BACKLOG.md` with a dependency link, and move to the next independent item rather than getting stuck.
+ENG-008 (rate-limit 429 boundary verification) — bounded live test, 21 requests against one disposable test link. Per explicit process rule: if any issue uncovers a broader architectural problem, pause it, document the finding, add it to `ENGINEERING_BACKLOG.md` with a dependency link, and move to the next independent item rather than getting stuck.
 
 ## Disposable test accounts created this sprint (local stack only)
 
