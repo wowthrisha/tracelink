@@ -6,18 +6,18 @@ Narrative progress log, one entry per closed (or explicitly deferred) backlog it
 
 | Field | Value |
 |---|---|
-| Current issue | none in progress — ENG-007 just closed |
-| Previous issue | ENG-007 (closed — Audit Log scroll affordance) |
-| Next issue | ENG-008 (rate-limit 429 boundary verification) |
+| Current issue | none in progress — ENG-008 just closed |
+| Previous issue | ENG-008 (closed — rate-limit boundary confirmed exact) |
+| Next issue | ENG-009 (XSS testing beyond link labels) |
 | Critical remaining | 0 / 0 |
 | High remaining | 0 / 3 |
 | Medium remaining | 1* / 3 |
-| Low remaining | 6 / 7 |
-| Overall % | 28.6% (6/21 closed) |
-| Current commit | `28c3573` |
-| Last regression | PASS — post-ENG-007, 2026-07-27 (1708 backend / 13 frontend / build 312.9kb / migration exit 0 / dead-code sweep clean) |
+| Low remaining | 5 / 7 |
+| Overall % | 33.3% (7/21 closed) |
+| Current commit | `05ffe83` (ENG-008 commit pending) |
+| Last regression | PASS — post-ENG-008, 2026-07-27 (1708 backend; no frontend/build change, no code touched) |
 | Current blocker | None |
-| Estimated completion | 15 items remaining; no fixed ETA — evidence-first pacing takes priority over speed |
+| Estimated completion | 14 items remaining; no fixed ETA — evidence-first pacing takes priority over speed |
 
 \* ENG-005 counted as remaining/deferred (pagination itself not built), though its deferral was actively re-confirmed, not silently skipped.
 
@@ -28,9 +28,9 @@ Narrative progress log, one entry per closed (or explicitly deferred) backlog it
 | Critical | 0 | 0 | 0 |
 | High | 3 | 3 | 0 |
 | Medium | 3 | 2 | 1* |
-| Low | 7 | 1 | 6 |
+| Low | 7 | 2 | 5 |
 | Enhancement | 8 | 0 | 8 |
-| **Total** | **21** | **6** | **15** |
+| **Total** | **21** | **7** | **14** |
 
 ## 2026-07-26 — Sprint start
 
@@ -90,6 +90,10 @@ Per explicit process rule (browser regression pass after each completed tier): r
 ## ENG-007 — Audit Log scroll affordance — CLOSED (first V15.0 issue)
 
 The Details column was reachable via scroll but had no visual hint that it continued off-screen at narrow widths. Gave the table its own dedicated scroll container and a scroll-position-aware fade — shown only while there's genuinely more to scroll to. Browser-verified: fade present at 834px (real overflow), absent at 900px/1440px (no overflow). First issue processed under V15.0's refined process: expanded regression sweep (TODO/FIXME/console.log/debugger/print() — clean, 5 backend matches all confirmed as instructional comments not real debug code) and migration validation (exit 0) now run alongside the existing test-suite + browser-verification routine.
+
+## ENG-008 — Rate-limit 429 boundary — CLOSED, boundary confirmed exact
+
+Sent exactly 21 wrong-password validate attempts against one disposable test link: attempts 1-20 returned 401 (correctly rejected, not rate-limited yet), attempt 21 returned 429. The configured 20/minute threshold is exact in live behavior, not just in configuration — no off-by-one in either direction. No defect found. Test link revoked immediately after.
 
 ---
 

@@ -467,3 +467,9 @@ Method: `ruff` (installed for this session) for AST-verified unused-import/unuse
 **Tests**: Frontend 13/13 passed. Backend 1708 passed, 1 skipped, 0 failed. Build succeeded. Migration validation passed (exit 0). Repo-wide TODO/FIXME/console.log/debugger/print() sweep: 5 backend matches, all false positives (instructional comments); 0 frontend matches.
 
 **Files**: `frontend/src/screens/AuditLogScreen.jsx`.
+
+## Sprint V15.0 — ENG-008: Rate-limit 429 boundary verification (2026-07-27)
+
+**Not a fix — a clean verification.** `ENGINEERING_BACKLOG.md` ENG-008. Sent exactly 21 wrong-password `POST /api/viewer/validate` attempts against one disposable test link: requests 1-20 returned `401`, request 21 returned `429`. The configured `20/minute` limit (`viewer.py:158`) is exact in practice, not just in configuration. No defect found. Test link revoked immediately after.
+
+**Files**: None changed.

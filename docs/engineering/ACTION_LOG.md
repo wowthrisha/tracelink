@@ -198,3 +198,15 @@ Format per entry: Timestamp / Module / Screen / Observation / Root Cause / Decis
 - **Verification (Browser-verified)**: Local Docker stack — at 834px (genuine table overflow, `scrollWidth 634 > clientWidth 582`) the fade div renders in the DOM with the correct gradient at the table's right edge; at 900px and 1440px (no overflow) it correctly does not render at all.
 - **Result**: ENG-007 closed.
 - **Next Action**: proceed to ENG-008 (rate-limit 429 boundary verification).
+
+### Entry 16 — Sprint V15.0, ENG-008 (2026-07-27)
+
+- **Timestamp**: 2026-07-27T08:45
+- **Module**: N/A — bounded live verification, no code changed
+- **Observation**: `ENGINEERING_BACKLOG.md` ENG-008. The 20/minute rate limit on `POST /api/viewer/validate` was source-verified (`viewer.py:158`) but its actual trigger point was never empirically confirmed, deliberately, to avoid generating artificial traffic in earlier sprints.
+- **Root Cause**: N/A — verification task.
+- **Decision**: Created one disposable password-protected test link (local stack), sent exactly 21 wrong-password validate attempts in sequence. Results: attempts 1-20 → `401` (correctly rejected as wrong password, not yet rate-limited); attempt 21 → `429`. The boundary is exact — not off-by-one in either direction. Test link revoked immediately after.
+- **Files Modified**: None.
+- **Tests Executed**: Backend full suite 1708 passed, 1 skipped, 0 failed (unchanged — no code touched). Repo-wide TODO/FIXME/console.log/debugger/print() sweep re-run: still clean.
+- **Result**: ENG-008 closed. No defect found — the rate limiter's documented threshold is also its actual enforced threshold, now proven live rather than assumed from configuration alone.
+- **Next Action**: proceed to ENG-009 (XSS testing beyond link labels).

@@ -116,15 +116,15 @@ Severity scale: **Critical → High → Medium → Low → Enhancement**. Per th
 ### ENG-008 — Rate-limit boundary (429 at request 21) never empirically confirmed
 - **Source reports**: `RELEASE_BLOCKERS.md` Tier 1 item 2, `SECURITY_CERTIFICATION.md` §4
 - **Evidence**: Source-code verified (limit exists, `viewer.py:158`, `20/minute`, Redis-backed). Not enough evidence for the live trigger boundary — deliberately not pushed to avoid generating artificial traffic in earlier sprints.
-- **Affected files**: None (verification only)
+- **Affected files**: None (verification only, no defect found)
 - **Estimated effort**: Small
-- **Regression risk**: None if bounded to exactly 21 requests against a disposable test link
+- **Regression risk**: None — bounded to exactly 21 requests against a disposable test link, revoked immediately after
 - **Dependencies**: None
 - **Priority**: 8
-- **Status**: Open
+- **Status**: **Closed** (2026-07-27) — **no defect found, boundary confirmed exact**
 - **Blocked by**: None
 - **Owner**: Engineering (this sprint)
-- **Verification method**: Browser-verified — 21 bounded requests against one disposable test link, confirm 429 on request 21, not before or after
+- **Verification method**: Browser/API-verified — created one disposable password-protected test link, sent exactly 21 wrong-password `POST /api/viewer/validate` attempts: requests 1-20 returned `401` (correctly rejected, not yet rate-limited), request 21 returned `429` — the exact configured boundary (`20/minute`, `viewer.py:158`), not off-by-one in either direction. Test link revoked immediately after (`204`... actual response `200`).
 
 ### ENG-009 — XSS not individually tested on fields beyond link labels
 - **Source reports**: `RELEASE_BLOCKERS.md` Tier 1 item 3, `SECURITY_CERTIFICATION.md` §5
@@ -298,7 +298,7 @@ Severity scale: **Critical → High → Medium → Low → Enhancement**. Per th
 | ENG-005 | List endpoints lack pagination | Medium | 5 | Deferred |
 | ENG-006 | Storage blocking-I/O sites unaudited | Medium | 6 | **Closed — no defect found** |
 | ENG-007 | Audit Log scroll affordance missing | Low | 7 | **Closed** |
-| ENG-008 | Rate-limit 429 boundary unconfirmed | Low | 8 | Open |
+| ENG-008 | Rate-limit 429 boundary unconfirmed | Low | 8 | **Closed — boundary exact** |
 | ENG-009 | XSS untested beyond link labels | Low | 9 | Open |
 | ENG-010 | Expired-link live confirmation missing | Low | 10 | Open |
 | ENG-011 | Connection pooling cluster budget | Low | 11 | Deferred |
