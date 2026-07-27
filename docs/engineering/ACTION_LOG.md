@@ -222,3 +222,15 @@ Format per entry: Timestamp / Module / Screen / Observation / Root Cause / Decis
 - **Tests Executed**: Backend full suite 1708 passed, 1 skipped, 0 failed (unchanged).
 - **Result**: ENG-009 closed, no defect found. This closes the last open item from `SECURITY_CERTIFICATION.md`'s original "Not enough evidence" list for XSS coverage.
 - **Next Action**: proceed to ENG-010 (expired-link live confirmation).
+
+### Entry 18 — Sprint V15.0, ENG-010 (2026-07-27)
+
+- **Timestamp**: 2026-07-27T09:10
+- **Module**: N/A — bounded live verification, no code changed
+- **Observation**: `ENGINEERING_BACKLOG.md` ENG-010. Expired-link enforcement (`_check_link_active`, `viewer_service.py:26-35`) was source-verified as the identical code path to revocation, but never live-tested itself, since the dashboard UI's expiry field is date-only (earliest achievable value is end-of-current-day, impractical to wait out).
+- **Root Cause**: N/A — verification task.
+- **Decision**: Checked the link-creation schema directly (`schemas/link.py:16`) and confirmed `expires_at` accepts a full `datetime`, not just a date — the UI's date-only granularity is a frontend input constraint, not a backend limitation. Created a disposable link via the API with `expires_at` 75 seconds in the future. `POST /api/viewer/validate` returned `200` immediately (link still active), then `410 {"detail":"Link expired"}` after waiting 80 seconds. Exact same status/response shape as the already-verified revocation path.
+- **Files Modified**: None.
+- **Tests Executed**: Backend full suite 1708 passed, 1 skipped, 0 failed (unchanged).
+- **Result**: ENG-010 closed, no defect found, now live-confirmed rather than source-inferred. **This closes the last item from `SECURITY_CERTIFICATION.md`'s original "Not enough evidence" list** — every explicit evidence gap flagged in that review (cross-account IDOR, rate-limit boundary, XSS beyond one field, expired-link enforcement) has now been independently proven live.
+- **Next Action**: proceed to ENG-011/ENG-012 (connection pooling / cache invalidation — both currently Deferred, will re-confirm reasoning per process rule) or ENG-021 (link 403/404 consistency) — next in priority order.

@@ -479,3 +479,9 @@ Method: `ruff` (installed for this session) for AST-verified unused-import/unuse
 **Not a fix — a clean verification.** Tested the same payload already proven inert for link labels (`<img src=x onerror=alert(1)>`) against organization names, API key names, and webhook descriptions — the three remaining fields flagged as untested in `SECURITY_CERTIFICATION.md`. All three rendered as literal text, zero injected DOM nodes, zero dialogs, zero console errors. Also confirmed via repo-wide grep: zero `dangerouslySetInnerHTML` usage anywhere in the frontend. No defect found.
 
 **Files**: None changed.
+
+## Sprint V15.0 — ENG-010: Expired-link live confirmation (2026-07-27)
+
+**Not a fix — a clean verification.** `_check_link_active` was source-verified as identical to the already-tested revocation path, but never itself live-tested (the dashboard UI's expiry field is date-only). Confirmed the backend schema accepts full datetime precision regardless of the UI constraint, created a disposable link expiring 75 seconds out, and confirmed `200` before / `410 {"detail":"Link expired"}` after waiting 80 seconds. No defect found. **This closes the last "Not enough evidence" item from `SECURITY_CERTIFICATION.md`'s original review** — cross-account IDOR (ENG-003), rate-limit boundary (ENG-008), XSS beyond link labels (ENG-009), and expired-link enforcement (this entry) are all now live-confirmed.
+
+**Files**: None changed.

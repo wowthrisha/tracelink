@@ -142,15 +142,15 @@ Severity scale: **Critical → High → Medium → Low → Enhancement**. Per th
 ### ENG-010 — Expired-link enforcement not live-browser-confirmed
 - **Source reports**: `RELEASE_BLOCKERS.md` Tier 1 item 4, `UI_EXCELLENCE_SCORECARD.md` (Viewer section)
 - **Evidence**: Source-code verified — identical code path (`_check_link_active`, `viewer_service.py:26-35`) and status code as the revoked-link path, which WAS browser-verified. Not enough evidence for the expiry branch specifically, since the dashboard UI only supports date-granularity expiry (earliest achievable value is end-of-current-day).
-- **Affected files**: None expected for a fix; possibly `frontend/src/screens/AccessScreen.jsx` if datetime-granularity expiry is added as a byproduct
-- **Estimated effort**: Small if tested via direct API call with a short ISO-datetime expiry on a disposable test link (legitimate use of one's own account's API, not a UI change); Medium if the UI itself is extended to support time-of-day granularity
-- **Regression risk**: None for the verification path
+- **Affected files**: None — no defect found
+- **Estimated effort**: Small — tested via direct API call with a short ISO-datetime expiry on a disposable test link (the schema already accepts full datetime precision, `schemas/link.py:16`, even though the dashboard UI only exposes date-granularity)
+- **Regression risk**: None (read-only verification, disposable test link, deleted after)
 - **Dependencies**: None
 - **Priority**: 10
-- **Status**: Open
+- **Status**: **Closed** (2026-07-27) — **no defect found, live-confirmed**
 - **Blocked by**: None
 - **Owner**: Engineering (this sprint)
-- **Verification method**: Browser-verified — create a disposable link via the app's own API with `expires_at` ~60-90 seconds in the future, wait it out, confirm 410 on access attempt
+- **Verification method**: Browser/API-verified — created a disposable link via the API with `expires_at` 75 seconds in the future. `POST /api/viewer/validate` returned `200` immediately (link still active), then `410 {"detail":"Link expired"}` after waiting 80 seconds past the expiry — the exact same status/response shape as the already-verified revocation path. This closes the last "Not enough evidence" item from `SECURITY_CERTIFICATION.md`'s original review. Test link deleted after (`200`).
 
 ### ENG-011 — DB connection pooling has no cluster-wide budget across replicas
 - **Source reports**: `RELEASE_BLOCKERS.md` Tier 2 item 1, `SCALABILITY_CERTIFICATION.md` §2/§11, `ARCHITECTURE_CERTIFICATION.md` §8
@@ -300,7 +300,7 @@ Severity scale: **Critical → High → Medium → Low → Enhancement**. Per th
 | ENG-007 | Audit Log scroll affordance missing | Low | 7 | **Closed** |
 | ENG-008 | Rate-limit 429 boundary unconfirmed | Low | 8 | **Closed — boundary exact** |
 | ENG-009 | XSS untested beyond link labels | Low | 9 | **Closed — no defect found** |
-| ENG-010 | Expired-link live confirmation missing | Low | 10 | Open |
+| ENG-010 | Expired-link live confirmation missing | Low | 10 | **Closed — live-confirmed** |
 | ENG-011 | Connection pooling cluster budget | Low | 11 | Deferred |
 | ENG-012 | Cache invalidation broadcast | Low | 12 | Deferred |
 | ENG-013 | No frontend lint tooling | Enhancement | 13 | Open |

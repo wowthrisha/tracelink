@@ -6,18 +6,18 @@ Narrative progress log, one entry per closed (or explicitly deferred) backlog it
 
 | Field | Value |
 |---|---|
-| Current issue | none in progress — ENG-009 just closed |
-| Previous issue | ENG-009 (closed — XSS verified clean beyond link labels) |
-| Next issue | ENG-010 (expired-link live confirmation) |
+| Current issue | none in progress — ENG-010 just closed |
+| Previous issue | ENG-010 (closed — expired-link enforcement live-confirmed) |
+| Next issue | ENG-021 (link 403/404 consistency) |
 | Critical remaining | 0 / 0 |
 | High remaining | 0 / 3 |
 | Medium remaining | 1* / 3 |
-| Low remaining | 4 / 7 |
-| Overall % | 38.1% (8/21 closed) |
-| Current commit | `3b5f1a5` |
-| Last regression | PASS — post-ENG-009, 2026-07-27 (1708 backend; no frontend/build change, no code touched) |
+| Low remaining | 3 / 7 (ENG-011, ENG-012 deferred; ENG-021 open) |
+| Overall % | 42.9% (9/21 closed) |
+| Current commit | `58cae93` (ENG-010 commit pending) |
+| Last regression | PASS — post-ENG-010, 2026-07-27 (1708 backend; no code touched) |
 | Current blocker | None |
-| Estimated completion | 13 items remaining; no fixed ETA — evidence-first pacing takes priority over speed |
+| Estimated completion | 12 items remaining; no fixed ETA — evidence-first pacing takes priority over speed |
 
 \* ENG-005 counted as remaining/deferred (pagination itself not built), though its deferral was actively re-confirmed, not silently skipped.
 
@@ -28,9 +28,9 @@ Narrative progress log, one entry per closed (or explicitly deferred) backlog it
 | Critical | 0 | 0 | 0 |
 | High | 3 | 3 | 0 |
 | Medium | 3 | 2 | 1* |
-| Low | 7 | 3 | 4 |
+| Low | 7 | 4 | 3 |
 | Enhancement | 8 | 0 | 8 |
-| **Total** | **21** | **8** | **13** |
+| **Total** | **21** | **9** | **12** |
 
 ## 2026-07-26 — Sprint start
 
@@ -98,6 +98,12 @@ Sent exactly 21 wrong-password validate attempts against one disposable test lin
 ## ENG-009 — XSS beyond link labels — CLOSED, no defect found
 
 Tested the same payload already proven inert for link labels against the three remaining untested fields: organization name, API key name, webhook description. All three rendered as literal text, zero injected `<img>` elements, zero JS dialogs, zero console errors — confirmed via screenshot, not just a DOM query. Also source-verified: zero `dangerouslySetInnerHTML` anywhere in the frontend. This closes the last open item from the original security review's XSS coverage. All disposable test resources deleted immediately after.
+
+## ENG-010 — Expired-link live confirmation — CLOSED, live-confirmed
+
+The dashboard UI only supports date-granularity expiry, which made a live wait-it-out test impractical in earlier sprints — the backend schema was checked and confirmed to accept full datetime precision regardless. Created a disposable link expiring 75 seconds out: validate returned 200 before, then 410 "Link expired" after an 80-second wait. Exact same response shape as the already-verified revocation path.
+
+**This closes the last "Not enough evidence" item from `SECURITY_CERTIFICATION.md`'s original review.** Every explicit evidence gap from that review — cross-account IDOR, rate-limit boundary, XSS beyond one field, expired-link enforcement — is now independently live-confirmed, not just architecturally inferred.
 
 ---
 
