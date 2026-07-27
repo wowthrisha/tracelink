@@ -2,7 +2,7 @@ import { C, mono } from '../constants/tokens.js';
 import { _errMsg } from '../utils/viewer.js';
 import { useToast } from '../contexts/toast.jsx';
 import { Card, Header, SectionLabel, Chip, Btn } from '../components/atoms.jsx';
-const { useState, useEffect, useCallback } = React;
+const { useState, useEffect, useCallback, useRef } = React;
 
 const PAGE_SIZE = 50;
 
@@ -111,7 +111,9 @@ export function AuditLogScreen() {
       a.download = `audit-log-${new Date().toISOString().slice(0, 10)}.csv`;
       a.click();
       URL.revokeObjectURL(url);
-      toast(`Exported ${rows.length} events as CSV`, 'success');
+      toast(total != null && rows.length < total
+        ? `Exported ${rows.length} of ${total.toLocaleString()} events (CSV export is capped at 500 — narrow your date range to get the rest).`
+        : `Exported ${rows.length} events as CSV`, total != null && rows.length < total ? 'warning' : 'success');
     } catch (e) { toast(_errMsg(e, 'Export failed'), 'error'); }
     finally { setExporting(false); }
   };
@@ -120,14 +122,16 @@ export function AuditLogScreen() {
     setExporting('json');
     try {
       const rows = await _fetchAllForExport();
-      const blob = new Blob([JSON.stringify({ audit_log: rows, exported_at: new Date().toISOString(), count: rows.length }, null, 2)], { type: 'application/json' });
+      const blob = new Blob([JSON.stringify({ audit_log: rows, exported_at: new Date().toISOString(), count: rows.length, total_matching: total }, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
       a.download = `audit-log-${new Date().toISOString().slice(0, 10)}.json`;
       a.click();
       URL.revokeObjectURL(url);
-      toast(`Exported ${rows.length} events as JSON`, 'success');
+      toast(total != null && rows.length < total
+        ? `Exported ${rows.length} of ${total.toLocaleString()} events (JSON export is capped at 500 — narrow your date range to get the rest).`
+        : `Exported ${rows.length} events as JSON`, total != null && rows.length < total ? 'warning' : 'success');
     } catch (e) { toast(_errMsg(e, 'Export failed'), 'error'); }
     finally { setExporting(false); }
   };
@@ -168,6 +172,23 @@ export function AuditLogScreen() {
     return <span style={{ marginLeft: 3, color: C.teal1 }}>{sortDir === 'asc' ? '↑' : '↓'}</span>;
   };
 
+  // Scroll-affordance for the events table: show a right-edge fade only while
+  // there's more table content to the right that isn't yet visible, so a
+  // first-time user has a visual hint the Details column continues off-screen
+  // (rather than a table that just appears to end there).
+  const tableScrollRef = useRef(null);
+  const [showScrollFade, setShowScrollFade] = useState(false);
+  const checkTableOverflow = useCallback(() => {
+    const el = tableScrollRef.current;
+    if (!el) return;
+    setShowScrollFade(el.scrollWidth - el.clientWidth - el.scrollLeft > 4);
+  }, []);
+  useEffect(() => {
+    checkTableOverflow();
+    window.addEventListener('resize', checkTableOverflow);
+    return () => window.removeEventListener('resize', checkTableOverflow);
+  }, [checkTableOverflow, sortedEvents.length]);
+
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }} className="fade-in">
       <Header screen="auditlog">
@@ -188,7 +209,7 @@ export function AuditLogScreen() {
           <div>
             <div style={{ fontSize: 12, fontWeight: 600, color: C.textSecondary, marginBottom: 4 }}>Audit Log</div>
             <div style={{ fontSize: 11, color: C.textMuted, lineHeight: 1.6, maxWidth: 560 }}>
-              Immutable record of all actions performed in your account. Includes API key usage, document operations, configuration changes, and admin actions.
+              A permanent history of who did what in your account — useful for tracking down accidental deletions or unauthorized access. Includes API key usage, document operations, configuration changes, and admin actions.
               {total != null && <span style={{ color: C.textSecondary }}> {total.toLocaleString()} total events.</span>}
             </div>
           </div>
@@ -251,6 +272,8 @@ export function AuditLogScreen() {
             </div>
           ) : (
             <>
+              <div style={{ position: 'relative' }}>
+              <div ref={tableScrollRef} onScroll={checkTableOverflow} style={{ overflowX: 'auto' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                 <thead>
                   <tr style={{ borderBottom: `1px solid ${C.border}` }}>
@@ -302,6 +325,15 @@ export function AuditLogScreen() {
                   ))}
                 </tbody>
               </table>
+              </div>
+              {showScrollFade && (
+                <div aria-hidden="true" style={{
+                  position: 'absolute', top: 0, right: 0, bottom: 0, width: 28,
+                  background: `linear-gradient(90deg, transparent, ${C.surface})`,
+                  pointerEvents: 'none',
+                }} />
+              )}
+              </div>
               {hasMore && (
                 <div style={{ padding: '12px 16px', borderTop: `1px solid ${C.border}`, display: 'flex', justifyContent: 'center' }}>
                   <Btn variant="ghost" size="sm" onClick={() => fetchPage(offset)} disabled={loading} style={{ fontSize: 11 }}>

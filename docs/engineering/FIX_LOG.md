@@ -455,3 +455,15 @@ Method: `ruff` (installed for this session) for AST-verified unused-import/unuse
 **Not a fix — a clean audit.** `ENGINEERING_BACKLOG.md` ENG-006, flagged because this exact bug class already caused one real production issue once before (V4.0, `viewer.py`'s download path). Grepped the full backend for boto3/S3 usage — confined entirely to `services/storage.py`. Read all 6 methods directly: every one wraps its blocking boto3 call in `run_in_executor(_STORAGE_EXECUTOR, ...)`. No defect found — the pattern is already correct and self-documented in the module's own docstring.
 
 **Files**: None changed.
+
+## Sprint V15.0 — ENG-007: Audit Log scroll affordance (2026-07-27)
+
+**Issue**: `ENGINEERING_BACKLOG.md` ENG-007. The Audit Log events table's Details column was reachable via horizontal scroll at narrow widths but had no visual hint that more content existed off-screen.
+
+**Fix**: Gave the table its own dedicated `overflow-x: auto` wrapper (rather than relying on an ancestor's incidental overflow behavior), and added a scroll-position-aware right-edge gradient fade — shown only while there's genuinely unscrolled content to the right, driven by an `onScroll` handler plus a mount/resize check, not a static decoration.
+
+**Verification**: Browser-verified at 834px (real overflow) — fade renders with the correct gradient at the table's right edge; at 900px/1440px (no overflow) — fade correctly absent.
+
+**Tests**: Frontend 13/13 passed. Backend 1708 passed, 1 skipped, 0 failed. Build succeeded. Migration validation passed (exit 0). Repo-wide TODO/FIXME/console.log/debugger/print() sweep: 5 backend matches, all false positives (instructional comments); 0 frontend matches.
+
+**Files**: `frontend/src/screens/AuditLogScreen.jsx`.

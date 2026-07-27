@@ -103,15 +103,15 @@ Severity scale: **Critical → High → Medium → Low → Enhancement**. Per th
 ### ENG-007 — Audit Log "Details" column is reachable but has no scroll affordance
 - **Source reports**: `FIXES_TODO.md` §4
 - **Evidence**: Browser verified — content is NOT lost (ancestor `overflow-x: auto` div has real scrollable width: `scrollWidth: 667` vs `clientWidth: 624`), but nothing signals the column continues off-screen at narrower widths.
-- **Affected files**: `frontend/src/components/access/AccessLog.jsx` or wherever the Audit Log table renders (verify exact file at implementation time)
+- **Affected files**: `frontend/src/screens/AuditLogScreen.jsx` (confirmed exact file at implementation time — not `components/access/AccessLog.jsx` as originally guessed)
 - **Estimated effort**: Small
-- **Regression risk**: Low — cosmetic/CSS addition
+- **Regression risk**: Low — additive UI change (scroll wrapper + conditional fade), no existing behavior altered
 - **Dependencies**: None
 - **Priority**: 7
-- **Status**: Open
+- **Status**: **Closed** (2026-07-27) — see `docs/engineering/FIX_LOG.md` "Sprint V15.0 — ENG-007"
 - **Blocked by**: None
 - **Owner**: Engineering (this sprint)
-- **Verification method**: Browser-verified at 768-900px widths — confirm a visible scroll-shadow/fade appears when the table overflows
+- **Verification method**: Browser-verified — at 834px (genuine overflow: scrollWidth 634 vs clientWidth 582) the fade renders in the DOM with the correct gradient at the table's right edge; at 900px/1440px (no overflow) the fade correctly does not render. Scroll-position-aware (hides once scrolled to the end), not a static always-on decoration.
 
 ### ENG-008 — Rate-limit boundary (429 at request 21) never empirically confirmed
 - **Source reports**: `RELEASE_BLOCKERS.md` Tier 1 item 2, `SECURITY_CERTIFICATION.md` §4
@@ -297,7 +297,7 @@ Severity scale: **Critical → High → Medium → Low → Enhancement**. Per th
 | ENG-004 | Document picker can't disambiguate duplicates | Medium | 4 | **Closed** |
 | ENG-005 | List endpoints lack pagination | Medium | 5 | Deferred |
 | ENG-006 | Storage blocking-I/O sites unaudited | Medium | 6 | **Closed — no defect found** |
-| ENG-007 | Audit Log scroll affordance missing | Low | 7 | Open |
+| ENG-007 | Audit Log scroll affordance missing | Low | 7 | **Closed** |
 | ENG-008 | Rate-limit 429 boundary unconfirmed | Low | 8 | Open |
 | ENG-009 | XSS untested beyond link labels | Low | 9 | Open |
 | ENG-010 | Expired-link live confirmation missing | Low | 10 | Open |

@@ -184,3 +184,17 @@ Format per entry: Timestamp / Module / Screen / Observation / Root Cause / Decis
 - **Tests Executed**: N/A (audit only, no code changed).
 - **Result**: ENG-006 closed, no defect found. **This closes the Medium-priority tier** (ENG-004 fixed, ENG-005 deferral re-confirmed, ENG-006 audited clean).
 - **Next Action**: per process rule, perform a browser-based regression pass before moving into the Low-priority tier.
+
+### Entry 15 — Sprint V15.0, ENG-007 (2026-07-27)
+
+- **Timestamp**: 2026-07-27T08:33
+- **Module**: Frontend (`screens/AuditLogScreen.jsx`) — first issue under the refined V15.0 process (stricter commit format, expanded per-issue regression sweep)
+- **Screen**: Audit Log
+- **Observation**: `ENGINEERING_BACKLOG.md` ENG-007. The events table's Details column was reachable via horizontal scroll at narrow widths but had zero visual affordance signaling more content existed off-screen. The backlog's originally-guessed file (`components/access/AccessLog.jsx`) was wrong — confirmed the real file is `screens/AuditLogScreen.jsx` before editing.
+- **Root Cause**: the table had no dedicated scroll container of its own; it relied on an ancestor's incidental `overflow-x: auto`, with nothing indicating scrollability to the user.
+- **Decision**: Wrapped the table in its own `overflow-x: auto` div with a `ref`, added a `showScrollFade` state driven by an `onScroll` handler plus a mount/resize check (`scrollWidth - clientWidth - scrollLeft > 4`), and rendered a conditional right-edge gradient fade only while there's genuinely more to scroll to — not a static always-on decoration, so it correctly disappears once the user has scrolled to the end.
+- **Files Modified**: `frontend/src/screens/AuditLogScreen.jsx`
+- **Tests Executed**: Frontend 13/13 passed. Backend 1708 passed, 1 skipped, 0 failed (unchanged). Build succeeded (esbuild, 312.9kb). Migration validation: local `migrate` container exited 0. **New V15.0 regression-sweep step**: grepped for TODO/FIXME/console.log/debugger/print()/pdb across the full repo — 5 backend matches, all confirmed false positives (comments showing users an example `python -c "...print(...)"` CLI command to generate a secret key, not real debug code); 0 frontend matches.
+- **Verification (Browser-verified)**: Local Docker stack — at 834px (genuine table overflow, `scrollWidth 634 > clientWidth 582`) the fade div renders in the DOM with the correct gradient at the table's right edge; at 900px and 1440px (no overflow) it correctly does not render at all.
+- **Result**: ENG-007 closed.
+- **Next Action**: proceed to ENG-008 (rate-limit 429 boundary verification).
