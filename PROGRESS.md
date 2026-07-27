@@ -14,7 +14,7 @@ Narrative progress log, one entry per closed (or explicitly deferred) backlog it
 | Medium remaining | 1* / 3 |
 | Low remaining | 4 / 7 |
 | Overall % | 38.1% (8/21 closed) |
-| Current commit | `38763d3` (ENG-009 commit pending) |
+| Current commit | `3b5f1a5` |
 | Last regression | PASS — post-ENG-009, 2026-07-27 (1708 backend; no frontend/build change, no code touched) |
 | Current blocker | None |
 | Estimated completion | 13 items remaining; no fixed ETA — evidence-first pacing takes priority over speed |
