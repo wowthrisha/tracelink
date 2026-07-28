@@ -6,16 +6,16 @@ Narrative progress log, one entry per closed (or explicitly deferred) backlog it
 
 | Field | Value |
 |---|---|
-| Current issue | none in progress — ENG-021 just closed |
-| Previous issue | ENG-021 (closed — link mutation endpoints now 404 cross-account) |
-| Next issue | Low-tier regression pass, then Enhancement tier (ENG-013) |
+| Current issue | none in progress — Low-tier regression pass complete |
+| Previous issue | Low-tier completion regression pass (PASS) |
+| Next issue | ENG-013 (frontend lint tooling) — first Enhancement-tier item |
 | Critical remaining | 0 / 0 |
 | High remaining | 0 / 3 |
 | Medium remaining | 1* / 3 |
 | Low remaining | 2* / 7 (ENG-011, ENG-012 deferred with re-confirmed reasoning) |
 | Overall % | 47.6% (10/21 closed) |
-| Current commit | `5684773` |
-| Last regression | PASS — post-ENG-021, 2026-07-27 (1709 backend +1 new test, 0 failed) |
+| Current commit | `b907145` |
+| Last regression | PASS — Low-tier completion pass, 2026-07-27 (1709 backend / 13 frontend / build 312.9kb / migration exit 0 / 10 screens clean / ENG-007+ENG-021 re-confirmed with fresh logins) |
 | Current blocker | None |
 | Estimated completion | 11 items remaining, all Enhancement-tier (non-blocking) except 2 already-deferred Medium/Low items; no fixed ETA |
 
@@ -116,6 +116,12 @@ Neither triggering condition (horizontal scaling for ENG-011's connection poolin
 Found during ENG-003's IDOR verification. `links.py`'s revoke/update/hard-delete endpoints leaked "a link with this ID exists" to unauthorized callers via 403, inconsistent with the app-wide 404 pattern (and inconsistent with `links.py`'s own sibling create/list endpoints). Fixed by collapsing both failure branches to 404. Discovered 2 existing tests had been asserting the old, inconsistent 403 — updated them, and added a third test for the hard-delete endpoint which had zero prior cross-account coverage. Proved the tests meaningful via revert-and-confirm-fail, then restore-and-confirm-pass. Browser/API-verified with fresh Account A/B logins: all 3 endpoints now correctly return 404.
 
 **This closes the entire Low-priority tier** — 5 items fixed/verified, 2 correctly deferred with fresh reasoning, 0 open.
+
+## Low-tier completion regression pass — 2026-07-27
+
+Per explicit process rule (regression pass after each completed tier): fresh logins for both test accounts, full sweep of all 10 dashboard screens (zero raw errors, zero console errors), re-confirmed ENG-007's scroll fade still renders at 834px and ENG-021's cross-account link mutation still returns 404. Both test suites re-run (1709 backend, 13 frontend), build succeeded, migration validated (exit 0).
+
+**Zero regressions. Low tier fully closed out. Proceeding to Enhancement tier.**
 
 ---
 

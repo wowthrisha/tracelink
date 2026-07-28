@@ -6,7 +6,7 @@ Every issue's evidence is classified as exactly one of **Browser verified / Sour
 
 Severity scale: **Critical → High → Medium → Low → Enhancement**. Per the V13.0 Tier-0 finding, restated here rather than re-derived: **zero Critical issues exist** — nothing found across all six reports is a confirmed, live-observed defect in core functionality, data isolation, or security enforcement.
 
-**Status as of 2026-07-26 18:30**: All 3 High-severity items closed and re-verified. Medium tier fully actioned (ENG-004 fixed, ENG-005 deferral re-confirmed with fresh reasoning, ENG-006 audited clean) and re-verified in a dedicated post-tier regression pass (10 screens, zero errors). Zero regressions across both test suites at every checkpoint. Proceeding to Low tier.
+**Status as of 2026-07-27 09:30**: High and Medium tiers closed and re-verified. **Low tier fully actioned** (ENG-007/008/009/010/021 fixed or verified with no defect, ENG-011/012 deferrals re-confirmed) and re-verified in a dedicated post-tier regression pass (10 screens zero errors, both key fixes re-confirmed with fresh logins). Every "Not enough evidence" gap from the original security review is now live-confirmed. Zero regressions across both test suites at every checkpoint. Proceeding to Enhancement tier.
 
 ---
 

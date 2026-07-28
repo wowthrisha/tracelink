@@ -2,7 +2,7 @@
 
 Running state snapshot, updated after every closed backlog item. See `PROGRESS.md` for the narrative log and `ENGINEERING_BACKLOG.md` for full issue detail.
 
-**Last updated**: 2026-07-27 09:10, after ENG-010.
+**Last updated**: 2026-07-27 09:30, after Low-tier completion regression pass.
 
 ## Burndown
 
@@ -11,13 +11,13 @@ Running state snapshot, updated after every closed backlog item. See `PROGRESS.m
 | Critical | 0 | 0 | 0 |
 | High | 3 | 3 | 0 |
 | Medium | 3 | 2 | 1* |
-| Low | 7 | 4 | 3 |
+| Low | 7 | 5 | 2* |
 | Enhancement | 8 | 0 | 8 |
-| **Total** | **21** | **9** | **12** |
+| **Total** | **21** | **10** | **11** |
 
-\* ENG-005 remains counted as open/deferred (pagination itself not built), but its deferral was actively re-confirmed this sprint, not silently skipped — see `PROGRESS.md`.
+\* ENG-005/ENG-011/ENG-012 remain counted as open/deferred, but all three deferrals were actively re-confirmed this sprint, not silently skipped — see `PROGRESS.md`.
 
-Overall completion: **42.9%** (9/21). **Every "Not enough evidence" security gap from the original review is now live-confirmed** (ENG-003, ENG-008, ENG-009, ENG-010). See `PROGRESS.md` for the full dashboard (current/previous/next issue, regression status, test status, commit hash, blocker, ETA).
+Overall completion: **47.6%** (10/21). **The entire Low-priority tier is closed** — every "Not enough evidence" security gap from the original review is live-confirmed (ENG-003, ENG-008, ENG-009, ENG-010), and the one code-consistency defect found along the way (ENG-021) is fixed. See `PROGRESS.md` for the full dashboard (current/previous/next issue, regression status, test status, commit hash, blocker, ETA).
 
 ## V15.0 process refinements now in effect
 
@@ -43,7 +43,7 @@ Overall completion: **42.9%** (9/21). **Every "Not enough evidence" security gap
 
 ## Immediate next step
 
-ENG-011 and ENG-012 (connection pooling / cache invalidation broadcast) — both currently "Deferred," scoped to horizontal-scaling thresholds this deployment hasn't reached. Will re-confirm each deferral is still sound (not silently carry forward) before moving to ENG-021 (link 403/404 consistency, a real small code fix). Per explicit process rule: if any issue uncovers a broader architectural problem, pause it, document the finding, add it to `ENGINEERING_BACKLOG.md` with a dependency link, and move to the next independent item rather than getting stuck.
+Enhancement tier, starting with ENG-013 (no frontend equivalent of `ruff` for unused-import detection). All remaining items are non-blocking per the mission's stop conditions (every Critical/High closed, every workflow verified) — proceeding through them for full repository-quality completeness rather than stopping early. Per explicit process rule: if any issue uncovers a broader architectural problem, pause it, document the finding, add it to `ENGINEERING_BACKLOG.md` with a dependency link, and move to the next independent item rather than getting stuck.
 
 ## Disposable test accounts created this sprint (local stack only)
 
