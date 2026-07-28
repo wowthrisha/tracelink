@@ -279,6 +279,80 @@ Severity scale: **Critical → High → Medium → Low → Enhancement**. Per th
 - **Owner**: Engineering (this sprint)
 - **Verification method**: Regression-verified — reverted the source fix via `git stash`, confirmed all 3 tests fail against pre-fix code (proving they're meaningful, not tautological), restored the fix, confirmed all 3 pass. Full suite: 1709 passed (up from 1708), 1 skipped, 0 failed. Browser/API-verified on the local Docker stack with fresh Account A/B logins: `PATCH`/`DELETE`/`DELETE .../hard` on Account A's link as Account B all now return `404 {"detail":"Link not found"}` — indistinguishable from a nonexistent link ID.
 
+## V16.0 — merged from ISSUE_DATABASE.md / TODO_QUEUE.md (2026-07-28)
+
+Reading the full canonical-source list per V16.0's instructions surfaced 10 items genuinely still open in `ISSUE_DATABASE.md` that predate this backlog and were never merged in. Also surfaced: `ISSUE_DATABASE.md` itself had drifted stale (several items marked "Open" there were actually fixed back in V10.0, confirmed by `TODO_QUEUE.md`'s own completion record and spot-verified 3/3 against current source) — reconciled directly in `ISSUE_DATABASE.md`, not duplicated here.
+
+### ENG-022 — `links.py` DELETE endpoints return 200+body, 8 others return 204/no-body
+- **Source**: `ISSUE_DATABASE.md` M-6 (V7.0)
+- **Evidence**: Source-verified API inconsistency.
+- **Severity**: Low (API contract change)
+- **Status**: Deferred — explicitly listed in `TODO_QUEUE.md`'s "NOT queued" list (changing response status codes is a breaking API contract change for any existing client). Not undertaken without a deliberate versioning decision.
+- **Owner**: Unassigned
+
+### ENG-023 — 14 endpoints across 7 routers validate via raw `body: dict` instead of typed Pydantic schemas
+- **Source**: `ISSUE_DATABASE.md` M-8 (V7.0)
+- **Evidence**: Source-verified.
+- **Severity**: Medium (real validation/maintainability gap, but broad)
+- **Status**: Deferred — explicitly listed in `TODO_QUEUE.md`'s "NOT queued" list as an API contract change. A mechanical per-endpoint migration is real work with real regression risk across 14 sites; not undertaken piecemeal.
+- **Owner**: Unassigned
+
+### ENG-024 — "Created at" concept renders 3 different ways across screens
+- **Source**: `ISSUE_DATABASE.md` M-10 (V6.0)
+- **Evidence**: Source-verified — `fmtDate()`, raw `toLocaleString()`, and a custom `fmtTime()` all exist and are used inconsistently for the same semantic concept.
+- **Severity**: Low (cosmetic consistency)
+- **Status**: Open
+- **Owner**: Engineering (this sprint, Enhancement tier)
+
+### ENG-025 — Empty states inconsistent (icon+heading+CTA vs. bare text)
+- **Source**: `ISSUE_DATABASE.md` M-11 (V6.0)
+- **Evidence**: Source-verified, no fixed rule exists.
+- **Severity**: Low (cosmetic consistency)
+- **Status**: Open
+- **Owner**: Engineering (this sprint, Enhancement tier)
+
+### ENG-026 — AUTH-006: session token stored in `localStorage`, real XSS-exposure vector
+- **Source**: `ISSUE_DATABASE.md` M-14 (V4.0/Sprint7.0)
+- **Evidence**: Source-verified — `frontend/api.js`'s `authHeaders()` reads the bearer token from `localStorage`. A successful XSS on this origin could exfiltrate the token (session hijack), though `SECURITY_CERTIFICATION.md`'s live XSS testing this sprint (ENG-009) found no injectable field.
+- **Severity**: Medium-High in isolation (token-theft-via-XSS is a real class of risk) — **but** the actual exploit path requires a successful XSS first, and none has been found live or in source (zero `dangerouslySetInnerHTML` anywhere, JSX escaping confirmed working on every field tested).
+- **Status**: **Deferred, re-confirmed** — a full migration plan already exists (`SECURITY_HARDENING_PLAN.md`, referenced in `ISSUE_DATABASE.md`), and per this repo's own established policy, architecture migrations of this kind ("localStorage token → httpOnly cookie" is a real auth-model change touching CORS, CSRF posture, and every API client) are documented and planned, not partially patched mid-sprint. Re-confirming this deferral rather than silently carrying it: the risk is real but requires a *second* vulnerability (XSS) to be exploitable, and this sprint's XSS testing (ENG-009) found none live.
+- **Owner**: Unassigned (architecture decision + migration plan owner)
+
+### ENG-027 — Modal-entrance-animation duration drifts (.15s/.18s/.22s/.25s)
+- **Source**: `ISSUE_DATABASE.md` L-1 (V7.0)
+- **Evidence**: Source-verified.
+- **Severity**: Low (cosmetic)
+- **Status**: Open
+- **Owner**: Engineering (this sprint, Enhancement tier, if time permits)
+
+### ENG-028 — Icon language mixes geometric Unicode and real emoji
+- **Source**: `ISSUE_DATABASE.md` L-2 (V7.0)
+- **Evidence**: Source-verified.
+- **Severity**: Low (cosmetic, needs a design decision on which icon language to standardize on)
+- **Status**: Open — low actionability without a design decision; documented, not blindly changed
+- **Owner**: Unassigned (needs design input)
+
+### ENG-029 — Architecture docs contradict each other on watermark model and cache TTLs
+- **Source**: `ISSUE_DATABASE.md` L-3 (V7.0)
+- **Evidence**: Not yet re-verified against current source this sprint — flagged for verification before either doc is trusted or merged.
+- **Severity**: Medium (incorrect documentation actively misleads future engineering work — a canonical-documentation defect, directly relevant to V16.0's "documentation must be canonical" goal)
+- **Status**: Open
+- **Owner**: Engineering (this sprint)
+
+### ENG-030 — Button-variant usage for row-level delete/revoke triggers varies
+- **Source**: `ISSUE_DATABASE.md` L-6 (V6.0)
+- **Evidence**: Source-verified — `ghost`+red-text vs. `outline-danger` both used for the same semantic action class.
+- **Severity**: Low (cosmetic consistency)
+- **Status**: Open
+- **Owner**: Engineering (this sprint, Enhancement tier, if time permits)
+
+### ENG-031 — WATERMARK-OWNER-ANON-001: owner's own preview watermark shows "anonymous"
+- **Source**: `ISSUE_DATABASE.md` (V12.0)
+- **Evidence**: Source-verified as a real, not-yet-fixed cosmetic bug — the document owner's own preview-link watermark displays "anonymous" instead of their real email, in the same machinery as the already-fixed READ-OWNER-001.
+- **Severity**: Low (cosmetic, but a genuine incorrect-displayed-value bug, not just a style inconsistency)
+- **Status**: Open
+- **Owner**: Engineering (this sprint)
+
 ## Explicitly not on this backlog (verified non-issues)
 
 - **Storage screen usage bars** (`FIXES_TODO.md` §5) — investigated and ruled out; the fill-bar computation is correct (`width: 0.0032554%` for a 328-byte file, verified via DOM inline-style inspection). An earlier automated check mismeasured the empty track div. No action needed.
@@ -312,5 +386,17 @@ Severity scale: **Critical → High → Medium → Low → Enhancement**. Per th
 | ENG-019 | Dashboard modals not re-exercised | Enhancement | 19 | Open |
 | ENG-020 | Reading Intelligence hand-verification | Enhancement | 20 | Open |
 | ENG-021 | Links return 403 not 404 cross-account (new finding) | Low | 21 | **Closed** |
+| ENG-022 | links.py DELETE 200 vs 204 inconsistency (M-6) | Low | 22 | Deferred |
+| ENG-023 | 14 endpoints use raw dict not typed schemas (M-8) | Medium | 23 | Deferred |
+| ENG-024 | "Created at" rendered 3 different ways (M-10) | Low | 24 | Open |
+| ENG-025 | Empty states inconsistent (M-11) | Low | 25 | Open |
+| ENG-026 | AUTH-006: session token in localStorage (M-14) | Medium-High | 26 | Deferred, re-confirmed |
+| ENG-027 | Modal animation duration drift (L-1) | Low | 27 | Open |
+| ENG-028 | Icon language mixing (L-2) | Low | 28 | Open, needs design input |
+| ENG-029 | Architecture docs contradict each other (L-3) | Medium | 29 | Open |
+| ENG-030 | Button-variant inconsistency for delete/revoke (L-6) | Low | 30 | Open |
+| ENG-031 | Owner preview watermark shows "anonymous" (WATERMARK-OWNER-ANON-001) | Low | 31 | Open |
 
-**Critical: 0. High: 3 (all closed). Medium: 3. Low: 7. Enhancement: 8.**
+**Critical: 0. High: 3 (all closed). Medium: 5 (2 closed, 1 deferred, 2 new: 1 deferred, 1 open). Low: 14 (5 closed, 3 deferred, 6 open). Enhancement: 8.**
+
+Updated totals after merge: **31 tracked issues, 10 closed, 5 deferred-with-reconfirmed-reasoning, 16 open.**
