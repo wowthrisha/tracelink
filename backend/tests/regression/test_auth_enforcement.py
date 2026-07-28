@@ -338,8 +338,11 @@ class TestCrossUserLinkAccess:
     async def test_user_a_cannot_revoke_user_b_link(
         self, client, user_b_link
     ):
+        # 404, matching the sibling create/list tests above: never confirm to
+        # an unauthorized caller that a resource exists under a different
+        # owner (ENG-021 — was 403, inconsistent with this same pattern).
         r = await client.delete(f"/api/links/{user_b_link.id}")
-        assert r.status_code == 403
+        assert r.status_code == 404
 
     @pytest.mark.asyncio
     async def test_user_a_cannot_patch_user_b_link(
@@ -348,7 +351,16 @@ class TestCrossUserLinkAccess:
         r = await client.patch(
             f"/api/links/{user_b_link.id}", json={"label": "hijacked"}
         )
-        assert r.status_code == 403
+        assert r.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_user_a_cannot_hard_delete_user_b_link(
+        self, client, user_b_link
+    ):
+        # No prior coverage existed for this endpoint's cross-account
+        # behavior — added alongside the ENG-021 fix rather than left gapped.
+        r = await client.delete(f"/api/links/{user_b_link.id}/hard")
+        assert r.status_code == 404
 
 
 class TestCrossUserDocumentAccess:

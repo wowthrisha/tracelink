@@ -89,6 +89,7 @@ Full backend + frontend suite run after every fix, plus live browser re-verifica
 | After ENG-008 (rate-limit 429 boundary — no code changed) | **1708 passed**, 1 skipped (unchanged) | N/A (no frontend change) | N/A | 21 bounded requests against a disposable test link: attempts 1-20 → 401, attempt 21 → 429. Boundary exact, no defect found. Link revoked immediately after |
 | After ENG-009 (XSS beyond link labels — no code changed) | **1708 passed**, 1 skipped (unchanged) | N/A (no frontend change) | N/A | Payload tested on org name/API key name/webhook description — literal text on all 3, 0 injected `<img>` elements, 0 dialogs, 0 console errors. Repo-wide grep confirms 0 `dangerouslySetInnerHTML` usage. All 3 disposable test resources deleted after |
 | After ENG-010 (expired-link live confirmation — no code changed) | **1708 passed**, 1 skipped (unchanged) | N/A (no frontend change) | N/A | Disposable link with 75s expiry: validate returned 200 before, 410 "Link expired" after an 80s wait. Test link deleted after |
+| After ENG-021 (link 403→404 consistency fix) | **1709 passed** (+1 new test), 1 skipped, 0 failed | N/A (backend-only) | N/A | Reverted fix via git stash, confirmed 3 tests fail pre-fix (403 vs 404), restored, confirmed pass. Fresh Account A/B logins on local Docker stack: PATCH/DELETE/DELETE-hard on A's link as B all now return 404 |
 
 **Zero regressions.** ENG-001 was a CSS-only change (3 `gridTemplateColumns` values); no backend code touched, so the identical backend pass count was expected and confirmed, not just assumed.
 

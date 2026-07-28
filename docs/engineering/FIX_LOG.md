@@ -485,3 +485,17 @@ Method: `ruff` (installed for this session) for AST-verified unused-import/unuse
 **Not a fix — a clean verification.** `_check_link_active` was source-verified as identical to the already-tested revocation path, but never itself live-tested (the dashboard UI's expiry field is date-only). Confirmed the backend schema accepts full datetime precision regardless of the UI constraint, created a disposable link expiring 75 seconds out, and confirmed `200` before / `410 {"detail":"Link expired"}` after waiting 80 seconds. No defect found. **This closes the last "Not enough evidence" item from `SECURITY_CERTIFICATION.md`'s original review** — cross-account IDOR (ENG-003), rate-limit boundary (ENG-008), XSS beyond link labels (ENG-009), and expired-link enforcement (this entry) are all now live-confirmed.
 
 **Files**: None changed.
+
+## Sprint V15.0 — ENG-021: Link mutation endpoints return 404 not 403 cross-account (2026-07-27)
+
+**Issue**: found during ENG-003's IDOR verification (V14.0). `links.py`'s `revoke_link`, `update_link`, `delete_link_permanently` returned `403 "Not authorized"` for cross-account access, confirming to an unauthorized caller that a link with that ID exists — inconsistent with the app-wide `404` pattern (`documents.py`, `api_keys.py`, and even `links.py`'s own `create`/`list` endpoints).
+
+**Fix**: Changed all 3 authorization-failure branches to `404 "Link not found"`, collapsing the "link doesn't exist" and "link exists but isn't yours" cases into one indistinguishable response.
+
+**Test discovery**: 2 existing tests asserted the old `403`, inconsistent with sibling tests in the same class already expecting `404` — updated both. Added a third test for the hard-delete endpoint, which had no prior cross-account coverage. Reverted the source fix via `git stash` to confirm all 3 fail pre-fix, restored, confirmed all pass — proving the tests are meaningful.
+
+**Verification**: Browser/API-verified on the local Docker stack with fresh Account A/B logins — all 3 endpoints now return `404 {"detail":"Link not found"}` for cross-account attempts.
+
+**Tests**: 1709 passed (up from 1708 — new test added), 1 skipped, 0 failed.
+
+**Files**: `backend/app/routers/links.py`, `backend/tests/regression/test_auth_enforcement.py`.

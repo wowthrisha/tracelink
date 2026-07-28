@@ -160,7 +160,7 @@ Severity scale: **Critical → High → Medium → Low → Enhancement**. Per th
 - **Regression risk**: Medium — connection pool changes affect every request path
 - **Dependencies**: None
 - **Priority**: 11
-- **Status**: Deferred — explicitly scoped to "before running >1 API replica," which this deployment is not doing today. Revisit before any horizontal-scaling change.
+- **Status**: **Deferral re-confirmed (2026-07-27)** — still Deferred. No horizontal-scaling change occurred this sprint (nothing in `docker-compose.yml`, Railway config, or any code touched this sprint alters replica count); the triggering condition ("before running >1 API replica") remains unmet. Not silently carried forward — actively re-checked.
 - **Blocked by**: A decision to horizontally scale (external, not an engineering task)
 - **Owner**: Unassigned
 - **Verification method**: N/A until scaling decision is made
@@ -173,7 +173,7 @@ Severity scale: **Critical → High → Medium → Low → Enhancement**. Per th
 - **Regression risk**: Medium-High — touches the viewer hot path directly
 - **Dependencies**: None
 - **Priority**: 12
-- **Status**: Deferred — only matters if horizontally scaled AND a customer has a hard requirement for provably-instant (not ≤10s) propagation. Neither condition currently holds. Re-open if either changes.
+- **Status**: **Deferral re-confirmed (2026-07-27)** — still Deferred. Neither triggering condition (horizontal scaling, or a customer requirement for provably-instant propagation) has arisen this sprint. Not silently carried forward — actively re-checked.
 - **Blocked by**: A customer requirement or a scaling decision (external)
 - **Owner**: Unassigned
 - **Verification method**: N/A until triggering condition arises
@@ -270,14 +270,14 @@ Severity scale: **Critical → High → Medium → Low → Enhancement**. Per th
 ### ENG-021 — Link mutation endpoints return 403 (not 404) for cross-account access, inconsistent with documents/API-keys
 - **Source reports**: none — newly discovered during ENG-003 verification, not present in any V13.0 report
 - **Evidence**: Browser/API-verified — `PATCH /api/links/{id}`, `DELETE /api/links/{id}`, `DELETE /api/links/{id}/hard` all returned `403 Not authorized` when Account B targeted Account A's link ID, whereas the equivalent cross-account attempts on `/api/documents/{id}` and `/api/api-keys/{id}` both returned `404`. The rest of the app's documented pattern (`SECURITY_CERTIFICATION.md` §2) deliberately uses 404 everywhere specifically to avoid confirming a resource's existence to an unauthorized caller. A 403 on links technically confirms "a link with this ID exists, just not yours" — a minor deviation from that pattern. Not practically exploitable (link IDs are random UUIDs, not enumerable), but an inconsistency worth fixing for defense-in-depth consistency.
-- **Affected files**: `backend/app/routers/links.py` (`revoke_link` ~line 209, `update_link` ~line 257, hard-delete ~line 346)
+- **Affected files**: `backend/app/routers/links.py` (`revoke_link`, `update_link`, `delete_link_permanently`), `backend/tests/regression/test_auth_enforcement.py`
 - **Estimated effort**: Small (change the authorization-failure branch from `403` to `404` in the 3 link-mutation handlers, matching the pattern already used in `documents.py`/`api_keys.py`)
-- **Regression risk**: Low-Medium — any existing frontend/test code that specifically expects `403` on these 3 endpoints would need updating
+- **Regression risk**: Low-Medium — realized: 2 existing tests (`TestCrossUserLinkAccess::test_user_a_cannot_revoke_user_b_link`, `test_user_a_cannot_patch_user_b_link`) asserted the old `403`, inconsistent with their own sibling tests in the same class (create/list) which already correctly expected `404`. Updated both to `404`, and added a third test for the hard-delete endpoint, which had zero prior cross-account coverage.
 - **Dependencies**: None
-- **Priority**: 21 (Low — found during this sprint, not blocking, not practically exploitable)
-- **Status**: Open
-- **Owner**: Engineering (if time permits this sprint)
-- **Verification method**: Regression-verified (check for any test asserting 403 on these paths before changing) + Browser/API-verified re-check that cross-account attempts now return 404
+- **Priority**: 21 (Low)
+- **Status**: **Closed** (2026-07-27)
+- **Owner**: Engineering (this sprint)
+- **Verification method**: Regression-verified — reverted the source fix via `git stash`, confirmed all 3 tests fail against pre-fix code (proving they're meaningful, not tautological), restored the fix, confirmed all 3 pass. Full suite: 1709 passed (up from 1708), 1 skipped, 0 failed. Browser/API-verified on the local Docker stack with fresh Account A/B logins: `PATCH`/`DELETE`/`DELETE .../hard` on Account A's link as Account B all now return `404 {"detail":"Link not found"}` — indistinguishable from a nonexistent link ID.
 
 ## Explicitly not on this backlog (verified non-issues)
 
@@ -311,6 +311,6 @@ Severity scale: **Critical → High → Medium → Low → Enhancement**. Per th
 | ENG-018 | Large-PDF stress not retested | Enhancement | 18 | Open |
 | ENG-019 | Dashboard modals not re-exercised | Enhancement | 19 | Open |
 | ENG-020 | Reading Intelligence hand-verification | Enhancement | 20 | Open |
-| ENG-021 | Links return 403 not 404 cross-account (new finding) | Low | 21 | Open |
+| ENG-021 | Links return 403 not 404 cross-account (new finding) | Low | 21 | **Closed** |
 
 **Critical: 0. High: 3 (all closed). Medium: 3. Low: 7. Enhancement: 8.**

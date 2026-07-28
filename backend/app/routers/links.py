@@ -224,7 +224,10 @@ async def revoke_link(
         )
     )
     if not doc_result.scalar_one_or_none():
-        raise HTTPException(status_code=403, detail="Not authorized")
+        # 404, not 403: matches the app-wide pattern (documents.py, api_keys.py)
+        # of never confirming to an unauthorized caller that a resource with
+        # this ID exists at all, just under a different owner.
+        raise HTTPException(status_code=404, detail="Link not found")
 
     revoked = await link_svc.revoke_link(db, str(link_id))
     share_links_revoked_total.inc()
@@ -270,7 +273,10 @@ async def update_link(
     )
     doc_for_patch = doc_result.scalar_one_or_none()
     if not doc_for_patch:
-        raise HTTPException(status_code=403, detail="Not authorized")
+        # 404, not 403: matches the app-wide pattern (documents.py, api_keys.py)
+        # of never confirming to an unauthorized caller that a resource with
+        # this ID exists at all, just under a different owner.
+        raise HTTPException(status_code=404, detail="Link not found")
 
     # Use model_fields_set so that explicitly-null values CLEAR the field,
     # while absent fields leave existing values untouched.
@@ -354,7 +360,10 @@ async def delete_link_permanently(
         )
     )
     if not doc_result.scalar_one_or_none():
-        raise HTTPException(status_code=403, detail="Not authorized")
+        # 404, not 403: matches the app-wide pattern (documents.py, api_keys.py)
+        # of never confirming to an unauthorized caller that a resource with
+        # this ID exists at all, just under a different owner.
+        raise HTTPException(status_code=404, detail="Link not found")
 
     if link.revoked_at is None:
         raise HTTPException(status_code=400, detail="Revoke the link before deleting it permanently")

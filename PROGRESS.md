@@ -6,20 +6,20 @@ Narrative progress log, one entry per closed (or explicitly deferred) backlog it
 
 | Field | Value |
 |---|---|
-| Current issue | none in progress — ENG-010 just closed |
-| Previous issue | ENG-010 (closed — expired-link enforcement live-confirmed) |
-| Next issue | ENG-021 (link 403/404 consistency) |
+| Current issue | none in progress — ENG-021 just closed |
+| Previous issue | ENG-021 (closed — link mutation endpoints now 404 cross-account) |
+| Next issue | Low-tier regression pass, then Enhancement tier (ENG-013) |
 | Critical remaining | 0 / 0 |
 | High remaining | 0 / 3 |
 | Medium remaining | 1* / 3 |
-| Low remaining | 3 / 7 (ENG-011, ENG-012 deferred; ENG-021 open) |
-| Overall % | 42.9% (9/21 closed) |
-| Current commit | `3241912` |
-| Last regression | PASS — post-ENG-010, 2026-07-27 (1708 backend; no code touched) |
+| Low remaining | 2* / 7 (ENG-011, ENG-012 deferred with re-confirmed reasoning) |
+| Overall % | 47.6% (10/21 closed) |
+| Current commit | `9f279f1` (ENG-021 commit pending) |
+| Last regression | PASS — post-ENG-021, 2026-07-27 (1709 backend +1 new test, 0 failed) |
 | Current blocker | None |
-| Estimated completion | 12 items remaining; no fixed ETA — evidence-first pacing takes priority over speed |
+| Estimated completion | 11 items remaining, all Enhancement-tier (non-blocking) except 2 already-deferred Medium/Low items; no fixed ETA |
 
-\* ENG-005 counted as remaining/deferred (pagination itself not built), though its deferral was actively re-confirmed, not silently skipped.
+\* ENG-005/ENG-011/ENG-012 counted as remaining/deferred, though all three deferrals were actively re-confirmed this cycle, not silently carried forward.
 
 ## Burndown
 
@@ -28,9 +28,11 @@ Narrative progress log, one entry per closed (or explicitly deferred) backlog it
 | Critical | 0 | 0 | 0 |
 | High | 3 | 3 | 0 |
 | Medium | 3 | 2 | 1* |
-| Low | 7 | 4 | 3 |
+| Low | 7 | 5 | 2* |
 | Enhancement | 8 | 0 | 8 |
-| **Total** | **21** | **9** | **12** |
+| **Total** | **21** | **10** | **11** |
+
+**Low tier fully actioned — 0 open items remain** (5 closed, 2 correctly deferred with fresh reasoning on record).
 
 ## 2026-07-26 — Sprint start
 
@@ -104,6 +106,16 @@ Tested the same payload already proven inert for link labels against the three r
 The dashboard UI only supports date-granularity expiry, which made a live wait-it-out test impractical in earlier sprints — the backend schema was checked and confirmed to accept full datetime precision regardless. Created a disposable link expiring 75 seconds out: validate returned 200 before, then 410 "Link expired" after an 80-second wait. Exact same response shape as the already-verified revocation path.
 
 **This closes the last "Not enough evidence" item from `SECURITY_CERTIFICATION.md`'s original review.** Every explicit evidence gap from that review — cross-account IDOR, rate-limit boundary, XSS beyond one field, expired-link enforcement — is now independently live-confirmed, not just architecturally inferred.
+
+## ENG-011 / ENG-012 — Scaling deferrals re-confirmed (not silently skipped)
+
+Neither triggering condition (horizontal scaling for ENG-011's connection pooling, a customer requirement for instant propagation for ENG-012's cache invalidation) arose this sprint. Both remain correctly deferred, now with an active re-check on record rather than a stale carry-forward.
+
+## ENG-021 — Link mutation endpoints return 404 not 403 cross-account — CLOSED
+
+Found during ENG-003's IDOR verification. `links.py`'s revoke/update/hard-delete endpoints leaked "a link with this ID exists" to unauthorized callers via 403, inconsistent with the app-wide 404 pattern (and inconsistent with `links.py`'s own sibling create/list endpoints). Fixed by collapsing both failure branches to 404. Discovered 2 existing tests had been asserting the old, inconsistent 403 — updated them, and added a third test for the hard-delete endpoint which had zero prior cross-account coverage. Proved the tests meaningful via revert-and-confirm-fail, then restore-and-confirm-pass. Browser/API-verified with fresh Account A/B logins: all 3 endpoints now correctly return 404.
+
+**This closes the entire Low-priority tier** — 5 items fixed/verified, 2 correctly deferred with fresh reasoning, 0 open.
 
 ---
 
