@@ -14,7 +14,7 @@ Narrative progress log, one entry per closed (or explicitly deferred) backlog it
 | Medium remaining | 2* / 5 (ENG-023, ENG-026 deferred with reasoning) |
 | Low remaining | 8 / 14 (ENG-011, ENG-012, ENG-022 deferred; 5 open: 024/025/027/028/030/031) |
 | Overall % | 35.5% (11/31 closed) |
-| Current commit | `cdde7ba` (ENG-029 commit pending) |
+| Current commit | `61e597d` |
 | Last regression | PASS — post-ENG-029, 2026-07-28 (1709 backend, docs-only change) |
 | Current blocker | None |
 | Estimated completion | 20 items remaining: 8 Enhancement-tier (ENG-013–020) + 6 Low-severity polish (ENG-024/025/027/028/030/031) + 6 already-deferred with reasoning (not blocking); no fixed ETA |
