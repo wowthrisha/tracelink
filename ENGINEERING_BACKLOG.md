@@ -334,10 +334,11 @@ Reading the full canonical-source list per V16.0's instructions surfaced 10 item
 
 ### ENG-029 — Architecture docs contradict each other on watermark model and cache TTLs
 - **Source**: `ISSUE_DATABASE.md` L-3 (V7.0)
-- **Evidence**: Not yet re-verified against current source this sprint — flagged for verification before either doc is trusted or merged.
-- **Severity**: Medium (incorrect documentation actively misleads future engineering work — a canonical-documentation defect, directly relevant to V16.0's "documentation must be canonical" goal)
-- **Status**: Open
+- **Evidence**: Source-verified against `backend/app/services/viewer_cache.py` (`LINK_TTL_SEC=10.0`, `DOC_TTL_SEC=60.0`, `PAGE_TTL_SEC=300.0`, `SESSION_TTL_SEC=5.0`) and `backend/app/services/watermark.py` (3 distinct mechanisms: `apply_visible_watermark`, `apply_forensic_stamp`, `apply_viewer_forensic_stamp`). `ARCHITECTURE.md` had 2 real errors: link-snapshot TTL stated as 30s (actual 10s) and session-validation TTL stated as 30s (actual 5s); and it mislabeled the main visible per-session watermark as "forensic" while omitting the two actual (separate) near-invisible forensic stamps entirely. `OVERVIEW.md` was already correct on both counts.
+- **Severity**: Medium (incorrect documentation actively misleads future engineering work)
+- **Status**: **Closed** (2026-07-28) — `ARCHITECTURE.md` corrected to match verified source, with an explicit source-of-truth file citation added to prevent future drift.
 - **Owner**: Engineering (this sprint)
+- **Verification method**: Source-verified (direct read of `viewer_cache.py` and `watermark.py`); regression-verified (backend suite unchanged, 1709 passed, 1 skipped — docs-only change).
 
 ### ENG-030 — Button-variant usage for row-level delete/revoke triggers varies
 - **Source**: `ISSUE_DATABASE.md` L-6 (V6.0)
@@ -393,7 +394,7 @@ Reading the full canonical-source list per V16.0's instructions surfaced 10 item
 | ENG-026 | AUTH-006: session token in localStorage (M-14) | Medium-High | 26 | Deferred, re-confirmed |
 | ENG-027 | Modal animation duration drift (L-1) | Low | 27 | Open |
 | ENG-028 | Icon language mixing (L-2) | Low | 28 | Open, needs design input |
-| ENG-029 | Architecture docs contradict each other (L-3) | Medium | 29 | Open |
+| ENG-029 | Architecture docs contradict each other (L-3) | Medium | 29 | **Closed** |
 | ENG-030 | Button-variant inconsistency for delete/revoke (L-6) | Low | 30 | Open |
 | ENG-031 | Owner preview watermark shows "anonymous" (WATERMARK-OWNER-ANON-001) | Low | 31 | Open |
 

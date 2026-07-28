@@ -247,3 +247,17 @@ Format per entry: Timestamp / Module / Screen / Observation / Root Cause / Decis
 - **Verification (Browser/API-verified)**: Local Docker stack, fresh logins for both test accounts. `PATCH`/`DELETE`/`DELETE .../hard` on Account A's link as Account B all return `404 {"detail":"Link not found"}` — indistinguishable from a genuinely nonexistent link ID.
 - **Result**: ENG-021 closed. ENG-011/ENG-012 deferrals re-confirmed, not silently carried forward. **This closes the entire Low-priority tier.**
 - **Next Action**: browser regression pass (per process rule, after completing a tier), then proceed to Enhancement tier.
+
+### Entry 20 — Sprint V16.0, backlog reconciliation + ENG-029 (2026-07-28)
+
+- **Timestamp**: 2026-07-28T20:40
+- **Module**: Documentation (`docs/engineering/ISSUE_DATABASE.md`, `ENGINEERING_BACKLOG.md`, `docs/architecture/ARCHITECTURE.md`)
+- **Observation**: V16.0 explicitly requires reading `ISSUE_DATABASE.md` and `TODO_QUEUE.md` as canonical sources before touching code. Found the two contradicted each other on completion status for ~10 items (`ISSUE_DATABASE.md` marked several "Open" that `TODO_QUEUE.md`'s own "Completed this session" list showed done back in V10.0).
+- **Root Cause**: `ISSUE_DATABASE.md` was never updated after V10.0 shipped those fixes — a stale-documentation defect in its own right.
+- **Decision**: Source-verified a 3/3 sample directly against current code (H-1 `@keyframes shake` exists; H-7 `download_document`'s PDF write is wrapped in `run_in_executor`; M-1 both `Toggle` call sites pass `label=`) — all confirmed done. Reconciled `ISSUE_DATABASE.md`'s status column to match verified reality rather than either stale doc. Merged the 10 genuinely-still-open items into `ENGINEERING_BACKLOG.md` as ENG-022 through ENG-031 (2 already deferred with re-confirmed reasoning, 8 open) — `ENGINEERING_BACKLOG.md` remains the single source of truth, nothing duplicated across files.
+
+  Then processed the highest-priority newly-surfaced open item: **ENG-029** (architecture docs contradict each other on watermark model and cache TTLs). Source-verified ground truth directly: `viewer_cache.py`'s actual TTLs are `LINK_TTL_SEC=10.0`, `SESSION_TTL_SEC=5.0` — `ARCHITECTURE.md` stated both as 30s (wrong); `OVERVIEW.md` already had the correct 10s/5s. Also `ARCHITECTURE.md` mislabeled the main visible per-session watermark as "forensic," omitting the two actual (separate) near-invisible forensic stamps that `watermark.py` implements. `OVERVIEW.md` was already accurate on this too.
+- **Files Modified**: `docs/engineering/ISSUE_DATABASE.md` (reconciliation), `ENGINEERING_BACKLOG.md` (10 new entries), `docs/architecture/ARCHITECTURE.md` (2 corrected lines, source-of-truth citation added).
+- **Tests Executed**: Backend full suite 1709 passed, 1 skipped, 0 failed (unchanged — docs-only change).
+- **Result**: Backlog now genuinely comprehensive across all canonical sources, not just this sprint's own findings. ENG-029 closed — both architecture docs now agree and match source.
+- **Next Action**: proceed through the remaining open items in priority order — Enhancement-tier ENG-013 onward, plus the newly-merged Low-severity items (ENG-024, 025, 027, 028, 030, 031).

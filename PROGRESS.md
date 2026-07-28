@@ -6,33 +6,35 @@ Narrative progress log, one entry per closed (or explicitly deferred) backlog it
 
 | Field | Value |
 |---|---|
-| Current issue | none in progress — Low-tier regression pass complete |
-| Previous issue | Low-tier completion regression pass (PASS) |
+| Current issue | none in progress — ENG-029 just closed |
+| Previous issue | ENG-029 (closed — architecture docs corrected to match source) |
 | Next issue | ENG-013 (frontend lint tooling) — first Enhancement-tier item |
 | Critical remaining | 0 / 0 |
 | High remaining | 0 / 3 |
-| Medium remaining | 1* / 3 |
-| Low remaining | 2* / 7 (ENG-011, ENG-012 deferred with re-confirmed reasoning) |
-| Overall % | 47.6% (10/21 closed) |
-| Current commit | `b907145` |
-| Last regression | PASS — Low-tier completion pass, 2026-07-27 (1709 backend / 13 frontend / build 312.9kb / migration exit 0 / 10 screens clean / ENG-007+ENG-021 re-confirmed with fresh logins) |
+| Medium remaining | 2* / 5 (ENG-023, ENG-026 deferred with reasoning) |
+| Low remaining | 8 / 14 (ENG-011, ENG-012, ENG-022 deferred; 5 open: 024/025/027/028/030/031) |
+| Overall % | 35.5% (11/31 closed) |
+| Current commit | `cdde7ba` (ENG-029 commit pending) |
+| Last regression | PASS — post-ENG-029, 2026-07-28 (1709 backend, docs-only change) |
 | Current blocker | None |
-| Estimated completion | 11 items remaining, all Enhancement-tier (non-blocking) except 2 already-deferred Medium/Low items; no fixed ETA |
+| Estimated completion | 20 items remaining: 8 Enhancement-tier (ENG-013–020) + 6 Low-severity polish (ENG-024/025/027/028/030/031) + 6 already-deferred with reasoning (not blocking); no fixed ETA |
+
+\* Backlog expanded from 21 to 31 items this cycle after merging `ISSUE_DATABASE.md`/`TODO_QUEUE.md` findings — see the V16.0 reconciliation entry below. This is real newly-surfaced scope, not re-litigation of closed work.
 
 \* ENG-005/ENG-011/ENG-012 counted as remaining/deferred, though all three deferrals were actively re-confirmed this cycle, not silently carried forward.
 
-## Burndown
+## Burndown (recomputed after V16.0's backlog merge — 21 → 31 items)
 
-| Priority | Total | Closed | Remaining |
-|---|---|---|---|
-| Critical | 0 | 0 | 0 |
-| High | 3 | 3 | 0 |
-| Medium | 3 | 2 | 1* |
-| Low | 7 | 5 | 2* |
-| Enhancement | 8 | 0 | 8 |
-| **Total** | **21** | **10** | **11** |
+| Priority | Total | Closed | Deferred (reasoned) | Open |
+|---|---|---|---|---|
+| Critical | 0 | 0 | 0 | 0 |
+| High | 3 | 3 | 0 | 0 |
+| Medium | 6 | 3 | 3 | 0 |
+| Low | 14 | 5 | 3 | 6 |
+| Enhancement | 8 | 0 | 1 + 1 justified | 6 |
+| **Total** | **31** | **11** | **7 (+1 justified)** | **12** |
 
-**Low tier fully actioned — 0 open items remain** (5 closed, 2 correctly deferred with fresh reasoning on record).
+**High and Medium tiers: 0 open items remain** (all closed or deferred with fresh, on-record reasoning). Low tier has 6 newly-merged cosmetic/consistency items still open (ENG-024/025/027/028/030/031). Enhancement tier has 6 open (ENG-013/014/017/018/019/020).
 
 ## 2026-07-26 — Sprint start
 
@@ -122,6 +124,14 @@ Found during ENG-003's IDOR verification. `links.py`'s revoke/update/hard-delete
 Per explicit process rule (regression pass after each completed tier): fresh logins for both test accounts, full sweep of all 10 dashboard screens (zero raw errors, zero console errors), re-confirmed ENG-007's scroll fade still renders at 834px and ENG-021's cross-account link mutation still returns 404. Both test suites re-run (1709 backend, 13 frontend), build succeeded, migration validated (exit 0).
 
 **Zero regressions. Low tier fully closed out. Proceeding to Enhancement tier.**
+
+## V16.0 — Backlog reconciliation (2026-07-28)
+
+Per V16.0's instruction to read `ISSUE_DATABASE.md` and `TODO_QUEUE.md` as canonical sources: found they contradicted each other on ~10 items' completion status. Source-verified a 3/3 sample directly against current code — all confirmed done, `ISSUE_DATABASE.md` was simply stale (never updated after V10.0 shipped those fixes). Reconciled its status column, then merged the 10 genuinely-still-open items into `ENGINEERING_BACKLOG.md` as ENG-022 through ENG-031 (2 already deferred with reasoning, 8 open) — no duplicate tracking, `ENGINEERING_BACKLOG.md` remains the single source of truth.
+
+## ENG-029 — Architecture docs contradiction — CLOSED
+
+`ARCHITECTURE.md` and `OVERVIEW.md` disagreed on cache TTLs and the watermark model. Source-verified ground truth directly against `viewer_cache.py`/`watermark.py`: `ARCHITECTURE.md` had 2 real errors (link/session TTLs both stated as 30s, actual 10s/5s) and mislabeled the visible watermark as "forensic" while omitting the two actual forensic stamps. `OVERVIEW.md` was already correct on both. Fixed `ARCHITECTURE.md` to match, with a source-of-truth citation added to prevent future drift.
 
 ---
 

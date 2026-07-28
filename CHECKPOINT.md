@@ -2,22 +2,24 @@
 
 Running state snapshot, updated after every closed backlog item. See `PROGRESS.md` for the narrative log and `ENGINEERING_BACKLOG.md` for full issue detail.
 
-**Last updated**: 2026-07-27 09:30, after Low-tier completion regression pass.
+**Last updated**: 2026-07-28 20:40, after V16.0 backlog reconciliation + ENG-029.
 
-## Burndown
+## Burndown (backlog expanded 21 → 31 items this cycle — see below)
 
-| Priority | Total | Closed | Remaining |
-|---|---|---|---|
-| Critical | 0 | 0 | 0 |
-| High | 3 | 3 | 0 |
-| Medium | 3 | 2 | 1* |
-| Low | 7 | 5 | 2* |
-| Enhancement | 8 | 0 | 8 |
-| **Total** | **21** | **10** | **11** |
+| Priority | Total | Closed | Deferred (reasoned) | Open |
+|---|---|---|---|---|
+| Critical | 0 | 0 | 0 | 0 |
+| High | 3 | 3 | 0 | 0 |
+| Medium | 6 | 3 | 3 | 0 |
+| Low | 14 | 5 | 3 | 6 |
+| Enhancement | 8 | 0 | 2 | 6 |
+| **Total** | **31** | **11** | **8** | **12** |
 
-\* ENG-005/ENG-011/ENG-012 remain counted as open/deferred, but all three deferrals were actively re-confirmed this sprint, not silently skipped — see `PROGRESS.md`.
+Overall completion: **35.5%** (11/31). **High and Medium tiers: 0 open items.** Every "Not enough evidence" security gap from the original review is live-confirmed. 12 open items remain, all Low/Enhancement severity (cosmetic consistency, tooling, deferred audits) — none blocking per the mission's stop conditions.
 
-Overall completion: **47.6%** (10/21). **The entire Low-priority tier is closed** — every "Not enough evidence" security gap from the original review is live-confirmed (ENG-003, ENG-008, ENG-009, ENG-010), and the one code-consistency defect found along the way (ENG-021) is fixed. See `PROGRESS.md` for the full dashboard (current/previous/next issue, regression status, test status, commit hash, blocker, ETA).
+## V16.0 backlog reconciliation
+
+Read `ISSUE_DATABASE.md`/`TODO_QUEUE.md` per V16.0's canonical-sources instruction — found them contradicting each other on ~10 items. Source-verified 3/3 sample confirms `ISSUE_DATABASE.md` was stale (V10.0 fixes never marked done there). Reconciled it, merged 10 genuinely-open items into `ENGINEERING_BACKLOG.md` as ENG-022–031. Processed the highest-priority new item (ENG-029, architecture doc corrections) immediately. See `PROGRESS.md` for the full dashboard (current/previous/next issue, regression status, test status, commit hash, blocker, ETA).
 
 ## V15.0 process refinements now in effect
 
@@ -43,7 +45,7 @@ Overall completion: **47.6%** (10/21). **The entire Low-priority tier is closed*
 
 ## Immediate next step
 
-Enhancement tier, starting with ENG-013 (no frontend equivalent of `ruff` for unused-import detection). All remaining items are non-blocking per the mission's stop conditions (every Critical/High closed, every workflow verified) — proceeding through them for full repository-quality completeness rather than stopping early. Per explicit process rule: if any issue uncovers a broader architectural problem, pause it, document the finding, add it to `ENGINEERING_BACKLOG.md` with a dependency link, and move to the next independent item rather than getting stuck.
+ENG-013 (no frontend equivalent of `ruff` for unused-import detection) — first Enhancement-tier item. Also queued: 6 newly-merged Low-severity cosmetic items (ENG-024/025/027/028/030/031). All remaining items are non-blocking per the mission's stop conditions (every Critical/High/Medium closed or deferred, every workflow verified) — proceeding through them for full repository-quality completeness rather than stopping early. Per explicit process rule: if any issue uncovers a broader architectural problem, pause it, document the finding, add it to `ENGINEERING_BACKLOG.md` with a dependency link, and move to the next independent item rather than getting stuck.
 
 ## Disposable test accounts created this sprint (local stack only)
 

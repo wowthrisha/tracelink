@@ -91,6 +91,7 @@ Full backend + frontend suite run after every fix, plus live browser re-verifica
 | After ENG-010 (expired-link live confirmation — no code changed) | **1708 passed**, 1 skipped (unchanged) | N/A (no frontend change) | N/A | Disposable link with 75s expiry: validate returned 200 before, 410 "Link expired" after an 80s wait. Test link deleted after |
 | After ENG-021 (link 403→404 consistency fix) | **1709 passed** (+1 new test), 1 skipped, 0 failed | N/A (backend-only) | N/A | Reverted fix via git stash, confirmed 3 tests fail pre-fix (403 vs 404), restored, confirmed pass. Fresh Account A/B logins on local Docker stack: PATCH/DELETE/DELETE-hard on A's link as B all now return 404 |
 | **Low-tier completion regression pass** (before starting Enhancement tier) | **1709 passed**, 1 skipped, 0 failed | **13/13 passed**, build 312.9kb | migrate exit 0 | Fresh logins, all 10 dashboard screens re-checked (zero raw errors, zero console errors); ENG-007's scroll fade re-confirmed present at 834px; ENG-021's cross-account 404 re-confirmed (PATCH as B on A's link → 404) |
+| After ENG-029 (architecture doc corrections — docs-only) | **1709 passed**, 1 skipped (unchanged) | N/A (no frontend change) | N/A | Pure documentation fix; TTL/watermark claims re-verified against source before and after edit |
 
 **Zero regressions.** ENG-001 was a CSS-only change (3 `gridTemplateColumns` values); no backend code touched, so the identical backend pass count was expected and confirmed, not just assumed.
 

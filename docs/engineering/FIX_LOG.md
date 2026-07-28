@@ -499,3 +499,13 @@ Method: `ruff` (installed for this session) for AST-verified unused-import/unuse
 **Tests**: 1709 passed (up from 1708 — new test added), 1 skipped, 0 failed.
 
 **Files**: `backend/app/routers/links.py`, `backend/tests/regression/test_auth_enforcement.py`.
+
+## Sprint V16.0 — ENG-029: Architecture docs corrected to match verified source (2026-07-28)
+
+**Issue**: `ENGINEERING_BACKLOG.md` ENG-029 (merged from `ISSUE_DATABASE.md` L-3). `docs/architecture/ARCHITECTURE.md` and `OVERVIEW.md` disagreed on cache TTLs and the watermark model.
+
+**Fix**: Source-verified ground truth against `viewer_cache.py` and `watermark.py` directly. `ARCHITECTURE.md` had 2 real errors — link/session cache TTLs both stated as 30s (actual: 10s/5s), and the visible per-session watermark mislabeled as "forensic" while the two actual (separate) forensic stamps went unmentioned. `OVERVIEW.md` was already correct on both. Corrected `ARCHITECTURE.md` to match, with a source-of-truth file citation added to prevent future drift.
+
+**Tests**: Backend 1709 passed, 1 skipped, 0 failed (unchanged — docs-only).
+
+**Files**: `docs/architecture/ARCHITECTURE.md`.

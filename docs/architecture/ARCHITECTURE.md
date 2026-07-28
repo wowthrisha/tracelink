@@ -73,7 +73,7 @@ DRM session (policy.py):
 
 ## Security Model
 
-- All page images served with per-session forensic watermarks (email, date, session prefix, random angle)
+- All page images served with a per-session **visible** watermark (viewer email + timestamp, random per-session angle jitter). Separately, two near-invisible **forensic** stamps are burned into each byte: a document-level stamp (lower-right, encodes a document-ID fingerprint) and a viewer-session-level stamp (lower-left, encodes a session-ID fingerprint) — distinct from, and in addition to, the visible watermark.
 - Session IDs never logged in full (first 8 chars only)
 - IP addresses hashed before storage (HMAC-SHA256 with `IP_HASH_SALT`)
 - Share link tokens are cryptographically random (32 bytes, URL-safe base64)
@@ -83,7 +83,7 @@ DRM session (policy.py):
 
 ## Caching Strategy
 
-- **L1 in-process (TTL cache)**: link snapshots (30s), doc snapshots (60s), page metadata (5min), session validation (30s)
+- **L1 in-process (TTL cache)**: link snapshots (10s), doc snapshots (60s), page metadata (5min), session validation (5s) — source of truth: `LINK_TTL_SEC`/`DOC_TTL_SEC`/`PAGE_TTL_SEC`/`SESSION_TTL_SEC` in `backend/app/services/viewer_cache.py`
 - **L2 Redis**: raw WEBP bytes for page images and thumbnails (TTL: `REDIS_PAGE_CACHE_TTL_SEC`, default 3600s)
 - **Cache invalidation**: explicit on document reprocess, link revoke, session expiry
 
