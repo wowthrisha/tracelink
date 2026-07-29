@@ -537,3 +537,15 @@ Method: `ruff` (installed for this session) for AST-verified unused-import/unuse
 **Tests**: Backend 1709 passed, 1 skipped, 0 failed. `test_analytics.py` 20/20. Frontend 13/13 (verified on both platforms). Build succeeded. Lint exit 0.
 
 **Files**: `backend/app/services/analytics_service.py`, `frontend/package.json`, `frontend/package-lock.json`.
+
+## Sprint V17.0 — ENG-024: Date-formatting consistency (2026-07-29)
+
+**Issue**: `ENGINEERING_BACKLOG.md` ENG-024. Re-verified per V17.0's STEP 1 process before touching anything: `StorageScreen.jsx`/`BillingScreen.jsx`/`InsightsModal.jsx` each reimplemented date-only formatting ad hoc instead of using the existing shared `fmtDate()`; `AccessScreen.jsx` repeated an identical date+time expression 3 times.
+
+**Fix**: Swapped the 3 screens to `fmtDate()`. Added a small local `fmtDateTime()` helper in `AccessScreen.jsx` for its 3 duplicate date+time call sites. Explicitly investigated and declined to touch `NotificationsScreen.jsx`/`AuditLogScreen.jsx`'s same-named but semantically-different `fmtTime()` functions (relative vs. absolute time) — not true duplication.
+
+**Verification**: Browser-verified — Storage, Billing, Access Control all render cleanly on the local Docker stack, zero console errors.
+
+**Tests**: Backend 1709 passed, 1 skipped, 0 failed. Frontend 13/13 passed. Build succeeded. Lint exit 0.
+
+**Files**: `frontend/src/screens/StorageScreen.jsx`, `frontend/src/screens/BillingScreen.jsx`, `frontend/src/components/InsightsModal.jsx`, `frontend/src/screens/AccessScreen.jsx`.

@@ -11,6 +11,8 @@
  * readingData = { summary, heatmap, insights, viewers } | null
  */
 
+import { fmtDate } from '../utils/viewer.js';
+
 const { useState } = React;
 
 function _fmtMs(ms) {
@@ -185,7 +187,7 @@ function ViewersTab({ viewers }) {
               {v.viewer_email || 'Anonymous'}
             </span>
             <span style={{ fontFamily: 'ui-monospace,monospace', fontSize: 9, color: 'rgba(110,140,144,0.6)' }}>
-              {v.started_at ? new Date(v.started_at).toLocaleDateString() : ''}
+              {v.started_at ? fmtDate(v.started_at) : ''}
             </span>
           </div>
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>

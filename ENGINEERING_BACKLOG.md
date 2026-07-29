@@ -303,10 +303,13 @@ Reading the full canonical-source list per V16.0's instructions surfaced 10 item
 
 ### ENG-024 — "Created at" concept renders 3 different ways across screens
 - **Source**: `ISSUE_DATABASE.md` M-10 (V6.0)
-- **Evidence**: Source-verified — `fmtDate()`, raw `toLocaleString()`, and a custom `fmtTime()` all exist and are used inconsistently for the same semantic concept.
+- **Evidence**: Source-verified, re-verified V17.0 (STEP 1). Confirmed still reproducible: `StorageScreen.jsx`, `BillingScreen.jsx`, `InsightsModal.jsx` each independently called `new Date(x).toLocaleDateString()` with no options — browser-locale-dependent numeric format (e.g. "7/29/2026") — instead of the app's existing shared `fmtDate()` util (`utils/viewer.js`, already used elsewhere, produces "Jul 29, 2026"). `AccessScreen.jsx` separately had the identical `new Date(x).toLocaleString()` expression repeated 3 times for 3 different audit-trail timestamp fields.
+- **STEP 2 justification**: Yes on usability (consistent date presentation instead of 3 different formats), maintainability (fewer duplicate inline date-formatting expressions), and reduces future-bug risk (one correct shared implementation vs. several independently-maintained ones). Distinguished from a false-positive case: `NotificationsScreen.jsx`'s and `AuditLogScreen.jsx`'s same-named `fmtTime()` functions were investigated and found to be semantically different (relative "2m ago" vs. absolute precise timestamp) — correctly left untouched, not a true duplication.
+- **Fix**: `StorageScreen.jsx`, `BillingScreen.jsx`, `InsightsModal.jsx` now import and use the shared `fmtDate()`. `AccessScreen.jsx` gained one small local `fmtDateTime()` helper (date+time format, which `fmtDate()` doesn't provide) replacing its 3 duplicate inline expressions.
 - **Severity**: Low (cosmetic consistency)
-- **Status**: Open
-- **Owner**: Engineering (this sprint, Enhancement tier)
+- **Status**: **Closed** (2026-07-29)
+- **Owner**: Engineering (this sprint)
+- **Verification method**: Regression-verified (both test suites unchanged, build succeeded, lint exit 0) + Browser-verified (Storage, Billing, Access Control screens all render cleanly on the local Docker stack, zero console errors)
 
 ### ENG-025 — Empty states inconsistent (icon+heading+CTA vs. bare text)
 - **Source**: `ISSUE_DATABASE.md` M-11 (V6.0)
@@ -393,7 +396,7 @@ Reading the full canonical-source list per V16.0's instructions surfaced 10 item
 | ENG-021 | Links return 403 not 404 cross-account (new finding) | Low | 21 | **Closed** |
 | ENG-022 | links.py DELETE 200 vs 204 inconsistency (M-6) | Low | 22 | Deferred |
 | ENG-023 | 14 endpoints use raw dict not typed schemas (M-8) | Medium | 23 | Deferred |
-| ENG-024 | "Created at" rendered 3 different ways (M-10) | Low | 24 | Open |
+| ENG-024 | "Created at" rendered 3 different ways (M-10) | Low | 24 | **Closed** |
 | ENG-025 | Empty states inconsistent (M-11) | Low | 25 | Open |
 | ENG-026 | AUTH-006: session token in localStorage (M-14) | Medium-High | 26 | Deferred, re-confirmed |
 | ENG-027 | Modal animation duration drift (L-1) | Low | 27 | Open |

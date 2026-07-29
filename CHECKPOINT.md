@@ -2,7 +2,7 @@
 
 Running state snapshot, updated after every closed backlog item. See `PROGRESS.md` for the narrative log and `ENGINEERING_BACKLOG.md` for full issue detail.
 
-**Last updated**: 2026-07-29 13:00, after ENG-014.
+**Last updated**: 2026-07-29 20:00, after ENG-024.
 
 ## Burndown (backlog expanded 21 → 31 items in V16.0 — see PROGRESS.md)
 
@@ -11,11 +11,15 @@ Running state snapshot, updated after every closed backlog item. See `PROGRESS.m
 | Critical | 0 | 0 | 0 | 0 |
 | High | 3 | 3 | 0 | 0 |
 | Medium | 6 | 3 | 3 | 0 |
-| Low | 14 | 5 | 3 | 6 |
+| Low | 14 | 6 | 3 | 5 |
 | Enhancement | 8 | 2 | 2 | 4 |
-| **Total** | **31** | **13** | **8** | **10** |
+| **Total** | **31** | **14** | **8** | **9** |
 
-Overall completion: **41.9%** (13/31). **High and Medium tiers: 0 open items.** Every "Not enough evidence" security gap from the original review is live-confirmed. 10 open items remain, all Low/Enhancement severity (cosmetic consistency, tooling audits, deferred product/design decisions) — none blocking per the mission's stop conditions.
+Overall completion: **45.2%** (14/31). **High and Medium tiers: 0 open items.** Every "Not enough evidence" security gap from the original review is live-confirmed. 9 open items remain, all Low/Enhancement severity (cosmetic consistency, tooling audits, deferred product/design decisions) — none blocking per the mission's stop conditions.
+
+## V17.0 process refinement now in effect
+
+Per the STEP 1/2/3 workflow: every remaining Low/Enhancement item gets re-verified against current source (not assumed still valid), then explicitly justified against 7 value criteria (usability/maintainability/security/scalability/complexity/future-bugs/tech-debt) before implementing — if none apply, document why and skip rather than implement by default. ENG-024 is the first item processed this way: confirmed reproducible, justified (maintainability + future-bug reduction), fixed, and one look-alike sub-case (the `fmtTime()` naming collision) was explicitly investigated and correctly left alone after finding it wasn't true duplication.
 
 ## V16.0 backlog reconciliation
 
@@ -45,7 +49,7 @@ Read `ISSUE_DATABASE.md`/`TODO_QUEUE.md` per V16.0's canonical-sources instructi
 
 ## Immediate next step
 
-ENG-018 (large-PDF stress retest) — needs a genuinely large (100+ page) PDF, browser-verify rendering/search/nav/Reading-Intelligence metrics all hold at scale. Also queued: ENG-019 (dashboard modal re-exercise), ENG-020 (Reading Intelligence hand-verification), ENG-017 (observability wiring — likely ops-only, may end up "Not enough evidence" if infra access isn't available), and 6 Low-severity cosmetic items (ENG-024/025/027/028/030/031, of which ENG-028 needs design input). All remaining items are non-blocking per the mission's stop conditions (every Critical/High/Medium closed or deferred, every workflow verified) — proceeding through them for full repository-quality completeness rather than stopping early.
+ENG-025 (empty states inconsistent) — next in priority order, same STEP 1/2/3 process: re-verify still reproducible, judge value, fix only if justified. Also queued: ENG-027/028/030/031 (remaining Low-severity cosmetic items, ENG-028 needs design input), then ENG-017/018/019/020 (Enhancement tier) — per V17.0's explicit instruction, a full repository certification pass runs after Low priority is complete and before any Enhancement work begins. All remaining items are non-blocking per the mission's stop conditions (every Critical/High/Medium closed or deferred, every workflow verified) — proceeding through them for full repository-quality completeness rather than stopping early.
 
 ## Disposable/dev environment state
 

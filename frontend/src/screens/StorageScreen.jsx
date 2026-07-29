@@ -1,5 +1,5 @@
 import { C, mono } from '../constants/tokens.js';
-import { _errMsg } from '../utils/viewer.js';
+import { _errMsg, fmtDate } from '../utils/viewer.js';
 import { useToast } from '../contexts/toast.jsx';
 import { Card, Header } from '../components/atoms.jsx';
 const { useState, useEffect } = React;
@@ -139,7 +139,7 @@ export function StorageScreen() {
                       </div>
                     </td>
                     <td style={{ ...mono, padding: '8px 14px', fontSize: 10, color: doc.expires_at ? C.warning : C.textMuted }}>
-                      {doc.expires_at ? new Date(doc.expires_at).toLocaleDateString() : '—'}
+                      {doc.expires_at ? fmtDate(doc.expires_at) : '—'}
                     </td>
                     <td style={{ padding: '8px 14px' }}>
                       <select

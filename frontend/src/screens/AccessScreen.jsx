@@ -14,6 +14,11 @@ function fmtDate(iso) {
   return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
+// The 3 audit-trail timestamps below (annotation, reply, visual-annotation
+// creation) all want locale date+time, not just date; consolidated here
+// instead of repeating `new Date(x).toLocaleString()` 3 times (ENG-024).
+const fmtDateTime = (iso) => iso ? new Date(iso).toLocaleString() : '';
+
 export function AccessScreen({ doc, onSelectDoc, defaultTab }) {
   const toast = useToast();
   const [tab, setTab] = useState(defaultTab || 'policy');
@@ -625,7 +630,7 @@ export function AccessScreen({ doc, onSelectDoc, defaultTab }) {
                                 : <Chip color={C.textMuted} bg="transparent" border={C.border}>Open</Chip>}
                             </td>
                             <td style={{ padding: '9px 14px', fontSize: 10, color: C.textMuted, ...mono, whiteSpace: 'nowrap' }}>
-                              {new Date(a.created_at).toLocaleString()}
+                              {fmtDateTime(a.created_at)}
                             </td>
                             <td style={{ padding: '9px 14px', whiteSpace: 'nowrap' }}>
                               <div style={{ display: 'flex', gap: 4 }}>
@@ -658,7 +663,7 @@ export function AccessScreen({ doc, onSelectDoc, defaultTab }) {
                                 {r.comment_text || '—'}
                               </td>
                               <td style={{ padding: '7px 14px', fontSize: 10, color: C.textMuted, ...mono, whiteSpace: 'nowrap' }}>
-                                {new Date(r.created_at).toLocaleString()}
+                                {fmtDateTime(r.created_at)}
                               </td>
                               <td />
                             </tr>
@@ -764,7 +769,7 @@ export function AccessScreen({ doc, onSelectDoc, defaultTab }) {
                             )}
                           </td>
                           <td style={{ padding: '8px 14px', fontSize: 10, color: C.textMuted, ...mono, whiteSpace: 'nowrap' }}>
-                            {new Date(a.created_at).toLocaleString()}
+                            {fmtDateTime(a.created_at)}
                           </td>
                         </tr>
                       ))}

@@ -1,4 +1,5 @@
 import { C } from '../constants/tokens.js';
+import { fmtDate } from '../utils/viewer.js';
 const { useState, useEffect } = React;
 
 function authHeaders() {
@@ -126,7 +127,7 @@ export function BillingScreen({ onPlanChange }) {
                   </div>
                   {billing.current_period_end && (
                     <div style={{ marginTop: 2 }}>
-                      Renews {new Date(billing.current_period_end).toLocaleDateString()}
+                      Renews {fmtDate(billing.current_period_end)}
                     </div>
                   )}
                 </div>

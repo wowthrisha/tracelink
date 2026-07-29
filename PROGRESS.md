@@ -6,19 +6,19 @@ Narrative progress log, one entry per closed (or explicitly deferred) backlog it
 
 | Field | Value |
 |---|---|
-| Current issue | none in progress — ENG-014 just closed |
-| Previous issue | ENG-014 (closed — duplicate-code scan + analytics_service.py extraction) |
-| Next issue | ENG-018 (large-PDF stress retest) |
+| Current issue | none in progress — ENG-024 just closed |
+| Previous issue | ENG-024 (closed — date-formatting consistency) |
+| Next issue | ENG-025 (empty states inconsistent) |
 | Critical remaining | 0 / 0 |
 | High remaining | 0 / 3 |
 | Medium remaining | 2* / 5 (ENG-023, ENG-026 deferred with reasoning) |
-| Low remaining | 8 / 14 (ENG-011, ENG-012, ENG-022 deferred; 6 open: 024/025/027/028/030/031) |
+| Low remaining | 7 / 14 (ENG-011, ENG-012, ENG-022 deferred; 5 open: 025/027/028/030/031) |
 | Enhancement remaining | 4 / 8 (ENG-013/014 closed; ENG-015 justified, ENG-016 deferred) |
-| Overall % | 41.9% (13/31 closed) |
-| Current commit | `c00b544` |
-| Last regression | PASS — post-ENG-014, 2026-07-29 (1709 backend / 13 frontend (both platforms) / build 312.5kb / lint exit 0 / Docker rebuild succeeded / Analytics + By Group tab clean) |
+| Overall % | 45.2% (14/31 closed) |
+| Current commit | `1257920` (ENG-024 commit pending) |
+| Last regression | PASS — post-ENG-024, 2026-07-29 (1709 backend / 13 frontend / build 309.0kb / lint exit 0 / Docker rebuild succeeded / Storage+Billing+Access Control clean) |
 | Current blocker | None |
-| Estimated completion | 10 items remaining: 3 open Enhancement-tier (017/019/020, ENG-018 next) + 6 open Low-severity polish (024/025/027/028/030/031); ENG-017/028 likely need ops/design input outside pure engineering scope; no fixed ETA |
+| Estimated completion | 9 items remaining: 4 open Enhancement-tier (017/018/019/020) + 5 open Low-severity polish (025/027/028/030/031); ENG-017/028 likely need ops/design input outside pure engineering scope; no fixed ETA |
 
 \* Backlog expanded from 21 to 31 items this cycle after merging `ISSUE_DATABASE.md`/`TODO_QUEUE.md` findings — see the V16.0 reconciliation entry below. This is real newly-surfaced scope, not re-litigation of closed work.
 
@@ -31,11 +31,11 @@ Narrative progress log, one entry per closed (or explicitly deferred) backlog it
 | Critical | 0 | 0 | 0 | 0 |
 | High | 3 | 3 | 0 | 0 |
 | Medium | 6 | 3 | 3 | 0 |
-| Low | 14 | 5 | 3 | 6 |
+| Low | 14 | 6 | 3 | 5 |
 | Enhancement | 8 | 2 | 1 + 1 justified | 4 |
-| **Total** | **31** | **13** | **7 (+1 justified)** | **10** |
+| **Total** | **31** | **14** | **7 (+1 justified)** | **9** |
 
-**High and Medium tiers: 0 open items remain** (all closed or deferred with fresh, on-record reasoning). Low tier has 6 newly-merged cosmetic/consistency items still open (ENG-024/025/027/028/030/031). Enhancement tier has 4 open (ENG-017/018/019/020).
+**High and Medium tiers: 0 open items remain** (all closed or deferred with fresh, on-record reasoning). Low tier has 5 cosmetic/consistency items still open (ENG-025/027/028/030/031). Enhancement tier has 4 open (ENG-017/018/019/020).
 
 ## 2026-07-26 — Sprint start
 
@@ -149,6 +149,10 @@ Ran `jscpd` for the first time: 24 clones total, 1.70%/0.25% duplicated lines (P
 Hit the same class of Docker lockfile issue as ENG-013 a second time (installing `jscpd` locally reintroduced the platform-dependency drift) — this time it broke the *local* Mac environment instead when I over-corrected. Fixed properly by installing on both platforms in sequence against one lockfile and verifying `npm ci` independently on each in isolation, not just one.
 
 Browser-verified both refactored code paths (Analytics screen + "By Group" tab) render real data with zero console errors. Both test suites unchanged.
+
+## ENG-024 — Date-formatting consistency — CLOSED
+
+Per V17.0's STEP 1/2/3 process: re-verified the original finding was still reproducible (confirmed — 3 files reimplementing date formatting ad hoc, 1 file repeating an identical expression 3 times), judged it worth fixing (usability + maintainability + reduced future-bug risk), then implemented the smallest safe consolidation. Explicitly investigated and declined to touch a look-alike case (`fmtTime()` duplicated by name across two files) after confirming via source read that the two versions are semantically different — relative vs. absolute time — not true duplication. Browser-verified across 3 screens on the local stack, zero console errors, both test suites unchanged.
 
 ---
 

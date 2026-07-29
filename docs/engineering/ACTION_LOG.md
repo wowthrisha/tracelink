@@ -288,3 +288,17 @@ Format per entry: Timestamp / Module / Screen / Observation / Root Cause / Decis
 - **Verification (Browser-verified)**: Local Docker stack, fresh login — Analytics screen (exercises `get_document_analytics`) and its "By Group" tab (exercises `get_group_analytics`) both render real data correctly, zero console errors.
 - **Result**: ENG-014 closed — one real fix, one documented near-miss (SELECT-shape difference), 20 documented as reviewed-and-not-warranted. This closes the entire remaining backlog except the 4 items needing design/product input or ops access (ENG-017, 028) and the small cosmetic-consistency items.
 - **Next Action**: proceed to the remaining open items — ENG-017 (observability, likely ops-only), ENG-018 (large-PDF retest), ENG-019 (dashboard modal re-exercise), ENG-020 (Reading Intelligence hand-verification), ENG-024/025/027/028/030/031 (cosmetic consistency).
+
+### Entry 23 — Sprint V17.0, ENG-024 (2026-07-29)
+
+- **Timestamp**: 2026-07-29T20:00
+- **Module**: Frontend (`StorageScreen.jsx`, `BillingScreen.jsx`, `InsightsModal.jsx`, `AccessScreen.jsx`)
+- **Observation**: Per V17.0's explicit STEP 1/2/3 process — re-read `ENGINEERING_BACKLOG.md` ENG-024's original evidence and re-verified live in source rather than assuming it still held. Confirmed reproducible: `StorageScreen.jsx`/`BillingScreen.jsx`/`InsightsModal.jsx` each independently called `new Date(x).toLocaleDateString()` (browser-locale numeric format) instead of the already-existing shared `fmtDate()` util; `AccessScreen.jsx` separately repeated the identical `new Date(x).toLocaleString()` expression 3 times.
+- **STEP 2 (value justification)**: Yes — usability (consistent date format instead of 3+ different ones), maintainability (fewer ad-hoc reimplementations), reduced future-bug risk. Also explicitly investigated and ruled OUT consolidating `NotificationsScreen.jsx`/`AuditLogScreen.jsx`'s same-named `fmtTime()` functions — confirmed via source read they're semantically different (relative "2m ago" for a live feed vs. absolute precise timestamp for a compliance record) — correctly left untouched per STEP 2's "if no, document why" instruction.
+- **Decision**: Swapped 3 files to the existing shared `fmtDate()`. Added one small local `fmtDateTime()` helper in `AccessScreen.jsx` for its 3 duplicate date+time expressions (a format `fmtDate()` doesn't provide).
+- **Files Modified**: `frontend/src/screens/StorageScreen.jsx`, `frontend/src/screens/BillingScreen.jsx`, `frontend/src/components/InsightsModal.jsx`, `frontend/src/screens/AccessScreen.jsx`.
+- **Note**: all 4 files had pre-existing uncommitted work from earlier sprints (V10.0's Billing watermark-hint, Storage retention-confirmation-modal feature, etc.) mixed in with my edits. Applied the now-established isolation technique: backed up each file's full working state, reset to HEAD, reapplied only the ENG-024 edits, verified each diff was clean and minimal (15 lines total across 4 files) before committing — the pre-existing unrelated work remains in the working tree afterward, untouched and not lost.
+- **Tests Executed**: Backend full suite 1709 passed, 1 skipped, 0 failed (unchanged). Frontend 13/13 passed. Build succeeded (309.0kb). `npm run lint` exit 0.
+- **Verification (Browser-verified)**: Local Docker stack, fresh login — Storage, Billing, and Access Control screens all render cleanly, zero console errors.
+- **Result**: ENG-024 closed.
+- **Next Action**: proceed to ENG-025 (empty states inconsistent).
