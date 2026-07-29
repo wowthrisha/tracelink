@@ -128,12 +128,6 @@ export function ViewerToolbar({
     setPageInputStr('');
   };
 
-  const zoomLabel = layoutMode === LAYOUT.AUTO ? 'AUTO'
-    : layoutMode === LAYOUT.FIT_WIDTH ? 'W'
-    : layoutMode === LAYOUT.FIT_HEIGHT ? 'H'
-    : layoutMode === LAYOUT.ACTUAL ? '100%'
-    : `${customZoom}%`;
-
   return (
     <div data-viewer-toolbar style={{
       height: 42, background: '#10151d',

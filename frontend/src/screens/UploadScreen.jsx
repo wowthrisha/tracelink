@@ -38,7 +38,6 @@ export function UploadScreen({ onViewDoc, onAccessDoc }) {
   const [docs, setDocs] = useState([]);
   const [overview, setOverview] = useState(null);
   const [docsLoading, setDocsLoading] = useState(true);
-  const [deleting, setDeleting] = useState(false);
   const [groups, setGroups] = useState([]);
   const [activeGroupFilter, setActiveGroupFilter] = useState(null);
   const [selectedGroupId, setSelectedGroupId] = useState('');
@@ -68,7 +67,7 @@ export function UploadScreen({ onViewDoc, onAccessDoc }) {
     try {
       const data = await window.SecureDocAPI.getGroups();
       setGroups(data.groups || []);
-    } catch (e) { /* non-critical */ }
+    } catch { /* non-critical */ }
   }, []);
 
 

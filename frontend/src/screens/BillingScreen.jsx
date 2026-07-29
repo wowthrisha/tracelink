@@ -1,4 +1,4 @@
-import { C, mono } from '../constants/tokens.js';
+import { C } from '../constants/tokens.js';
 const { useState, useEffect } = React;
 
 function authHeaders() {
@@ -24,7 +24,7 @@ export function BillingScreen({ onPlanChange }) {
         setBilling(data);
         if (onPlanChange) onPlanChange(data.plan || 'free');
       }
-    } catch (_) {}
+    } catch {}
     finally { if (!silent) setLoading(false); else setRefreshing(false); }
   }
 
@@ -49,7 +49,7 @@ export function BillingScreen({ onPlanChange }) {
       }
       const { url } = await r.json();
       window.location.href = url;
-    } catch (e) {
+    } catch {
       setError('Network error. Please try again.');
     } finally {
       setActionLoading('');
@@ -71,7 +71,7 @@ export function BillingScreen({ onPlanChange }) {
       }
       const { url } = await r.json();
       window.open(url, '_blank');
-    } catch (e) {
+    } catch {
       setError('Network error. Please try again.');
     } finally {
       setActionLoading('');

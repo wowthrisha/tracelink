@@ -22,7 +22,6 @@ export function AccessScreen({ doc, onSelectDoc, defaultTab }) {
   const [creating, setCreating] = useState(false);
   const [revokeModal, setRevokeModal] = useState(false);
   const [quickLinkModal, setQuickLinkModal] = useState(false);
-  const [revoking, setRevoking] = useState(null);
   const [editLinkModal, setEditLinkModal] = useState(null); // link object being edited, or null
   const [editSaving, setEditSaving] = useState(false);
   const [revokeLinkModal, setRevokeLinkModal] = useState(null);
@@ -101,7 +100,7 @@ export function AccessScreen({ doc, onSelectDoc, defaultTab }) {
     try {
       const reviewers = await window.SecureDocAPI.getFeedbackReviewers(docId);
       setFeedbackReviewers(Array.isArray(reviewers) ? reviewers : []);
-    } catch (e) { /* non-fatal: dropdown just stays empty */ }
+    } catch { /* non-fatal: dropdown just stays empty */ }
   }, [docId]);
 
   const fetchVisualAnnotations = useCallback(async () => {

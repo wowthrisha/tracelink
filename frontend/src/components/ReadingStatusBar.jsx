@@ -74,7 +74,6 @@ export function ReadingStatusBar({ display, page, pageCount }) {
     totalActiveMs,
     estimatedRemainingMs,
     currentPageActiveMs,
-    completedPages,
     pagesVisited,
     avgMsPerPage,
     readingSpeedWpm,

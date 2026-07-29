@@ -1,7 +1,7 @@
 import { C, mono } from '../constants/tokens.js';
 import { _errMsg } from '../utils/viewer.js';
 import { useToast } from '../contexts/toast.jsx';
-import { Card, Header, SectionLabel, Chip, Btn, Divider, Field, Modal } from '../components/atoms.jsx';
+import { Card, Header, SectionLabel, Chip, Btn, Field, Modal } from '../components/atoms.jsx';
 const { useState, useEffect, useCallback } = React;
 
 const ALL_SCOPES = [

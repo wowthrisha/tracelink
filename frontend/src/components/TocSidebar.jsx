@@ -5,19 +5,14 @@ const { useState, useEffect } = React;
 export function TocSidebar({ linkToken, sessionId, currentPage, docType, pageCount, onNavigate, onClose }) {
   const [toc, setToc] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(false);
   const isImageDoc = docType === 'pdf' || docType === 'docx' || docType === 'doc';
 
   useEffect(() => {
     if (!linkToken || !sessionId) return;
     setLoading(true);
-    setError(false);
     window.SecureDocAPI.getToc(linkToken, sessionId)
-      .then(data => {
-        setToc(data.toc || []);
-        if (!data.supported) setError(true);
-      })
-      .catch(() => { setToc([]); setError(true); })
+      .then(data => setToc(data.toc || []))
+      .catch(() => setToc([]))
       .finally(() => setLoading(false));
   }, [linkToken, sessionId]);
 
@@ -26,8 +21,6 @@ export function TocSidebar({ linkToken, sessionId, currentPage, docType, pageCou
     : (entry.chunk != null ? entry.chunk : null);
 
   const isCurrent = (entry) => navTarget(entry) === currentPage;
-
-  const confidenceColor = (c) => c >= 0.9 ? C.teal2 : c >= 0.75 ? '#e0a030' : C.textDim;
 
   return (
     <div style={{

@@ -26,7 +26,7 @@ import { AnnotationLayer } from '../components/AnnotationLayer.jsx';
 import { CommentPopup } from '../components/CommentPopup.jsx';
 import { DocumentPicker } from '../components/DocumentPicker.jsx';
 
-const { useState, useEffect, useRef, useCallback } = React;
+const { useState, useEffect, useRef } = React;
 
 export function ViewerScreen({ doc, publicToken, onSelectDoc, onBack }) {
   const toast = useToast();
@@ -108,7 +108,7 @@ export function ViewerScreen({ doc, publicToken, onSelectDoc, onBack }) {
     pageLinksRef,
     linksLoaded, setLinksLoaded,
     visitedLinks, setVisitedLinks,
-    sidecarExtracted, setSidecarExtracted,
+    setSidecarExtracted,
   } = useLinksSidecar(session, doc?.id, isTextDoc, {
     onAutoExtractReset: () => {
       wordPositionsRef.current = {};
@@ -128,7 +128,6 @@ export function ViewerScreen({ doc, publicToken, onSelectDoc, onBack }) {
     threadReplyText, setThreadReplyText,
     threadReplySending, setThreadReplySending,
     bookmarks, setBookmarks,
-    drawingState, setDrawingState,
     annotCacheRef,
   } = useAnnotations(session, page, isTextDoc);
 

@@ -8,7 +8,6 @@ export function useToast() { return useContext(ToastCtx); }
 function Toast({ t }) {
   const icons  = { success: '✓', error: '✕', warning: '⚠', info: 'ℹ' };
   const colors = { success: C.success, error: C.error, warning: C.warning, info: C.teal2 };
-  const bgs    = { success: C.successBg, error: C.errorBg, warning: C.warningBg, info: C.infoBg };
   const bdrs   = { success: C.successBdr, error: C.errorBdr, warning: C.warningBdr, info: C.infoBdr };
   return (
     <div style={{
