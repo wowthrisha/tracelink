@@ -185,23 +185,27 @@ Severity scale: **Critical → High → Medium → Low → Enhancement**. Per th
 ### ENG-013 — No frontend equivalent of `ruff` for unused-import detection
 - **Source reports**: `CODE_QUALITY_CERTIFICATION.md` §6, `RELEASE_BLOCKERS.md` Tier 3 item 1
 - **Evidence**: Source-code verified gap (tooling absence, not a found defect)
-- **Affected files**: `frontend/` tooling config (would need ESLint + `no-unused-vars` or equivalent)
+- **Affected files**: `frontend/eslint.config.js` (new), `frontend/package.json` (added `lint` script + `type: module`), 9 files cleaned of dead code it found
 - **Estimated effort**: Medium (tool setup + first-pass cleanup of whatever it finds)
-- **Regression risk**: Low for setup; depends on findings for any resulting cleanup
+- **Regression risk**: Low for setup; each of the 19 findings was individually investigated (not blind auto-fix) before removal
 - **Priority**: 13
-- **Status**: Open — good candidate for this sprint's repository-quality pass if time permits
-- **Owner**: Engineering (this sprint, if time permits)
-- **Verification method**: Regression-verified (full frontend test suite + build) after any resulting cleanup
+- **Status**: **Closed** (2026-07-29)
+- **Owner**: Engineering (this sprint)
+- **Verification method**: Regression-verified — 19 findings across 9 files, each investigated individually (e.g. `TocSidebar.jsx`'s unused `error` state traced to confirm the UI already falls back to its empty state correctly without it; `ViewerScreen.jsx`'s `drawingState`/`sidecarExtracted` confirmed as unused destructures from hooks that still use them internally, not orphaned state). Fixed all 19; `npm run lint` now exits 0. Along the way, hit and fixed a real Docker build break: the lockfile generated on macOS didn't include Linux/Alpine-only optional platform dependencies for esbuild, causing `npm ci` to fail in the container — regenerated `package-lock.json` from inside a `node:20-alpine` container to match the actual build target. Both test suites unchanged (1709 backend, 13 frontend), build succeeded (312.5kb, down from 312.9kb from the dead-code removal), migration validated (exit 0), full Docker rebuild + browser-verified (Upload/Access Control/API Keys/Webhooks/Billing/Viewer all clean, zero console errors, Viewer opens and renders correctly with the touched hooks).
 
 ### ENG-014 — Systematic duplicate-code scan never run
 - **Source reports**: `CODE_QUALITY_CERTIFICATION.md` §4
-- **Evidence**: Not enough evidence — no `jscpd`-equivalent scan has been run; only the one already-known instance (ENG-015) is on record.
-- **Affected files**: TBD pending scan
-- **Estimated effort**: Small (run a scan), effort for any resulting fixes TBD
+- **Evidence**: Source-code verified. Installed `jscpd` and ran it against the full `frontend/src` + `backend/app` trees (min 10 lines / 50 tokens). Result: 24 clones total — 22 Python (1.70% duplicated lines), 2 JSX (0.25%). Both figures are low by industry norms (typical healthy-codebase thresholds are often cited around 3-5%).
+- **Fixed**: One genuine, valuable duplication — `analytics_service.py`'s `get_document_analytics` and `get_group_analytics` both independently implemented the identical 4-5-query batch link-event-aggregation block (28 and 24 lines respectively). Extracted into a shared `_aggregate_link_event_counts()` helper. This was real drift risk: two copies of the same GROUP BY queries, one could be fixed/changed without the other being updated. Verified: `test_analytics.py`'s 20 tests pass unchanged, full suite 1709 passed / 1 skipped / 0 failed.
+- **Investigated, not extracted**: `annotation_export_service.py`/`annotation_thread_service.py` (3 clone pairs) — genuine overlap (author_role validation, date parsing, base WHERE filter) but the two functions' `SELECT` shapes differ (`build_feedback_export` selects a single `ViewerAnnotation` entity; `fetch_feedback_list` selects `(ViewerAnnotation, ShareLink.label)` as a tuple for display). A clean shared extraction would need a parameterized query-builder — added complexity for a ~15-line saving. Judged not worth it.
+- **Reviewed at appropriate depth, not extracted** (remaining 20 clones): same-file clones in `annotations.py`, `documents.py`, `groups.py`, `links.py`, `orgs.py`, `viewer.py`, `reading_analytics_service.py`, `workers/pipeline/pdf.py`, `AccessScreen.jsx` — each is a small (11-20 line) same-file repeat of a pattern like "check ownership, raise 404" or "fetch + validate" across two endpoints/branches in the same file; low drift risk since one person editing the file sees both copies together, and each is small enough that extraction would add an indirection layer for marginal benefit. Cross-file: `adapters/presentation.py`/`adapters/spreadsheet.py` and `adapters/text.py`/`adapters/word.py` — these are file-format adapters implementing a shared conversion contract; structural similarity between sibling adapters following the same interface is expected, not accidental duplication. `ApiKeysScreen.jsx`/`WebhooksScreen.jsx` (11 lines) — small, similar modal boilerplate, same reasoning as the same-file router cases.
+- **Affected files**: `backend/app/services/analytics_service.py` (fixed); all others reviewed only
+- **Estimated effort**: Small (scan) + Small (the one fix made)
+- **Regression risk**: Low — the one fix is a pure extraction (identical queries, same call sites), verified via the existing analytics test suite
 - **Priority**: 14
-- **Status**: Open
-- **Owner**: Engineering (this sprint, if time permits)
-- **Verification method**: Source-code verified scan output
+- **Status**: **Closed** (2026-07-29)
+- **Owner**: Engineering (this sprint)
+- **Verification method**: Source-code verified scan output (24 clones, categorized above); regression-verified (`test_analytics.py` 20/20, full suite 1709/1709 unchanged)
 
 ### ENG-015 — Duplicated 7-key `permissions` dict (AccessScreen.jsx / viewer_session_service.py)
 - **Source reports**: `ARCHITECTURE_CERTIFICATION.md` §5 (AD-7), `CODE_QUALITY_CERTIFICATION.md` §4, `RELEASE_BLOCKERS.md` Tier 3 item 3
@@ -378,8 +382,8 @@ Reading the full canonical-source list per V16.0's instructions surfaced 10 item
 | ENG-010 | Expired-link live confirmation missing | Low | 10 | **Closed — live-confirmed** |
 | ENG-011 | Connection pooling cluster budget | Low | 11 | Deferred |
 | ENG-012 | Cache invalidation broadcast | Low | 12 | Deferred |
-| ENG-013 | No frontend lint tooling | Enhancement | 13 | Open |
-| ENG-014 | No duplicate-code scan run | Enhancement | 14 | Open |
+| ENG-013 | No frontend lint tooling | Enhancement | 13 | **Closed** |
+| ENG-014 | No duplicate-code scan run | Enhancement | 14 | **Closed** |
 | ENG-015 | Duplicated permissions dict (AD-7) | Enhancement | 15 | Justified, not changed |
 | ENG-016 | AccessScreen.jsx oversized (M-13) | Enhancement | 16 | Deferred |
 | ENG-017 | Observability wiring unconfirmed | Enhancement | 17 | Open (ops, not code) |

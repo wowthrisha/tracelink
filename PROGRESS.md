@@ -6,18 +6,19 @@ Narrative progress log, one entry per closed (or explicitly deferred) backlog it
 
 | Field | Value |
 |---|---|
-| Current issue | none in progress — ENG-029 just closed |
-| Previous issue | ENG-029 (closed — architecture docs corrected to match source) |
-| Next issue | ENG-013 (frontend lint tooling) — first Enhancement-tier item |
+| Current issue | none in progress — ENG-014 just closed |
+| Previous issue | ENG-014 (closed — duplicate-code scan + analytics_service.py extraction) |
+| Next issue | ENG-018 (large-PDF stress retest) |
 | Critical remaining | 0 / 0 |
 | High remaining | 0 / 3 |
 | Medium remaining | 2* / 5 (ENG-023, ENG-026 deferred with reasoning) |
-| Low remaining | 8 / 14 (ENG-011, ENG-012, ENG-022 deferred; 5 open: 024/025/027/028/030/031) |
-| Overall % | 35.5% (11/31 closed) |
-| Current commit | `61e597d` |
-| Last regression | PASS — post-ENG-029, 2026-07-28 (1709 backend, docs-only change) |
+| Low remaining | 8 / 14 (ENG-011, ENG-012, ENG-022 deferred; 6 open: 024/025/027/028/030/031) |
+| Enhancement remaining | 4 / 8 (ENG-013/014 closed; ENG-015 justified, ENG-016 deferred) |
+| Overall % | 41.9% (13/31 closed) |
+| Current commit | `c19aa61` (ENG-014 commit pending) |
+| Last regression | PASS — post-ENG-014, 2026-07-29 (1709 backend / 13 frontend (both platforms) / build 312.5kb / lint exit 0 / Docker rebuild succeeded / Analytics + By Group tab clean) |
 | Current blocker | None |
-| Estimated completion | 20 items remaining: 8 Enhancement-tier (ENG-013–020) + 6 Low-severity polish (ENG-024/025/027/028/030/031) + 6 already-deferred with reasoning (not blocking); no fixed ETA |
+| Estimated completion | 10 items remaining: 3 open Enhancement-tier (017/019/020, ENG-018 next) + 6 open Low-severity polish (024/025/027/028/030/031); ENG-017/028 likely need ops/design input outside pure engineering scope; no fixed ETA |
 
 \* Backlog expanded from 21 to 31 items this cycle after merging `ISSUE_DATABASE.md`/`TODO_QUEUE.md` findings — see the V16.0 reconciliation entry below. This is real newly-surfaced scope, not re-litigation of closed work.
 
@@ -31,10 +32,10 @@ Narrative progress log, one entry per closed (or explicitly deferred) backlog it
 | High | 3 | 3 | 0 | 0 |
 | Medium | 6 | 3 | 3 | 0 |
 | Low | 14 | 5 | 3 | 6 |
-| Enhancement | 8 | 0 | 1 + 1 justified | 6 |
-| **Total** | **31** | **11** | **7 (+1 justified)** | **12** |
+| Enhancement | 8 | 2 | 1 + 1 justified | 4 |
+| **Total** | **31** | **13** | **7 (+1 justified)** | **10** |
 
-**High and Medium tiers: 0 open items remain** (all closed or deferred with fresh, on-record reasoning). Low tier has 6 newly-merged cosmetic/consistency items still open (ENG-024/025/027/028/030/031). Enhancement tier has 6 open (ENG-013/014/017/018/019/020).
+**High and Medium tiers: 0 open items remain** (all closed or deferred with fresh, on-record reasoning). Low tier has 6 newly-merged cosmetic/consistency items still open (ENG-024/025/027/028/030/031). Enhancement tier has 4 open (ENG-017/018/019/020).
 
 ## 2026-07-26 — Sprint start
 
@@ -132,6 +133,22 @@ Per V16.0's instruction to read `ISSUE_DATABASE.md` and `TODO_QUEUE.md` as canon
 ## ENG-029 — Architecture docs contradiction — CLOSED
 
 `ARCHITECTURE.md` and `OVERVIEW.md` disagreed on cache TTLs and the watermark model. Source-verified ground truth directly against `viewer_cache.py`/`watermark.py`: `ARCHITECTURE.md` had 2 real errors (link/session TTLs both stated as 30s, actual 10s/5s) and mislabeled the visible watermark as "forensic" while omitting the two actual forensic stamps. `OVERVIEW.md` was already correct on both. Fixed `ARCHITECTURE.md` to match, with a source-of-truth citation added to prevent future drift.
+
+## ENG-013 — Frontend lint tooling + dead-code cleanup — CLOSED
+
+Added a minimal ESLint setup (unused-vars only, deliberately narrow scope) — the frontend's equivalent of the backend's `ruff` sweep. 19 findings across 9 files, each individually investigated before removal (not blind auto-fix): traced `TocSidebar.jsx`'s dead `error` state to confirm the existing empty-state UI already covers the failure case; confirmed `ViewerScreen.jsx`'s unused destructures come from hooks that still use that state internally, only removing the unused consumer-side bindings. Converted 5 unused `catch (e)` blocks to parameter-less `catch { }`.
+
+Found and fixed a real Docker build break along the way: the regenerated `package-lock.json` (created on macOS) didn't include Linux/Alpine-only optional platform packages that `esbuild` needs, breaking `npm ci` inside the container. Regenerated the lockfile from inside a `node:20-alpine` container to match the actual build target.
+
+`npm run lint` now exits 0. Full Docker rebuild verified working, browser-verified across 6 screens plus the Viewer (opening a real document to exercise the touched hooks) — all clean, zero console errors. Both test suites unchanged; build shrank slightly (312.9kb → 312.5kb) from the dead-code removal.
+
+## ENG-014 — Duplicate-code scan — CLOSED
+
+Ran `jscpd` for the first time: 24 clones total, 1.70%/0.25% duplicated lines (Python/JSX) — low by industry norms. Reviewed all 24 individually rather than mechanically fixing every match. Fixed one real, valuable case: `analytics_service.py`'s `get_document_analytics` and `get_group_analytics` both independently ran the identical batch link-event-aggregation query block — extracted into a shared helper, removing real drift risk. Investigated the closest remaining candidate (`annotation_export_service.py`/`annotation_thread_service.py`) closely enough to find their `SELECT` shapes genuinely differ, making extraction not worth the added complexity. The remaining 20 clones documented as reviewed, not extracted (small same-file patterns or expected adapter-contract similarity).
+
+Hit the same class of Docker lockfile issue as ENG-013 a second time (installing `jscpd` locally reintroduced the platform-dependency drift) — this time it broke the *local* Mac environment instead when I over-corrected. Fixed properly by installing on both platforms in sequence against one lockfile and verifying `npm ci` independently on each in isolation, not just one.
+
+Browser-verified both refactored code paths (Analytics screen + "By Group" tab) render real data with zero console errors. Both test suites unchanged.
 
 ---
 

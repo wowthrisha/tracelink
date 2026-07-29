@@ -509,3 +509,31 @@ Method: `ruff` (installed for this session) for AST-verified unused-import/unuse
 **Tests**: Backend 1709 passed, 1 skipped, 0 failed (unchanged — docs-only).
 
 **Files**: `docs/architecture/ARCHITECTURE.md`.
+
+## Sprint V16.0 — ENG-013: Frontend lint tooling + dead-code cleanup (2026-07-29)
+
+**Issue**: `ENGINEERING_BACKLOG.md` ENG-013. No frontend equivalent of the backend's `ruff` dead-code sweep existed.
+
+**Fix**: Added a minimal ESLint flat config (`no-unused-vars` only, deliberately narrow — not a style-guide migration) and a `lint` script. Ran it: 19 findings across 9 files, each investigated individually before removal (not blind auto-fix). Notable: `TocSidebar.jsx`'s `error` state was set but never read — traced the render to confirm the existing empty-state already covers the failure case, so nothing user-visible was lost by removing it. `ViewerScreen.jsx`'s unused destructures (`sidecarExtracted`, `drawingState`/`setDrawingState`) come from hooks that still use that state internally — only the unused *consumer-side* binding was removed. 5 unused `catch (e)` parameters converted to parameter-less `catch { }` (ES2019+, within the esbuild target range).
+
+**Real bug found and fixed as a side effect**: the Docker build broke after adding the new devDependencies — `package-lock.json` regenerated on macOS didn't include Linux/Alpine-only optional platform packages for `esbuild`. Regenerated the lockfile from inside a `node:20-alpine` container (matching the actual Dockerfile stage) instead of locally.
+
+**Verification**: `npm run lint` exits 0. Full Docker rebuild succeeded. Browser-verified on the local stack — Upload/Access Control/API Keys/Webhooks/Billing/Viewer all clean, zero console errors, Viewer opens and renders correctly.
+
+**Tests**: Backend 1709 passed, 1 skipped, 0 failed. Frontend 13/13 passed. Build succeeded (312.5kb, down from 312.9kb).
+
+**Files**: `frontend/eslint.config.js` (new), `frontend/package.json`, 9 source files.
+
+## Sprint V17.0 — ENG-014: Duplicate-code scan + real fix (2026-07-29)
+
+**Issue**: `ENGINEERING_BACKLOG.md` ENG-014. No systematic duplicate-code detection had ever run. Installed `jscpd`, ran against `frontend/src` + `backend/app`: 24 clones, 1.70%/0.25% duplicated lines (Python/JSX) — low by industry norms.
+
+**Fix**: One genuine case — `analytics_service.py`'s `get_document_analytics` and `get_group_analytics` both independently ran the identical 4-5-query batch link-event-aggregation block. Extracted into a shared `_aggregate_link_event_counts()` helper, removing real drift risk (a query fix applied to one copy but not the other). The other 23 findings were individually reviewed and judged not to warrant extraction (small same-file patterns, expected adapter-contract similarity, or a genuine-but-shape-mismatched pair where the abstraction cost exceeds the ~15-line saving) — full reasoning in `ENGINEERING_BACKLOG.md`.
+
+**Side effect fixed**: installing `jscpd` reintroduced ENG-013's lockfile platform-drift issue, this time breaking the local Mac dev environment (vitest/rolldown missing its darwin-arm64 binding — a known npm bug). Fixed properly this time by installing on both platforms in sequence against one lockfile, then verifying `npm ci` independently on each in isolation.
+
+**Verification**: Browser-verified — Analytics screen and its "By Group" tab (the two refactored code paths) both render real data, zero console errors, on the local Docker stack.
+
+**Tests**: Backend 1709 passed, 1 skipped, 0 failed. `test_analytics.py` 20/20. Frontend 13/13 (verified on both platforms). Build succeeded. Lint exit 0.
+
+**Files**: `backend/app/services/analytics_service.py`, `frontend/package.json`, `frontend/package-lock.json`.

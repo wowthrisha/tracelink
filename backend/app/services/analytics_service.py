@@ -3,7 +3,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Optional, Any, Dict
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, and_, or_
+from sqlalchemy import select, func, or_
 from app.models.document import Document
 from app.models.group import DocumentGroup
 from app.models.link import ShareLink
@@ -277,15 +277,9 @@ class AnalyticsService:
                 .where(AccessEvent.link_id.in_(all_link_ids), AccessEvent.event_type == "completed")
                 .group_by(AccessEvent.link_id)
             )).all())
-
-            pageviews_by_link = _by_link((await db.execute(
-                select(AccessEvent.link_id, func.count().label("c"))
-                .where(AccessEvent.link_id.in_(all_link_ids), AccessEvent.event_type == "page_viewed")
-                .group_by(AccessEvent.link_id)
-            )).all())
         else:
             views_by_link = sessions_by_link = blocked_by_link = {}
-            blocked24h_by_link = completions_by_link = pageviews_by_link = {}
+            blocked24h_by_link = completions_by_link = {}
 
         # Aggregate per document in Python
         analytics = []
@@ -298,7 +292,6 @@ class AnalyticsService:
             blocked_attempts = sum(blocked_by_link.get(lid, 0) for lid in link_ids)
             blocked_24h = sum(blocked24h_by_link.get(lid, 0) for lid in link_ids)
             completions = sum(completions_by_link.get(lid, 0) for lid in link_ids)
-            page_views = sum(pageviews_by_link.get(lid, 0) for lid in link_ids)
 
             completion_rate = (completions / total_views * 100) if total_views > 0 else 0.0
 

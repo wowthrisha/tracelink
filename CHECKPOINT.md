@@ -2,9 +2,9 @@
 
 Running state snapshot, updated after every closed backlog item. See `PROGRESS.md` for the narrative log and `ENGINEERING_BACKLOG.md` for full issue detail.
 
-**Last updated**: 2026-07-28 20:40, after V16.0 backlog reconciliation + ENG-029.
+**Last updated**: 2026-07-29 13:00, after ENG-014.
 
-## Burndown (backlog expanded 21 → 31 items this cycle — see below)
+## Burndown (backlog expanded 21 → 31 items in V16.0 — see PROGRESS.md)
 
 | Priority | Total | Closed | Deferred (reasoned) | Open |
 |---|---|---|---|---|
@@ -12,10 +12,10 @@ Running state snapshot, updated after every closed backlog item. See `PROGRESS.m
 | High | 3 | 3 | 0 | 0 |
 | Medium | 6 | 3 | 3 | 0 |
 | Low | 14 | 5 | 3 | 6 |
-| Enhancement | 8 | 0 | 2 | 6 |
-| **Total** | **31** | **11** | **8** | **12** |
+| Enhancement | 8 | 2 | 2 | 4 |
+| **Total** | **31** | **13** | **8** | **10** |
 
-Overall completion: **35.5%** (11/31). **High and Medium tiers: 0 open items.** Every "Not enough evidence" security gap from the original review is live-confirmed. 12 open items remain, all Low/Enhancement severity (cosmetic consistency, tooling, deferred audits) — none blocking per the mission's stop conditions.
+Overall completion: **41.9%** (13/31). **High and Medium tiers: 0 open items.** Every "Not enough evidence" security gap from the original review is live-confirmed. 10 open items remain, all Low/Enhancement severity (cosmetic consistency, tooling audits, deferred product/design decisions) — none blocking per the mission's stop conditions.
 
 ## V16.0 backlog reconciliation
 
@@ -45,7 +45,11 @@ Read `ISSUE_DATABASE.md`/`TODO_QUEUE.md` per V16.0's canonical-sources instructi
 
 ## Immediate next step
 
-ENG-013 (no frontend equivalent of `ruff` for unused-import detection) — first Enhancement-tier item. Also queued: 6 newly-merged Low-severity cosmetic items (ENG-024/025/027/028/030/031). All remaining items are non-blocking per the mission's stop conditions (every Critical/High/Medium closed or deferred, every workflow verified) — proceeding through them for full repository-quality completeness rather than stopping early. Per explicit process rule: if any issue uncovers a broader architectural problem, pause it, document the finding, add it to `ENGINEERING_BACKLOG.md` with a dependency link, and move to the next independent item rather than getting stuck.
+ENG-018 (large-PDF stress retest) — needs a genuinely large (100+ page) PDF, browser-verify rendering/search/nav/Reading-Intelligence metrics all hold at scale. Also queued: ENG-019 (dashboard modal re-exercise), ENG-020 (Reading Intelligence hand-verification), ENG-017 (observability wiring — likely ops-only, may end up "Not enough evidence" if infra access isn't available), and 6 Low-severity cosmetic items (ENG-024/025/027/028/030/031, of which ENG-028 needs design input). All remaining items are non-blocking per the mission's stop conditions (every Critical/High/Medium closed or deferred, every workflow verified) — proceeding through them for full repository-quality completeness rather than stopping early.
+
+## Disposable/dev environment state
+
+- `frontend/package-lock.json` now correctly reconciles **both** macOS/arm64 and Linux/Alpine optional platform dependencies (verified via isolated `npm ci` checks on each) — fixed twice this sprint (ENG-013, then again ENG-014 after adding `jscpd`). Both platforms confirmed working independently before each commit.
 
 ## Disposable test accounts created this sprint (local stack only)
 
