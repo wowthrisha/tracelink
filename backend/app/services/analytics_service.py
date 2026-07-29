@@ -23,6 +23,60 @@ BLOCKED_EVENT_TYPES = {
 }
 
 
+async def _aggregate_link_event_counts(db: AsyncSession, all_link_ids: list, last_24h: datetime) -> dict:
+    """Batch event-count aggregates shared by get_document_analytics and
+    get_group_analytics — one GROUP BY query per metric (5 queries total).
+    Returns a dict of {metric_name: {link_id: count}}; empty dicts if
+    all_link_ids is empty. Extracted (ENG-014) after a duplicate-code scan
+    found this exact block duplicated in both call sites.
+    """
+    if not all_link_ids:
+        return {
+            "views_by_link": {}, "sessions_by_link": {}, "blocked_by_link": {},
+            "blocked24h_by_link": {}, "completions_by_link": {},
+        }
+
+    views_by_link = _by_link((await db.execute(
+        select(AccessEvent.link_id, func.count().label("c"))
+        .where(AccessEvent.link_id.in_(all_link_ids), AccessEvent.event_type == "opened")
+        .group_by(AccessEvent.link_id)
+    )).all())
+
+    sessions_by_link = _by_link((await db.execute(
+        select(AccessEvent.link_id, func.count(AccessEvent.session_id.distinct()).label("c"))
+        .where(AccessEvent.link_id.in_(all_link_ids), AccessEvent.session_id.isnot(None))
+        .group_by(AccessEvent.link_id)
+    )).all())
+
+    blocked_by_link = _by_link((await db.execute(
+        select(AccessEvent.link_id, func.count().label("c"))
+        .where(AccessEvent.link_id.in_(all_link_ids), AccessEvent.event_type.in_(list(BLOCKED_EVENT_TYPES)))
+        .group_by(AccessEvent.link_id)
+    )).all())
+
+    blocked24h_by_link = _by_link((await db.execute(
+        select(AccessEvent.link_id, func.count().label("c"))
+        .where(
+            AccessEvent.link_id.in_(all_link_ids),
+            AccessEvent.event_type.in_(list(BLOCKED_EVENT_TYPES)),
+            AccessEvent.created_at >= last_24h,
+        )
+        .group_by(AccessEvent.link_id)
+    )).all())
+
+    completions_by_link = _by_link((await db.execute(
+        select(AccessEvent.link_id, func.count().label("c"))
+        .where(AccessEvent.link_id.in_(all_link_ids), AccessEvent.event_type == "completed")
+        .group_by(AccessEvent.link_id)
+    )).all())
+
+    return {
+        "views_by_link": views_by_link, "sessions_by_link": sessions_by_link,
+        "blocked_by_link": blocked_by_link, "blocked24h_by_link": blocked24h_by_link,
+        "completions_by_link": completions_by_link,
+    }
+
+
 class AnalyticsService:
     async def log_event(
         self,
@@ -242,44 +296,12 @@ class AnalyticsService:
             doc_link_ids[row.document_id].append(row.id)
             all_link_ids.append(row.id)
 
-        # Batch event aggregates — one GROUP BY query per metric (6 queries total)
-        if all_link_ids:
-            views_by_link = _by_link((await db.execute(
-                select(AccessEvent.link_id, func.count().label("c"))
-                .where(AccessEvent.link_id.in_(all_link_ids), AccessEvent.event_type == "opened")
-                .group_by(AccessEvent.link_id)
-            )).all())
-
-            sessions_by_link = _by_link((await db.execute(
-                select(AccessEvent.link_id, func.count(AccessEvent.session_id.distinct()).label("c"))
-                .where(AccessEvent.link_id.in_(all_link_ids), AccessEvent.session_id.isnot(None))
-                .group_by(AccessEvent.link_id)
-            )).all())
-
-            blocked_by_link = _by_link((await db.execute(
-                select(AccessEvent.link_id, func.count().label("c"))
-                .where(AccessEvent.link_id.in_(all_link_ids), AccessEvent.event_type.in_(list(BLOCKED_EVENT_TYPES)))
-                .group_by(AccessEvent.link_id)
-            )).all())
-
-            blocked24h_by_link = _by_link((await db.execute(
-                select(AccessEvent.link_id, func.count().label("c"))
-                .where(
-                    AccessEvent.link_id.in_(all_link_ids),
-                    AccessEvent.event_type.in_(list(BLOCKED_EVENT_TYPES)),
-                    AccessEvent.created_at >= last_24h,
-                )
-                .group_by(AccessEvent.link_id)
-            )).all())
-
-            completions_by_link = _by_link((await db.execute(
-                select(AccessEvent.link_id, func.count().label("c"))
-                .where(AccessEvent.link_id.in_(all_link_ids), AccessEvent.event_type == "completed")
-                .group_by(AccessEvent.link_id)
-            )).all())
-        else:
-            views_by_link = sessions_by_link = blocked_by_link = {}
-            blocked24h_by_link = completions_by_link = {}
+        _agg = await _aggregate_link_event_counts(db, all_link_ids, last_24h)
+        views_by_link = _agg["views_by_link"]
+        sessions_by_link = _agg["sessions_by_link"]
+        blocked_by_link = _agg["blocked_by_link"]
+        blocked24h_by_link = _agg["blocked24h_by_link"]
+        completions_by_link = _agg["completions_by_link"]
 
         # Aggregate per document in Python
         analytics = []
@@ -451,37 +473,11 @@ class AnalyticsService:
                 if exp is None or (exp.replace(tzinfo=timezone.utc) if exp.tzinfo is None else exp) > now:
                     active_link_ids.add(row.id)
 
-        # Batch event aggregates — one GROUP BY query per metric (4 queries)
-        if all_link_ids:
-            views_by_link = _by_link((await db.execute(
-                select(AccessEvent.link_id, func.count().label("c"))
-                .where(AccessEvent.link_id.in_(all_link_ids), AccessEvent.event_type == "opened")
-                .group_by(AccessEvent.link_id)
-            )).all())
-
-            sessions_by_link = _by_link((await db.execute(
-                select(AccessEvent.link_id, func.count(AccessEvent.session_id.distinct()).label("c"))
-                .where(AccessEvent.link_id.in_(all_link_ids), AccessEvent.session_id.isnot(None))
-                .group_by(AccessEvent.link_id)
-            )).all())
-
-            blocked_by_link = _by_link((await db.execute(
-                select(AccessEvent.link_id, func.count().label("c"))
-                .where(AccessEvent.link_id.in_(all_link_ids), AccessEvent.event_type.in_(list(BLOCKED_EVENT_TYPES)))
-                .group_by(AccessEvent.link_id)
-            )).all())
-
-            blocked24h_by_link = _by_link((await db.execute(
-                select(AccessEvent.link_id, func.count().label("c"))
-                .where(
-                    AccessEvent.link_id.in_(all_link_ids),
-                    AccessEvent.event_type.in_(list(BLOCKED_EVENT_TYPES)),
-                    AccessEvent.created_at >= last_24h,
-                )
-                .group_by(AccessEvent.link_id)
-            )).all())
-        else:
-            views_by_link = sessions_by_link = blocked_by_link = blocked24h_by_link = {}
+        _agg = await _aggregate_link_event_counts(db, all_link_ids, last_24h)
+        views_by_link = _agg["views_by_link"]
+        sessions_by_link = _agg["sessions_by_link"]
+        blocked_by_link = _agg["blocked_by_link"]
+        blocked24h_by_link = _agg["blocked24h_by_link"]
 
         # Aggregate per group in Python
         analytics = []
