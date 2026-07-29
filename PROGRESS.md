@@ -15,7 +15,7 @@ Narrative progress log, one entry per closed (or explicitly deferred) backlog it
 | Low remaining | 8 / 14 (ENG-011, ENG-012, ENG-022 deferred; 6 open: 024/025/027/028/030/031) |
 | Enhancement remaining | 4 / 8 (ENG-013/014 closed; ENG-015 justified, ENG-016 deferred) |
 | Overall % | 41.9% (13/31 closed) |
-| Current commit | `c19aa61` (ENG-014 commit pending) |
+| Current commit | `c00b544` |
 | Last regression | PASS — post-ENG-014, 2026-07-29 (1709 backend / 13 frontend (both platforms) / build 312.5kb / lint exit 0 / Docker rebuild succeeded / Analytics + By Group tab clean) |
 | Current blocker | None |
 | Estimated completion | 10 items remaining: 3 open Enhancement-tier (017/019/020, ENG-018 next) + 6 open Low-severity polish (024/025/027/028/030/031); ENG-017/028 likely need ops/design input outside pure engineering scope; no fixed ETA |
