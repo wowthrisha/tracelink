@@ -14,13 +14,16 @@ import { useToast } from '../contexts/toast.jsx';
  * @param {Function}    [opts.onValidated] - Called after successful validation.
  *   ViewerScreen passes `() => _setPageRef.current?.()` to reset to page 1.
  *   Stored in a ref internally so it does not need to be stable across renders.
+ * @param {string}      [opts.ownerEmail] - Authenticated owner's email, only relevant
+ *   when previewing via `doc` (not `publicToken`). Passed through to auto-validate so
+ *   the owner's own preview watermark shows their identity instead of "anonymous".
  *
  * CRITICAL: reinitRef.current is assigned in the render body on every render,
  * NOT in a useEffect. This is intentional — the assignment must close over the
  * current session and pendingToken values. Moving it to useEffect would make it
  * one render stale, causing the wrong token to be used on 401 re-auth.
  */
-export function useViewerSession(doc, publicToken, { onValidated } = {}) {
+export function useViewerSession(doc, publicToken, { onValidated, ownerEmail } = {}) {
   const toast = useToast();
   const [session, setSession] = useState(null);
   const [blurred, setBlurred] = useState(false);
@@ -96,7 +99,7 @@ export function useViewerSession(doc, publicToken, { onValidated } = {}) {
         setPendingToken(token);
         setInit(false);
       } else {
-        await doValidate(token, null, null);
+        await doValidate(token, ownerEmail || null, null);
       }
     } catch { toast?.('Session expired. Please reload the page.', 'error'); }
   };
@@ -132,7 +135,7 @@ export function useViewerSession(doc, publicToken, { onValidated } = {}) {
           return;
         }
         // No gate restrictions — auto-validate immediately
-        await doValidate(token, null, null);
+        await doValidate(token, ownerEmail || null, null);
       } catch (e) {
         toast?.(_errMsg(e, 'Failed to open viewer'), 'error');
         setInit(false);

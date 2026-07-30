@@ -28,7 +28,7 @@ import { DocumentPicker } from '../components/DocumentPicker.jsx';
 
 const { useState, useEffect, useRef } = React;
 
-export function ViewerScreen({ doc, publicToken, onSelectDoc, onBack }) {
+export function ViewerScreen({ doc, publicToken, onSelectDoc, onBack, ownerEmail }) {
   const toast = useToast();
   const [showInfo, setShowInfo] = useState(false);
   // Phase 7: in-viewer search
@@ -55,7 +55,7 @@ export function ViewerScreen({ doc, publicToken, onSelectDoc, onBack }) {
     gateInfo, gateError, setGateError,
     pendingToken,
     reinitRef, doValidate,
-  } = useViewerSession(doc, publicToken, { onValidated: () => _setPageRef.current?.() });
+  } = useViewerSession(doc, publicToken, { onValidated: () => _setPageRef.current?.(), ownerEmail });
 
 
   const docName = doc?.filename || doc?.name || session?.document_filename || 'Document';

@@ -158,7 +158,7 @@ export function AppShell() {
           badges={{ feedback: feedbackBadge }} />
         <main style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
           {screen === 'upload' && <UploadScreen onViewDoc={handleViewDoc} onAccessDoc={handleAccessDoc} />}
-          {screen === 'viewer' && <ViewerErrorBoundary><ViewerScreen doc={activeDoc} onSelectDoc={handleViewDoc} onBack={() => setScreen('upload')} /></ViewerErrorBoundary>}
+          {screen === 'viewer' && <ViewerErrorBoundary><ViewerScreen doc={activeDoc} onSelectDoc={handleViewDoc} onBack={() => setScreen('upload')} ownerEmail={userEmail} /></ViewerErrorBoundary>}
           {screen === 'access' && <AccessScreen doc={activeDoc} onSelectDoc={handleAccessDoc} />}
           {screen === 'feedback' && <AccessScreen doc={activeDoc} onSelectDoc={handleAccessDoc} defaultTab="feedback" />}
           {screen === 'analytics' && <AnalyticsScreen />}
