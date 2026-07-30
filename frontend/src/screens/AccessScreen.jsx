@@ -401,12 +401,12 @@ export function AccessScreen({ doc, onSelectDoc, defaultTab }) {
                     {!link.revoked_at && (
                       <>
                         <Btn variant="ghost" size="sm" onClick={() => setEditLinkModal(link)}>Edit</Btn>
-                        <Btn variant="outline-danger" size="sm" onClick={() => setRevokeLinkModal(link)}>Revoke</Btn>
+                        <Btn variant="ghost" size="sm" onClick={() => setRevokeLinkModal(link)} style={{ color: C.error }}>Revoke</Btn>
                       </>
                     )}
                     {link.revoked_at && (
-                      <Btn variant="outline-danger" size="sm" disabled={deletingLink === link.id}
-                        onClick={() => setDeleteLinkModal(link)}>
+                      <Btn variant="ghost" size="sm" disabled={deletingLink === link.id}
+                        onClick={() => setDeleteLinkModal(link)} style={{ color: C.error }}>
                         {deletingLink === link.id ? '…' : 'Delete'}
                       </Btn>
                     )}
