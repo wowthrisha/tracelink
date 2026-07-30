@@ -6,19 +6,19 @@ Narrative progress log, one entry per closed (or explicitly deferred) backlog it
 
 | Field | Value |
 |---|---|
-| Current issue | none in progress — ENG-024 just closed |
-| Previous issue | ENG-024 (closed — date-formatting consistency) |
-| Next issue | ENG-025 (empty states inconsistent) |
+| Current issue | none in progress — ENG-031 just closed, Low tier now complete |
+| Previous issue | ENG-031 (closed — owner preview watermark showed "anonymous") |
+| Next issue | Repository certification pass (dead code / duplicate logic / unused imports/hooks/CSS / stale comments / TODO/FIXME/console.log/debugger/print()), then Enhancement tier (017/018/019/020) |
 | Critical remaining | 0 / 0 |
 | High remaining | 0 / 3 |
 | Medium remaining | 2* / 5 (ENG-023, ENG-026 deferred with reasoning) |
-| Low remaining | 7 / 14 (ENG-011, ENG-012, ENG-022 deferred; 5 open: 025/027/028/030/031) |
+| Low remaining | 0 / 14 — **tier complete**: 8 closed (007/008/009/010/021/024/030/031), 6 deferred/reviewed-with-reasoning (011/012/022/025/027/028) |
 | Enhancement remaining | 4 / 8 (ENG-013/014 closed; ENG-015 justified, ENG-016 deferred) |
-| Overall % | 45.2% (14/31 closed) |
-| Current commit | `161f849` |
-| Last regression | PASS — post-ENG-024, 2026-07-29 (1709 backend / 13 frontend / build 309.0kb / lint exit 0 / Docker rebuild succeeded / Storage+Billing+Access Control clean) |
+| Overall % | 51.6% (16/31 closed) |
+| Current commit | `be3d5de` |
+| Last regression | PASS — post-ENG-031, 2026-07-30 (13 frontend / build 308.9kb / lint exit 0 / Docker `api` rebuild succeeded and healthy / integration-verified `/api/viewer/validate` watermark change against real local Supabase session). Full "every 5 closed issues" browser regression sweep due next per V17.0's cadence rule — not yet run this cycle. |
 | Current blocker | None |
-| Estimated completion | 9 items remaining: 4 open Enhancement-tier (017/018/019/020) + 5 open Low-severity polish (025/027/028/030/031); ENG-017/028 likely need ops/design input outside pure engineering scope; no fixed ETA |
+| Estimated completion | Low tier now fully closed out. Remaining: repository certification pass (not yet started), then 4 open Enhancement-tier items (017/018/019/020) — ENG-017 likely needs ops access outside pure engineering scope; no fixed ETA |
 
 \* Backlog expanded from 21 to 31 items this cycle after merging `ISSUE_DATABASE.md`/`TODO_QUEUE.md` findings — see the V16.0 reconciliation entry below. This is real newly-surfaced scope, not re-litigation of closed work.
 
@@ -31,11 +31,22 @@ Narrative progress log, one entry per closed (or explicitly deferred) backlog it
 | Critical | 0 | 0 | 0 | 0 |
 | High | 3 | 3 | 0 | 0 |
 | Medium | 6 | 3 | 3 | 0 |
-| Low | 14 | 6 | 3 | 5 |
+| Low | 14 | 8 | 6 | 0 |
 | Enhancement | 8 | 2 | 1 + 1 justified | 4 |
-| **Total** | **31** | **14** | **7 (+1 justified)** | **9** |
+| **Total** | **31** | **16** | **9 (+1 justified)** | **4** |
 
-**High and Medium tiers: 0 open items remain** (all closed or deferred with fresh, on-record reasoning). Low tier has 5 cosmetic/consistency items still open (ENG-025/027/028/030/031). Enhancement tier has 4 open (ENG-017/018/019/020).
+**High, Medium, and Low tiers: 0 open items remain** (all closed or deferred/reviewed with fresh, on-record reasoning). Only the Enhancement tier has open items (ENG-017/018/019/020). Per V17.0's explicit gate, a full repository certification pass runs next, before any Enhancement-tier work begins.
+
+### Low tier closed this cycle (V17.0 STEP 1/2/3 process)
+
+| ID | Outcome |
+|---|---|
+| ENG-024 | Closed — date-formatting consistency (shared `fmtDate()`/local `fmtDateTime()`) |
+| ENG-025 | Reviewed, not implemented — empty-state gap partly semantically justified; no canonical pattern without design input |
+| ENG-027 | Reviewed, not implemented — 4 animation durations are a defensible sequencing pattern, not a bug |
+| ENG-028 | Reviewed, not implemented — icon replacement needs a design decision |
+| ENG-030 | Closed — row-level Revoke/Delete buttons now `ghost`+red, matching majority pattern |
+| ENG-031 | Closed — owner preview watermark now shows real email, source + integration/API-verified |
 
 ## 2026-07-26 — Sprint start
 

@@ -549,3 +549,35 @@ Method: `ruff` (installed for this session) for AST-verified unused-import/unuse
 **Tests**: Backend 1709 passed, 1 skipped, 0 failed. Frontend 13/13 passed. Build succeeded. Lint exit 0.
 
 **Files**: `frontend/src/screens/StorageScreen.jsx`, `frontend/src/screens/BillingScreen.jsx`, `frontend/src/components/InsightsModal.jsx`, `frontend/src/screens/AccessScreen.jsx`.
+
+## Sprint V17.0 — ENG-025, ENG-027, ENG-028: Reviewed, not implemented (2026-07-29)
+
+**Issue**: Empty-state pattern inconsistency (ENG-025), modal-entrance-animation duration drift (ENG-027), and icon-language mixing (ENG-028) — all Low-severity cosmetic items, all re-verified reproducible per STEP 1.
+
+**Decision**: None implemented. ENG-025 and ENG-028 both require a design judgment call (a canonical empty-state pattern for passive screens; a replacement glyph for the one emoji) that exceeds a pure engineering decision. ENG-027's four differing durations are a defensible, common motion-design sequencing pattern (backdrop resolves faster than content), not unambiguously a bug, and the differences (30-100ms) sit below typical user-perceptible threshold. Full STEP 2 reasoning recorded per-issue in `ENGINEERING_BACKLOG.md`.
+
+**Files**: None.
+
+## Sprint V17.0 — ENG-030: Button-variant consistency for row-level delete/revoke (2026-07-30)
+
+**Issue**: `ENGINEERING_BACKLOG.md` ENG-030. `AccessScreen.jsx`'s row-level Links-list "Revoke"/"Delete" triggers used `variant="outline-danger"`, diverging from the `ghost` + inline `style={{ color: C.error }}` pattern used for the identical row-level delete-trigger semantic in `WebhooksScreen.jsx`, `ApiKeysScreen.jsx`, and `DocRow.jsx`.
+
+**Fix**: Changed `AccessScreen.jsx`'s two row-level trigger buttons to `variant="ghost"` + `style={{ color: C.error }}`, matching the majority pattern. Left the page-level "✕ Revoke All Access" button as `outline-danger` (a distinct, standalone confirmation action).
+
+**Verification**: Isolated-diff-verified (3 lines, exactly the intended change) + lint/test/build-verified. No browser-automation tool available in this environment — pure prop/style change, so lint+test+build+source-pattern-match is the applicable ceiling; not claimed as browser-verified.
+
+**Tests**: Frontend 13/13 passed. Build succeeded (309.1kb). Lint exit 0.
+
+**Files**: `frontend/src/screens/AccessScreen.jsx`.
+
+## Sprint V17.0 — ENG-031: Owner preview watermark shows real email (2026-07-30)
+
+**Issue**: `ENGINEERING_BACKLOG.md` ENG-031. The document owner's own preview-link watermark always showed "anonymous" instead of their real email. Root cause: the owner-preview flow (`AppShell.jsx` → `ViewerScreen.jsx` → `useViewerSession.js`) auto-validates against an auto-selected unrestricted "Admin Preview" link with `email` hardcoded to `null`, even though the owner's authenticated email is already available client-side (`AppShell.jsx`'s `userEmail`, derived from the JWT).
+
+**Fix**: Threaded `ownerEmail` from `AppShell.jsx` through `ViewerScreen.jsx` into `useViewerSession.js`'s two `doValidate(...)` call sites. Security-checked first: the auto-selected link is specifically chosen for having no `allowed_emails`/`allowed_domains` restrictions, so passing a real email cannot trigger an unrelated access-gate check. Public share-link viewers are unaffected (no `ownerEmail` is ever passed on that path).
+
+**Verification**: Isolated-diff-verified (3 files, 9 insertions/6 deletions) + lint/test/build-verified. Additionally verified end-to-end against the local Docker stack: rebuilt the `api` container, authenticated as the real test account against the real local Supabase project, and called `/api/viewer/validate` directly — confirmed `watermark_text` changes from `"anonymous · ..."` to `"23z274@psgtech.ac.in · ..."` when the owner's email is passed, exactly as the fix now causes. No browser-automation tool available in this environment, so classified as Source + Integration/API-verified, not Browser-verified.
+
+**Tests**: Frontend 13/13 passed. Build succeeded (308.9kb). Lint exit 0.
+
+**Files**: `frontend/src/screens/AppShell.jsx`, `frontend/src/screens/ViewerScreen.jsx`, `frontend/src/hooks/useViewerSession.js`.

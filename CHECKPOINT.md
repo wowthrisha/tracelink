@@ -2,7 +2,7 @@
 
 Running state snapshot, updated after every closed backlog item. See `PROGRESS.md` for the narrative log and `ENGINEERING_BACKLOG.md` for full issue detail.
 
-**Last updated**: 2026-07-29 20:00, after ENG-024.
+**Last updated**: 2026-07-30 09:10, after ENG-031.
 
 ## Burndown (backlog expanded 21 → 31 items in V16.0 — see PROGRESS.md)
 
@@ -11,11 +11,11 @@ Running state snapshot, updated after every closed backlog item. See `PROGRESS.m
 | Critical | 0 | 0 | 0 | 0 |
 | High | 3 | 3 | 0 | 0 |
 | Medium | 6 | 3 | 3 | 0 |
-| Low | 14 | 6 | 3 | 5 |
+| Low | 14 | 8 | 6 | 0 |
 | Enhancement | 8 | 2 | 2 | 4 |
-| **Total** | **31** | **14** | **8** | **9** |
+| **Total** | **31** | **16** | **11** | **4** |
 
-Overall completion: **45.2%** (14/31). **High and Medium tiers: 0 open items.** Every "Not enough evidence" security gap from the original review is live-confirmed. 9 open items remain, all Low/Enhancement severity (cosmetic consistency, tooling audits, deferred product/design decisions) — none blocking per the mission's stop conditions.
+Overall completion: **51.6%** (16/31). **High, Medium, and Low tiers: 0 open items — all three tiers fully closed out.** Every "Not enough evidence" security gap from the original review is live-confirmed. Only 4 open items remain, all Enhancement-tier (ENG-017/018/019/020) — none blocking per the mission's stop conditions. Per V17.0's explicit gate, a complete repository certification pass runs next, before any Enhancement work begins.
 
 ## V17.0 process refinement now in effect
 
@@ -49,7 +49,11 @@ Read `ISSUE_DATABASE.md`/`TODO_QUEUE.md` per V16.0's canonical-sources instructi
 
 ## Immediate next step
 
-ENG-025 (empty states inconsistent) — next in priority order, same STEP 1/2/3 process: re-verify still reproducible, judge value, fix only if justified. Also queued: ENG-027/028/030/031 (remaining Low-severity cosmetic items, ENG-028 needs design input), then ENG-017/018/019/020 (Enhancement tier) — per V17.0's explicit instruction, a full repository certification pass runs after Low priority is complete and before any Enhancement work begins. All remaining items are non-blocking per the mission's stop conditions (every Critical/High/Medium closed or deferred, every workflow verified) — proceeding through them for full repository-quality completeness rather than stopping early.
+Low priority tier is now **complete** (8 closed, 6 reviewed/deferred with reasoning, 0 open). Per V17.0's explicit instruction, next is a **complete repository certification pass**: dead code, duplicate logic, duplicate validation, duplicate permissions, unused imports, unused hooks, unused CSS, stale comments, obsolete documentation, TODO/FIXME/console.log/debugger/print() — only remove something after proving it's unused. Also due: an "every 5 closed issues" full browser regression sweep (Upload/Viewer/Reading Intelligence/Analytics/Access Control/Organizations/Notifications/Audit Log/API Keys/Webhooks/Storage/Billing/Share Links) per V17.0's cadence rule — not yet run this cycle (last full regression was the post-ENG-024 partial spot-check). Only after certification is clean does Enhancement-tier work (ENG-017/018/019/020) begin, per the FINAL ENGINEERING GATE.
+
+## Environment note — browser automation unavailable this session
+
+No Playwright/chromium-cli or other browser-automation tool is installed in this environment (checked via `ToolSearch` and `which`). ENG-030 and ENG-031 were verified via source trace + isolated diff + lint/test/build, and for ENG-031 additionally via direct integration testing against the real `/api/viewer/validate` endpoint on the local Docker stack with a genuine Supabase-authenticated session (confirmed the `watermark_text` field changes exactly as the fix intends). Neither is claimed as "Browser-verified" — classified honestly per the Evidence Policy as Source-verified (+ Integration/API-verified for ENG-031). If a full visual browser regression sweep is required to satisfy V17.0's "every 5 closed issues" rule, that step needs either a browser-automation tool made available or manual/user-driven verification.
 
 ## Disposable/dev environment state
 

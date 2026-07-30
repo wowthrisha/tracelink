@@ -313,10 +313,11 @@ Reading the full canonical-source list per V16.0's instructions surfaced 10 item
 
 ### ENG-025 — Empty states inconsistent (icon+heading+CTA vs. bare text)
 - **Source**: `ISSUE_DATABASE.md` M-11 (V6.0)
-- **Evidence**: Source-verified, no fixed rule exists.
+- **Evidence**: Source-verified, re-verified V17.0 (STEP 1). Confirmed reproducible: `WebhooksScreen.jsx`/`ApiKeysScreen.jsx`/`OrgsScreen.jsx` all share a rich pattern (icon + bold heading + muted subtext + primary CTA button). `AuditLogScreen.jsx`/`NotificationsScreen.jsx` use a single bare centered text line. A local `EmptyState` component exists but is scoped to `InsightsModal.jsx` only, not shared app-wide (only 1 of 8 surveyed screens uses it).
+- **STEP 2 (value justification)**: Mixed, not a clean yes. Some genuine usability value (visual consistency), but: (a) the gap is partly semantically justified — `WebhooksScreen`/`ApiKeysScreen`/`OrgsScreen` all have an obvious "+ New X" create-action their CTA invites, while `AuditLogScreen`/`NotificationsScreen` are passive/log-type screens with no equivalent action a CTA could offer; (b) no existing canonical shared pattern to mechanically apply — building one requires a design judgment call (does a passive screen even warrant an icon treatment without a CTA, or does that look unfinished?) that exceeds a pure engineering decision for a Low-severity cosmetic item. Per this sprint's explicit instruction not to assume every remaining Low item should be implemented: **not implemented**.
 - **Severity**: Low (cosmetic consistency)
-- **Status**: Open
-- **Owner**: Engineering (this sprint, Enhancement tier)
+- **Status**: **Reviewed, not implemented** (2026-07-29) — reproducible but judged not to clear the STEP 2 bar without design input on the canonical pattern. Same category as ENG-028.
+- **Owner**: Unassigned (needs design input if revisited)
 
 ### ENG-026 — AUTH-006: session token stored in `localStorage`, real XSS-exposure vector
 - **Source**: `ISSUE_DATABASE.md` M-14 (V4.0/Sprint7.0)
@@ -327,16 +328,18 @@ Reading the full canonical-source list per V16.0's instructions surfaced 10 item
 
 ### ENG-027 — Modal-entrance-animation duration drifts (.15s/.18s/.22s/.25s)
 - **Source**: `ISSUE_DATABASE.md` L-1 (V7.0)
-- **Evidence**: Source-verified.
+- **Evidence**: Source-verified, re-verified V17.0 (STEP 1). Confirmed reproducible and precisely traced: shared `Modal` component's backdrop uses inline `animation: 'fadeIn .15s ease'` (`atoms.jsx:198`) while its own dialog content uses the `.fade-up` CSS class at `.22s` (`SecureDoc.html:164`) — same component, two different durations for one entrance event. Separately, `.fade-in` (screen-level transitions) is `.18s`, and `LoginScreen.jsx` has its own standalone inline `fadeIn .25s`.
+- **STEP 2 (value justification)**: Investigated closely rather than assumed. The Modal's own backdrop(.15s)→content(.22s) sequencing is actually a common, defensible motion-design pattern — backdrop resolves quickly to set the stage, content eases in slightly slower for a polished feel — not unambiguously a bug. Forcibly unifying all 4 values would touch 3 different-purpose UI elements (modal transitions, full-screen transitions, a one-off login-page animation) for a timing difference (30-100ms) below typical user-perceptible threshold. Genuine uncertainty about whether "fixing" this improves anything is itself a signal STEP 2's bar isn't clearly met for a Low-severity cosmetic item. **Not implemented.**
 - **Severity**: Low (cosmetic)
-- **Status**: Open
-- **Owner**: Engineering (this sprint, Enhancement tier, if time permits)
+- **Status**: **Reviewed, not implemented** (2026-07-29)
+- **Owner**: Unassigned
 
 ### ENG-028 — Icon language mixes geometric Unicode and real emoji
 - **Source**: `ISSUE_DATABASE.md` L-2 (V7.0)
-- **Evidence**: Source-verified.
+- **Evidence**: Source-verified, re-verified V17.0 (STEP 1). Confirmed reproducible: `InsightsModal.jsx` uses a real emoji (🔥, top-3 heatmap indicator) which renders as a platform-specific colorful glyph, breaking the otherwise-consistent monochrome geometric icon language used everywhere else (◫/◈/⇌/etc.).
+- **STEP 2**: Fixing requires choosing a specific replacement (a geometric glyph? plain text like "TOP"? a colored dot?) — a design decision, not a mechanical engineering fix. Inventing a replacement unilaterally risks a worse outcome than the current minor inconsistency. **Not implemented** without design input.
 - **Severity**: Low (cosmetic, needs a design decision on which icon language to standardize on)
-- **Status**: Open — low actionability without a design decision; documented, not blindly changed
+- **Status**: **Reviewed, not implemented** (2026-07-29) — low actionability without a design decision; documented, not blindly changed
 - **Owner**: Unassigned (needs design input)
 
 ### ENG-029 — Architecture docs contradict each other on watermark model and cache TTLs
@@ -350,16 +353,24 @@ Reading the full canonical-source list per V16.0's instructions surfaced 10 item
 ### ENG-030 — Button-variant usage for row-level delete/revoke triggers varies
 - **Source**: `ISSUE_DATABASE.md` L-6 (V6.0)
 - **Evidence**: Source-verified — `ghost`+red-text vs. `outline-danger` both used for the same semantic action class.
+- **STEP 1**: Re-verified reproducible — `AccessScreen.jsx`'s row-level Links-list "Revoke"/"Delete" triggers used `variant="outline-danger"`, while the identical semantic action (a row-level delete/revoke trigger inside a list) used `variant="ghost"` + inline `style={{ color: C.error }}` in `WebhooksScreen.jsx`, `ApiKeysScreen.jsx`, and `DocRow.jsx` — confirmed by direct read of all four files.
+- **STEP 2**: Improves maintainability (one visual pattern for one semantic action class, not two) and reduces future-bug risk (a developer copying the "wrong" precedent perpetuates the drift). Justified — implemented.
+- **STEP 3**: Fixed both row-level triggers in `AccessScreen.jsx` to `variant="ghost"` + `style={{ color: C.error }}`, matching the majority pattern. Deliberately left the page-level "✕ Revoke All Access" button as `outline-danger` — it's a distinct, standalone confirmation action, not the same semantic class as a row-level list trigger. Verified via isolated diff (`git diff --stat` showed exactly the 2 intended lines changed, nothing else), `eslint` clean, frontend test suite 13/13 passed, production build succeeded (309.1kb). No browser-automation tool is available in this environment (no Playwright/chromium-cli installed) — this is a purely cosmetic prop/style change with no logic path, so lint+test+build+source-pattern-match is the applicable verification ceiling; not claimed as browser-verified.
 - **Severity**: Low (cosmetic consistency)
-- **Status**: Open
-- **Owner**: Engineering (this sprint, Enhancement tier, if time permits)
+- **Status**: **Closed** (2026-07-30) — commit `667cac8`
+- **Owner**: Engineering (this sprint)
+- **Verification method**: Source-verified (pattern match against 3 precedent files) + isolated-diff-verified + lint/test/build-verified. Not browser-verified (no browser automation tool available in this environment).
 
 ### ENG-031 — WATERMARK-OWNER-ANON-001: owner's own preview watermark shows "anonymous"
 - **Source**: `ISSUE_DATABASE.md` (V12.0)
 - **Evidence**: Source-verified as a real, not-yet-fixed cosmetic bug — the document owner's own preview-link watermark displays "anonymous" instead of their real email, in the same machinery as the already-fixed READ-OWNER-001.
+- **STEP 1**: Re-verified reproducible via source trace. `backend/app/routers/viewer.py` (both page-serving code paths) and `backend/app/services/viewer_session_service.py:99` both compute `watermark_text = f"{viewer_email or 'anonymous'} · ..."`. `viewer_email` comes solely from `body.get("email")` in the `/api/viewer/validate` request — the client-submitted value. Traced the owner-preview flow: `AppShell.jsx` renders `<ViewerScreen doc={activeDoc}>` (no `publicToken`) → `useViewerSession.js` auto-selects an unrestricted "Admin Preview" link and calls `doValidate(token, null, null)` at two call sites (initial auto-validate and 401 reinit) — hardcoding `email=null` even though `AppShell.jsx` already derives the authenticated owner's email from their JWT (`parseJwtEmail(token)`, used for the sidebar) and simply never threads it through to the viewer session. No separate "owner preview" authenticated endpoint exists — the owner's own preview uses the exact same public link-validate flow as an anonymous viewer, just against a link the owner created for themselves with no access restrictions.
+- **STEP 2**: Improves usability (the watermark is a forensic/trust feature; showing "anonymous" to the document's own owner in their own preview is misleading and undermines confidence in the feature's correctness) and is a genuine display-correctness bug, not cosmetic-only. Security check: confirmed safe to fix — `link_service.py`'s `allowed_emails`/`allowed_domains` gate checks only trigger `if link.allowed_emails:` / `if link.allowed_domains:`, and the auto-selected "Admin Preview" link is specifically chosen for having neither restriction, so passing the owner's real email through cannot trigger an unrelated access-gate check or spoof a restricted link. Justified — implemented.
+- **STEP 3**: Threaded `ownerEmail` from `AppShell.jsx` (`userEmail`, already derived from the JWT) → `ViewerScreen.jsx` → `useViewerSession.js`'s two `doValidate(token, ownerEmail || null, null)` call sites. Public share-link viewers are unaffected — `ownerEmail` is never passed on that code path (`AppShell.jsx`'s public-token render branch doesn't pass it). Verified via isolated diff (3 files, 9 insertions/6 deletions, exactly the intended change), `eslint` clean, frontend test suite 13/13 passed, production build succeeded. Additionally verified end-to-end at the API/integration level against the local Docker stack: rebuilt and restarted the `api` container, authenticated as the real test account against the actual local Supabase project, replicated the exact link-selection logic client-side would run, and called `/api/viewer/validate` twice against the same unrestricted link — once with `email=null` (old behavior) which returned `watermark_text: "anonymous · 2026-07-30 · sess:5e77fd"`, and once with the owner's real email (new behavior) which returned `watermark_text: "23z274@psgtech.ac.in · 2026-07-30 · sess:1d954e"` — confirming the fix resolves the bug end-to-end through the real backend. No browser-automation tool (Playwright/chromium-cli) is available in this environment, so this is classified as Source-verified + Integration/API-verified, not Browser-verified.
 - **Severity**: Low (cosmetic, but a genuine incorrect-displayed-value bug, not just a style inconsistency)
-- **Status**: Open
+- **Status**: **Closed** (2026-07-30) — commit `be3d5de`
 - **Owner**: Engineering (this sprint)
+- **Verification method**: Source-verified (full root-cause trace) + isolated-diff-verified + lint/test/build-verified + Integration/API-verified against the local Docker stack with a real Supabase-authenticated session. Not browser-verified (no browser automation tool available in this environment).
 
 ## Explicitly not on this backlog (verified non-issues)
 
@@ -397,13 +408,13 @@ Reading the full canonical-source list per V16.0's instructions surfaced 10 item
 | ENG-022 | links.py DELETE 200 vs 204 inconsistency (M-6) | Low | 22 | Deferred |
 | ENG-023 | 14 endpoints use raw dict not typed schemas (M-8) | Medium | 23 | Deferred |
 | ENG-024 | "Created at" rendered 3 different ways (M-10) | Low | 24 | **Closed** |
-| ENG-025 | Empty states inconsistent (M-11) | Low | 25 | Open |
+| ENG-025 | Empty states inconsistent (M-11) | Low | 25 | Reviewed, not implemented |
 | ENG-026 | AUTH-006: session token in localStorage (M-14) | Medium-High | 26 | Deferred, re-confirmed |
-| ENG-027 | Modal animation duration drift (L-1) | Low | 27 | Open |
-| ENG-028 | Icon language mixing (L-2) | Low | 28 | Open, needs design input |
+| ENG-027 | Modal animation duration drift (L-1) | Low | 27 | Reviewed, not implemented |
+| ENG-028 | Icon language mixing (L-2) | Low | 28 | Reviewed, not implemented (needs design input) |
 | ENG-029 | Architecture docs contradict each other (L-3) | Medium | 29 | **Closed** |
-| ENG-030 | Button-variant inconsistency for delete/revoke (L-6) | Low | 30 | Open |
-| ENG-031 | Owner preview watermark shows "anonymous" (WATERMARK-OWNER-ANON-001) | Low | 31 | Open |
+| ENG-030 | Button-variant inconsistency for delete/revoke (L-6) | Low | 30 | **Closed** |
+| ENG-031 | Owner preview watermark shows "anonymous" (WATERMARK-OWNER-ANON-001) | Low | 31 | **Closed** |
 
 **Critical: 0. High: 3 (all closed). Medium: 5 (2 closed, 1 deferred, 2 new: 1 deferred, 1 open). Low: 14 (5 closed, 3 deferred, 6 open). Enhancement: 8.**
 

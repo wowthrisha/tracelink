@@ -302,3 +302,59 @@ Format per entry: Timestamp / Module / Screen / Observation / Root Cause / Decis
 - **Verification (Browser-verified)**: Local Docker stack, fresh login — Storage, Billing, and Access Control screens all render cleanly, zero console errors.
 - **Result**: ENG-024 closed.
 - **Next Action**: proceed to ENG-025 (empty states inconsistent).
+
+### Entry 24 — Sprint V17.0, ENG-025 (2026-07-29)
+
+- **Timestamp**: 2026-07-29T20:15
+- **Module**: N/A — reviewed, no code changed
+- **Observation**: STEP 1 re-verification confirmed `ENGINEERING_BACKLOG.md` ENG-025 still reproducible: `WebhooksScreen.jsx`/`ApiKeysScreen.jsx`/`OrgsScreen.jsx` share a rich icon+heading+subtext+CTA empty-state pattern; `AuditLogScreen.jsx`/`NotificationsScreen.jsx` use bare single-line text. A local `EmptyState` component exists but is scoped to `InsightsModal.jsx` only (1 of 8 surveyed screens).
+- **STEP 2 decision**: Not implemented. The gap is partly semantically justified (the 3 "rich" screens all have an obvious create-action their CTA invites; the 2 "bare" screens are passive/log-type with no equivalent action). No existing canonical shared pattern to mechanically apply — building one requires a design judgment call (does a passive screen warrant an icon without a CTA?) that exceeds a pure engineering decision for a Low-severity cosmetic item. Per this sprint's explicit instruction not to default every remaining Low item to "implement," documented and left as-is.
+- **Files Modified**: None.
+- **Result**: ENG-025 reviewed, not implemented — reasoning on record, not silently skipped.
+- **Next Action**: proceed to ENG-027 (modal animation duration drift).
+
+### Entry 25 — Sprint V17.0, ENG-027 (2026-07-29)
+
+- **Timestamp**: 2026-07-29T20:25
+- **Module**: N/A — reviewed, no code changed
+- **Observation**: STEP 1 re-verification confirmed reproducible and precisely traced: shared `Modal` component's backdrop uses inline `animation: 'fadeIn .15s ease'` (`atoms.jsx:198`) while its own dialog content uses the `.fade-up` CSS class at `.22s` (`SecureDoc.html:164`) — same component, two different durations for one entrance event. Separately, `.fade-in` (screen-level transitions) is `.18s`, and `LoginScreen.jsx` has its own standalone inline `fadeIn .25s`.
+- **STEP 2 decision**: Not implemented. The Modal's own backdrop(.15s)→content(.22s) sequencing is a common, defensible motion-design pattern (backdrop resolves quickly to set the stage, content eases in slightly slower) — not unambiguously a bug. Forcibly unifying all 4 values would touch 3 different-purpose UI elements for a timing difference (30-100ms) below typical user-perceptible threshold. Genuine uncertainty about whether "fixing" this improves anything is itself a signal STEP 2's bar isn't clearly met for a Low-severity cosmetic item.
+- **Files Modified**: None.
+- **Result**: ENG-027 reviewed, not implemented — reasoning on record.
+- **Next Action**: proceed to ENG-028 (icon language mixing).
+
+### Entry 26 — Sprint V17.0, ENG-028 (2026-07-29)
+
+- **Timestamp**: 2026-07-29T20:30
+- **Module**: N/A — reviewed, no code changed
+- **Observation**: STEP 1 re-verification confirmed reproducible: `InsightsModal.jsx` uses a real emoji (🔥, top-3 heatmap indicator) which renders as a platform-specific colorful glyph, breaking the otherwise-consistent monochrome geometric icon language used everywhere else (◫/◈/⇌/etc.).
+- **STEP 2 decision**: Not implemented without design input. Fixing requires choosing a specific replacement (a geometric glyph? plain text like "TOP"? a colored dot?) — a design decision, not a mechanical engineering fix. Inventing a replacement unilaterally risks a worse outcome than the current minor inconsistency.
+- **Files Modified**: None.
+- **Result**: ENG-028 reviewed, not implemented — needs design input if revisited.
+- **Next Action**: proceed to ENG-030 (button-variant consistency).
+
+### Entry 27 — Sprint V17.0, ENG-030 (2026-07-30)
+
+- **Timestamp**: 2026-07-30T09:00
+- **Module**: Frontend (`AccessScreen.jsx`)
+- **Observation**: STEP 1 re-verification confirmed reproducible: `AccessScreen.jsx`'s row-level Links-list "Revoke"/"Delete" triggers used `variant="outline-danger"`, while the identical semantic action (a row-level delete/revoke trigger inside a list) used `variant="ghost"` + inline `style={{ color: C.error }}` in `WebhooksScreen.jsx`, `ApiKeysScreen.jsx`, and `DocRow.jsx` — confirmed by direct read of all four files.
+- **STEP 2 decision**: Implemented. Improves maintainability (one visual pattern for one semantic action class) and reduces future-bug risk (copying the minority precedent perpetuates drift).
+- **Decision**: Changed `AccessScreen.jsx`'s two row-level trigger buttons (Revoke, Delete) from `variant="outline-danger"` to `variant="ghost"` + `style={{ color: C.error }}`. Deliberately left the page-level "✕ Revoke All Access" button as `outline-danger` — a distinct, standalone confirmation action, not the same semantic class.
+- **Files Modified**: `frontend/src/screens/AccessScreen.jsx`. Pre-existing uncommitted work from earlier sprints was present in this file; applied the established isolation technique (backup, reset to HEAD, reapply only this edit, verify isolated diff, commit, restore) — final isolated diff was exactly 3 lines changed, matching intent.
+- **Tests Executed**: `npm run lint` exit 0. Frontend suite 13/13 passed. Build succeeded (309.1kb).
+- **Verification**: Isolated-diff-verified + lint/test/build-verified. Source-pattern-matched against 3 precedent files. No browser-automation tool (Playwright/chromium-cli) is available in this environment — this is a pure prop/style change with no logic path, so lint+test+build+source-match is the applicable verification ceiling; not claimed as browser-verified.
+- **Result**: ENG-030 closed. Commit `667cac8`.
+- **Next Action**: proceed to ENG-031 (owner preview watermark).
+
+### Entry 28 — Sprint V17.0, ENG-031 (2026-07-30)
+
+- **Timestamp**: 2026-07-30T09:05
+- **Module**: Frontend (`AppShell.jsx`, `ViewerScreen.jsx`, `useViewerSession.js`)
+- **Observation**: STEP 1 re-verification via full source trace, root cause fully identified (previously only the symptom was known). `backend/app/routers/viewer.py` and `backend/app/services/viewer_session_service.py:99` both compute `watermark_text = f"{viewer_email or 'anonymous'} · ..."`, where `viewer_email` comes solely from the client-submitted `/api/viewer/validate` request body. The owner's own preview (`AppShell.jsx` renders `<ViewerScreen doc={activeDoc}>`, no `publicToken`) auto-selects an unrestricted "Admin Preview" link via `useViewerSession.js` and calls `doValidate(token, null, null)` at both its call sites — hardcoding `email=null` even though `AppShell.jsx` already derives the authenticated owner's email from their JWT (`parseJwtEmail(token)`, already used for the sidebar) but never threads it into the viewer session. No separate authenticated "owner preview" endpoint exists — the owner's own preview uses the identical public link-validate flow as an anonymous viewer.
+- **STEP 2 decision**: Implemented. Improves usability (the watermark is a forensic/trust feature; showing "anonymous" to the document's own owner undermines confidence in its correctness) — a genuine display-correctness bug, not cosmetic-only. Security-checked before implementing: `link_service.py`'s `allowed_emails`/`allowed_domains` gate checks only trigger when the link actually has those restrictions configured, and the auto-selected "Admin Preview" link is specifically chosen for having neither — so passing the owner's real email through cannot trigger an unrelated access-gate check.
+- **Decision**: Threaded `ownerEmail` (`AppShell.jsx`'s existing `userEmail`) → `ViewerScreen.jsx` → `useViewerSession.js`'s two `doValidate(token, ownerEmail || null, null)` call sites. Public share-link viewers are unaffected (`ownerEmail` is never passed on that render branch).
+- **Files Modified**: `frontend/src/screens/AppShell.jsx`, `frontend/src/screens/ViewerScreen.jsx`, `frontend/src/hooks/useViewerSession.js`. `ViewerScreen.jsx` had pre-existing uncommitted work from earlier sprints (retry-on-error button, `INSIGHTS-PUBLIC-001` fix, reading-insights display) mixed in; applied the established isolation technique — final isolated diff across all 3 files was exactly 9 insertions/6 deletions, matching intent.
+- **Tests Executed**: `npm run lint` exit 0. Frontend suite 13/13 passed. Build succeeded (308.9kb).
+- **Verification**: Rebuilt and restarted the local Docker `api` container. Authenticated as the real test account (`23z274@psgtech.ac.in`) against the actual local Supabase project to obtain a genuine JWT. Replicated the exact client-side link-selection logic to find the same unrestricted "Admin Preview"-eligible link `useViewerSession.js` would select. Called `/api/viewer/validate` twice against that link: once with `email=null` (old behavior) → `watermark_text: "anonymous · 2026-07-30 · sess:5e77fd"`; once with the owner's real email (new behavior) → `watermark_text: "23z274@psgtech.ac.in · 2026-07-30 · sess:1d954e"`. Confirms the fix resolves the bug end-to-end through the real backend. No browser-automation tool (Playwright/chromium-cli) is available in this environment, so this is classified as Source-verified + Integration/API-verified, not Browser-verified.
+- **Result**: ENG-031 closed. Commit `be3d5de`. This closes the entire Low-priority tier — every remaining Low item is now either Closed or Reviewed-and-documented-as-not-implemented.
+- **Next Action**: per V17.0's explicit instruction, perform a complete repository certification pass (dead code, duplicate logic, unused imports/hooks/CSS, stale comments, TODO/FIXME/console.log/debugger/print()) before beginning any Enhancement-tier work. Also due: an "every 5 closed issues" full browser regression sweep per V17.0's cadence rule.
