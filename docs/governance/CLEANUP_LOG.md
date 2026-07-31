@@ -81,3 +81,26 @@ Added `*.code-workspace` and `audit_artifacts/` to `.gitignore`. These were alre
 | Frontend build | 249.3 KB, 0 errors, 18ms |
 | Migration state | At head (025_performance_indexes) |
 | Health endpoint | `{"status": "ok", ...}` — all subsystems healthy |
+
+---
+
+# Cleanup Log — Sprint V18.0 (Repository Certification)
+
+**Date:** 2026-07-31
+**Engineer:** V18.0 Zero Technical Debt Sprint
+
+## Actions Taken
+
+### Documentation archiving — 46 root reports → `archive/sprint7-18/root-reports/`
+
+Sprint 6.3 (above) recommended future sprints keep archiving obsolete root reports as they accumulate; that recommendation was not followed for 41 days of subsequent sprints (2026-07-14 through 2026-07-30). Full per-file list and reasoning in `docs/governance/ARCHIVED_FILES.md`'s "Sprint V18.0" section. Before archiving, extracted still-open content: `FIX_LOG.md`'s unique V4.0/Sprint-7.0/V6.0 history merged into `docs/engineering/FIX_LOG.md`; `TECH_DEBT_REGISTER.md`'s P0 salt-default gap and `PRODUCT_PROPOSAL.md`'s PROF-001 and `PUBLIC_RELEASE_READINESS.md`'s no-CD-pipeline gap re-added to `ENGINEERING_BACKLOG.md` as ENG-032/033/034.
+
+Corrected `archive/README.md`'s stale references (`frontend/docs/` no longer exists — deleted in Sprint V6.0; `RISK_REGISTER.md`/`ARCHITECTURE_DECISIONS.md` no longer exist at root — archived in Sprint 6.3) and added the missing `sprint5-6/`/`sprint7-18/` directory rows that existed on disk but weren't documented.
+
+### Code and dependency fixes
+
+See `docs/engineering/ACTION_LOG.md` and `docs/engineering/FIX_LOG.md` for the full per-fix breakdown (evidence, files, tests, regression risk) of this sprint's `DEAD_CODE_REPORT.md`/`DEPENDENCY_AUDIT.md` findings that were implemented.
+
+## Validation Results
+
+See `REGRESSION_REPORT.md` for the full V18.0 regression table.

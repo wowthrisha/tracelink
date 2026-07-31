@@ -372,6 +372,27 @@ Reading the full canonical-source list per V16.0's instructions surfaced 10 item
 - **Owner**: Engineering (this sprint)
 - **Verification method**: Source-verified (full root-cause trace) + isolated-diff-verified + lint/test/build-verified + Integration/API-verified against the local Docker stack with a real Supabase-authenticated session. Not browser-verified (no browser automation tool available in this environment).
 
+### ENG-032 — Security-sensitive config defaults ship hardcoded with no production guard
+- **Source**: `TECH_DEBT_REGISTER.md` (V7.0), surfaced during V18.0's documentation-cleanup gap analysis — this P0 item was never carried into the backlog when `ISSUE_DATABASE.md` was reconciled in V16.0.
+- **Evidence**: Source-verified — `backend/app/config.py:62` (`ip_hash_salt: str = "securedoc_ip_salt_change_in_production"`) and `:160` (`domain_verify_salt: str = "securedoc_domain_salt_change_in_production"`) both ship hardcoded, self-documenting-as-insecure defaults with no startup-time production guard rejecting them — unlike HSTS, which does enforce a real value in production (confirmed via `backend/tests/unit/test_config.py`'s existing HSTS validator pattern).
+- **Severity**: Medium (a misconfigured production deploy silently runs with weak salts; not directly exploitable without a further chained issue, but undermines the IP-hashing/domain-verification security properties those salts exist for)
+- **Status**: Open
+- **Owner**: Unassigned — fix should mirror the existing HSTS startup validator pattern (`config.py`'s production-mode check), estimated low complexity
+
+### ENG-033 — PROF-001: no profile/account-settings screen exists
+- **Source**: `PRODUCT_PROPOSAL.md` (2026-07-17), surfaced during V18.0's documentation-cleanup gap analysis — never carried into the backlog.
+- **Evidence**: Source-verified, re-confirmed live during V18.0 — `find frontend/src -iname "*profile*"` returns nothing, and `frontend/src/components/atoms.jsx`'s Sidebar nav config has no Profile/Settings entry. A signed-in user has no in-app way to change their password or manage their account.
+- **Severity**: High (real, user-facing capability gap — not a bug in existing code, a missing screen)
+- **Status**: Open — this is new-feature work (a new screen + at least one new backend endpoint), out of scope for a fix-only backlog item; needs a proposal/design pass before implementation. Full proposal detail preserved in `archive/sprint7-18/root-reports/PRODUCT_PROPOSAL.md`.
+- **Owner**: Unassigned (product/design input needed before engineering scoping)
+
+### ENG-034 — No CD/deploy job; `docker-compose up --build` is the only deployment path
+- **Source**: `PUBLIC_RELEASE_READINESS.md` (V7.0), surfaced during V18.0's documentation-cleanup gap analysis — never carried into the backlog.
+- **Evidence**: Source-verified, re-confirmed live during V18.0 — `.github/workflows/ci.yml` has a real, solid CI (lint, full test matrix against live Postgres+Redis, migration smoke test, frontend build, `pip-audit`/`npm audit`, Bandit scan, Docker build check) but the Docker build step runs with `push: false` — no image is ever pushed, no deploy/release job exists anywhere in the workflow. `docs/release/`'s files are one-time point-in-time "RC-1" reports, not a repeatable release process.
+- **Severity**: Medium (operationally, Railway's own auto-deploy-from-`origin/main` is the actual live deployment mechanism per this session's established practice — so the repo isn't undeployed, but the CI pipeline itself has no automated release/rollback story, and `docker-compose up --build` as the only *documented* path is a real gap for anyone deploying outside Railway)
+- **Status**: Open — a CD job is infrastructure/deployment-policy work (what to push to, what triggers a release, rollback strategy) requiring an ops decision, not a pure code fix
+- **Owner**: Unassigned (needs deployment-target decision before implementation)
+
 ## Explicitly not on this backlog (verified non-issues)
 
 - **Storage screen usage bars** (`FIXES_TODO.md` §5) — investigated and ruled out; the fill-bar computation is correct (`width: 0.0032554%` for a 328-byte file, verified via DOM inline-style inspection). An earlier automated check mismeasured the empty track div. No action needed.
@@ -415,6 +436,9 @@ Reading the full canonical-source list per V16.0's instructions surfaced 10 item
 | ENG-029 | Architecture docs contradict each other (L-3) | Medium | 29 | **Closed** |
 | ENG-030 | Button-variant inconsistency for delete/revoke (L-6) | Low | 30 | **Closed** |
 | ENG-031 | Owner preview watermark shows "anonymous" (WATERMARK-OWNER-ANON-001) | Low | 31 | **Closed** |
+| ENG-032 | Security config defaults hardcoded, no production guard | Medium | 32 | Open |
+| ENG-033 | PROF-001: no profile/account-settings screen | High | 33 | Open (needs product/design input) |
+| ENG-034 | No CD/deploy job in CI pipeline | Medium | 34 | Open (needs ops decision) |
 
 **Critical: 0. High: 3 (all closed). Medium: 5 (2 closed, 1 deferred, 2 new: 1 deferred, 1 open). Low: 14 (5 closed, 3 deferred, 6 open). Enhancement: 8.**
 

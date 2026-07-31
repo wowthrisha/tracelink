@@ -202,6 +202,67 @@ Frontend bundle: 268.0 KB (from 249.3 KB — +18.7 KB for new features)
 
 ---
 
+## Historical entries merged from root `FIX_LOG.md` (V18.0 documentation cleanup, 2026-07-31)
+
+The root-level `FIX_LOG.md` (base commit `2c1795f`, V4.0 remediation through Sprint 7.0) was never folded into this canonical log, leaving a gap between "Sprint C" above and "Sprint V10.0" below. Merged here verbatim, in its original chronological order (V4.0 remediation first, then Sprint 7.0, then Sprint V6.0 — the root file's own internal ordering), before archiving the root copy. Evidence: source-verified during the V18.0 repository certification sprint's documentation audit.
+
+### V4.0 remediation (committed as `31e2966`, pushed to `origin/main`)
+
+- **AUTH-001** — No password requirements shown during signup. `LoginScreen.jsx`: added a conditional hint ("At least 6 characters.") under the password field in signup mode, matching the existing 6-char minimum used in reset-password validation. Tests: 13/13 frontend, build succeeded (306.1kb). Regression risk: none — additive, scoped to `mode === 'signup'`.
+- **AUTH-002** — No show/hide password toggle. `LoginScreen.jsx`: added `showPassword` state + toggle button switching the input's `type` between `password`/`text`. Regression risk: low — new state only, no existing handler changed.
+- **AUTH-007** — Raw "Failed to fetch" error shown on connection failure. `LoginScreen.jsx`: added a case-insensitive branch catching `failed to fetch`/`network`/`load failed` before the catch-all, replacing it with "Unable to reach the server. Check your connection and try again." Regression risk: low — purely additive, existing special-cased messages checked first.
+- **DASH-001** — "Upload Dashboard" title was misleading (the screen is a full document hub, not just uploads). `atoms.jsx`: `'Upload Dashboard'` → `'Documents'` in the shared `titles[screen]` map. Regression risk: none, copy-only.
+- **DASH-003** — Security notice not prominent. `UploadScreen.jsx`: moved the "documents converted to images, downloads disabled" notice from a 10px footer span into a bordered banner directly under the page header. Regression risk: none, layout-only.
+- **DASH-008** — "+ New group" button easy to miss. `UploadMetadataPanel.jsx`: `variant="ghost"` → `variant="secondary"` (existing `Btn` variant, no new styling code). Regression risk: none, prop-only.
+- **ANAL-006** — Groups sidebar widget silently capped at 5 with no indication more exist. `AnalyticsScreen.jsx`: added `showAllGroups` toggle state; "Show all N"/"Show fewer" button appears when `groupStats.length > 5`. Regression risk: low — new state defaults to the prior capped behavior.
+- Suite-wide verification: frontend 13/13, build succeeded (306.1kb), backend 1699 passed/1 skipped, `TODO`/`FIXME`/`console.log`/`debugger` grep clean on touched files.
+
+### Sprint 7.0 (17 items fixed; full reasoning was in the now-archived `WORKFLOW_COMPLETENESS.md`/`ARCHITECTURE_SCORECARD.md`/`SECURITY_STATUS.md`/`REPOSITORY_HEALTH.md`)
+
+- **View-limit-reached mislabeled as "Link Expired"** — `useViewerSession.js` classified every non-`revoked` 410 as `'expired'`; added a `detail.includes('view')` branch producing a distinct `view_limit_reached` status with a matching `AccessGate.jsx` message.
+- **Broken network-error fallback in the viewer (dead end)** — `usePageLoader.js`'s catch block fell back to a bare `<img src=...>` with no auth header, guaranteed to 400 with no explanation. Removed the broken fallback, set a real `pageError`, added a `retryPage()` + Retry button in `ViewerScreen.jsx`.
+- **Garbled HTML-entity icons in `AccessGate`** — literal `"&#x1F50D;"`-style strings don't decode inside a JSX `{expression}`; replaced all 5 with real emoji characters.
+- **No warning for protected links with no expiry** — `AccessScreen.jsx`: added a conditional hint on the Expiry field when `(password || allowedEmails) && !expiry`.
+- **No tooltip distinguishing Revoke from Delete (ACCESS-002)** — `atoms.jsx`'s shared `Btn` gained a forwarded `title` prop (backward-compatible addition); wired on `AccessScreen.jsx`'s Revoke/Delete buttons.
+- **"Revoke All Access" always claimed success** — `AccessScreen.jsx`'s `handleRevoke` swallowed per-link failures in a bare `try{}catch{}` then unconditionally toasted success. Switched to `Promise.allSettled` with accurate success/partial/failure reporting.
+- **Storage retention change fired with no confirmation (STOR-002)** — `StorageScreen.jsx`: retention `<select>`'s `onChange` now opens a confirmation modal describing the consequence; the PATCH only fires on explicit confirm.
+- **Storage per-document table had no empty state** — `StorageScreen.jsx`: added a "No documents yet..." empty row.
+- **Document/group delete: missing loading state, modal-closes-before-resolve** — `UploadScreen.jsx`: wired `loading={deleting}` on the document-delete button; added `deletingGroupId` and moved the group-delete modal's close to only happen on success.
+- **API key delete confirmation had wrong copy** — was copy-pasted from the webhook delete modal ("delivery history"); corrected to API-key-accurate copy.
+- **Password reset left a stale, reusable-looking token in the URL** — `LoginScreen.jsx`: calls `history.replaceState` to strip the `#access_token=...&type=recovery` fragment after a successful reset.
+- **Audit log export silently truncated at 500 with no warning** — `AuditLogScreen.jsx`: CSV/JSON export handlers now compare exported row count against the known filtered total and show an accurate "Exported N of M" warning when truncated.
+- **Org member self-removal ("leave org") was broken for non-admins** — `orgs.py:remove_member` called `_get_org_and_member(..., minimum_role="admin")`, raising 403 before the function's own self-removal bypass ever ran, contradicting the code's own "allow self-removal at any role" comment. Resolved caller at `minimum_role="viewer"`, enforcing the admin requirement only when `not is_self`. 2 new regression tests + all pre-existing member-removal tests passed (54/54 in `test_enterprise_phase4.py`).
+- **Org member removal had no confirmation dialog** — `OrgsScreen.jsx`: added a `removeModal` confirmation matching the existing org-delete pattern.
+- **`groups.py` missing scope enforcement** — all 7 endpoints used bare `Depends(get_current_user)` instead of `Depends(require_scope(...))`, unlike `documents.py`/`links.py`/`webhooks.py` — an API key scoped only to `documents:read` could mutate group membership. Fixed to match the existing convention; zero behavior change for JWT/browser users (94/94 tests passed across 3 affected suites).
+- **`groups.py:assign_documents_to_group` N+1 query** — replaced a per-document-ID `SELECT` loop with a single `WHERE Document.id.in_(doc_uuids)` query.
+- **Document upload missing audit log entry** — `document.uploaded` wasn't audited while `document.deleted` was, with no technical justification; added, mirroring the existing best-effort try/except-swallow pattern.
+- **Misleading "uploader-facing" comment on `resolve_annotation`** — comment claimed owner-only access; the route is actually reachable by any session on the link with no ownership check. Doc-only fix; the permission question itself was deliberately left for a product/security decision.
+- **Duplicated `_get_session_id`, `fmtDate`, and `admin.py` role-check logic** — consolidated onto existing shared implementations across `annotation_service.py`, `admin.py`, `viewer.js`, and 4 screen files.
+- **Unused imports removed** — `documents.py` (`get_current_user`), `webhooks.py` (`Optional`, `get_current_user`), `storage.py` (`func`), `orgs.py` (`Query`) — each confirmed unused via full-file grep before removal.
+- **Test fragility: bundle-mangling regex didn't account for `$`-prefixed minified names** — `test_bundle_ends_with_reactdom_render` used `\w+`; esbuild's minifier can emit `$`-prefixed identifiers once it exhausts short alphanumeric ones. Changed to `[\w$]+`.
+- Suite-wide verification: frontend 13/13, build succeeded (310.0kb), backend 1701 passed/1 skipped, single linear Alembic head (`026`), `TODO`/`FIXME`/`console.log`/`debugger`/stray `print(` grep clean.
+
+### Sprint V6.0 — Engineering Governance fixes (full reasoning was in the now-archived `ENGINEERING_GOVERNANCE.md`/`MODULE_BOUNDARIES_AND_CODE_QUALITY.md`/`UI_API_CONTRACT.md`/`SECURITY_GOVERNANCE.md`/`SCALABILITY_REVIEW.md`/`CONSISTENCY_MATRIX.md`/`REPOSITORY_HEALTH.md`)
+
+- **Webhook deliveries silently non-functional in production (most severe finding this sprint)** — `celery_app.py`'s `include=[...]` omitted `app.workers.webhook_tasks`; a real worker process only registers tasks from modules listed in `include=`, so `securedoc.deliver_webhook` was never registered and every enqueue silently went nowhere. One-line fix adding the missing module; added `test_all_task_modules_are_registered_with_the_worker` asserting all 8 expected task names register after `import_default_modules()` (mirrors real worker boot — directly importing the module, which other tests did, masks an `include=` omission entirely).
+- **`annotations.py` wrongly denying org members access to shared documents** — 10 inline ownership checks were narrower than `documents.py`'s existing `_get_accessible_document()` (which also grants org-member access via `OrgMembership`). Consolidated all 10 sites onto the shared helper; denied access now returns 404 instead of 403, matching `documents.py`'s no-existence-leak convention.
+- **`links.py`/`link_service.py` duplicated "is link active" logic** — the router's display flag and the service's actual enforcement independently computed revoked/expired/max-views status and disagreed at the exact expiry boundary. Extracted a single `is_link_active(link, now)` predicate matching real enforcement; the display flag is now strictly more accurate.
+- **`orgs.py` duplicated "last owner" check** — extracted `ensure_not_last_owner(db, org_id)`, called from both `update_member_role` and `remove_member`.
+- **Webhook audit-logging gap** — entire webhook screen had zero audit coverage; added `webhook.created`/`webhook.updated`/`webhook.deleted`, mirroring the existing document-audit pattern.
+- **Storage retention-change audit-logging gap** — added `document.retention_changed`.
+- **`api_key.rotated` missing from the filterable audit-event enum** — logged correctly but never added to `AUDIT_EVENT_TYPES`, making it permanently unselectable in the Audit Log filter and rejected 422 if queried directly.
+- **Three CSV exports in `AccessScreen` with zero error handling** — `exportFeedback`/`exportReviewerActivity`/`exportVisualAnnotations` were bare un-awaited promise expressions; wrapped in `try/await/catch` with a toast, matching every other action on the screen.
+- **Copy-to-clipboard reports success even when the copy fails (3 screens)** — `AccessScreen.jsx`/`ApiKeysScreen.jsx`/`WebhooksScreen.jsx` showed a success toast without awaiting the clipboard promise; toast now fires only on confirmed success, with a failure branch.
+- **Viewer search: network error indistinguishable from "no matches"** — `SearchPanel.jsx`: added a `searchError` state so a failed request shows "Search failed — check your connection and try again" instead of the misleading "No matches found."
+- **Extract Sidecars: silent failure** — `ViewerInfoPanel.jsx`: replaced an empty `catch {}` with a toast on failure.
+- **Billing Refresh: completely silent failure** — `BillingScreen.jsx`'s `load()` never set the screen's `error` state on a non-OK response and had an empty catch block — the only action across all 12 screens with zero user-facing failure feedback at the time. Fixed to reuse the screen's existing error-display block.
+- **Two destructive-dialog consistency fixes** — Delete Document modal now names the document itself, not just its share links; Storage retention modal uses the standard warning template for destructive changes and a lighter style for the safe "never" option.
+- **Dead code removed**: `frontend/src/components/analytics/RangeBtn.jsx` (deleted, zero references), `frontend/api.js:formatBytes()` (removed, `StorageScreen.jsx` has its own), CSS classes `.header-btn-label`/`.screen-enter` (removed, zero usages), and **`frontend/docs/`** (removed — a 3-level-deep directory tree with zero files at any level). *(Note, added during the V18.0 merge: this is why `archive/README.md`'s references to `frontend/docs/production/`, `frontend/docs/governance/`, etc. are stale — that tree no longer exists; corrected as part of this same cleanup pass.)*
+- **`WebhookDelivery` composite index** — `get_deliveries()` filters on `webhook_id` and sorts by `created_at DESC`; the prior index only covered the filter. Added a composite index covering both.
+- Suite-wide verification: frontend 13/13, build succeeded (311.3kb), backend 1702 passed/1 skipped.
+
+---
+
 ## Sprint V10.0 — Autonomous Product Excellence (2026-07-23)
 
 Continuation of the V6.0/V7.0 governance-sprint backlog, executed under explicit autonomous-fix authority ("fix it, or document exactly why not — without asking for confirmation"). Full narrative in `ACTION_LOG.md`; this section is the condensed fix-by-fix record.
