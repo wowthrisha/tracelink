@@ -20,8 +20,8 @@ redis==5.2.0
 slowapi==0.1.9
 httpx==0.28.0
 stripe==11.4.0
-prometheus-client>=0.21.0
-opentelemetry-sdk>=1.28.0
-opentelemetry-instrumentation-fastapi>=0.49b0
-opentelemetry-instrumentation-sqlalchemy>=0.49b0
-opentelemetry-exporter-otlp-proto-http>=1.28.0
+prometheus-client==0.26.0
+opentelemetry-sdk==1.44.0
+opentelemetry-instrumentation-fastapi==0.65b0
+opentelemetry-instrumentation-sqlalchemy==0.65b0
+opentelemetry-exporter-otlp-proto-http==1.44.0

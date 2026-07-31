@@ -1,5 +1,5 @@
 import { C, mono } from '../constants/tokens.js';
-import { _errMsg } from '../utils/viewer.js';
+import { _errMsg, fmtDate } from '../utils/viewer.js';
 import { useToast } from '../contexts/toast.jsx';
 import { buildFeedbackFilters } from '../utils/feedback.js';
 import { label, SectionLabel, StatusDot, RiskBadge, Chip, Btn, Card, Modal, Toggle, Field, Header } from '../components/atoms.jsx';
@@ -8,11 +8,6 @@ import { TabBtn } from '../components/access/TabBtn.jsx';
 import { DocumentPicker } from '../components/DocumentPicker.jsx';
 
 const { useState, useEffect, useCallback } = React;
-
-function fmtDate(iso) {
-  if (!iso) return '—';
-  return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
-}
 
 // The 3 audit-trail timestamps below (annotation, reply, visual-annotation
 // creation) all want locale date+time, not just date; consolidated here

@@ -1,5 +1,3 @@
-import asyncio
-import json
 import uuid
 from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -13,12 +11,12 @@ from app.database import Base, get_db
 from app.main import app
 from app.models.document import Document, DocumentPage
 from app.models.link import ShareLink
-from app.models.event import AccessEvent  # noqa: ensure event model loaded
-from app.models.session import ViewerSession  # noqa: ensure session model loaded
-from app.models.webhook import WebhookEndpoint, WebhookDelivery  # noqa: ensure webhook models loaded
-from app.models.api_key import APIKey  # noqa: ensure api_key model loaded
-from app.models.org import Organization, OrgMembership  # noqa: ensure org models loaded
-from app.models.audit import AdminAuditLog  # noqa: ensure audit model loaded
+from app.models.event import AccessEvent  # noqa: F401 -- ensure event model loaded
+from app.models.session import ViewerSession  # noqa: F401 -- ensure session model loaded
+from app.models.webhook import WebhookEndpoint, WebhookDelivery  # noqa: F401 -- ensure webhook models loaded
+from app.models.api_key import APIKey  # noqa: F401 -- ensure api_key model loaded
+from app.models.org import Organization, OrgMembership  # noqa: F401 -- ensure org models loaded
+from app.models.audit import AdminAuditLog  # noqa: F401 -- ensure audit model loaded
 from app.services.link_service import LinkService
 from app.auth import get_current_user
 
