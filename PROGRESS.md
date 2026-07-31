@@ -6,37 +6,38 @@ Narrative progress log, one entry per closed (or explicitly deferred) backlog it
 
 | Field | Value |
 |---|---|
-| Current issue | none in progress — V18.0 Repository Certification sprint complete |
-| Previous issue | V18.0 Repository Certification (dead code, dependencies, module boundaries, documentation archival) |
-| Next issue | Triage 3 new backlog items surfaced this sprint (ENG-032/033/034), then Enhancement tier (017/018/019/020) |
+| Current issue | none in progress — V20.0 backlog triage complete |
+| Previous issue | ENG-019 (partially verified — 2 toggles confirmed, remainder needs browser tooling) |
+| Next issue | ENG-033 (needs product/design input) and ENG-034 (needs ops decision) — both documented, awaiting external input, not further engineering-actionable this session |
 | Critical remaining | 0 / 0 |
-| High remaining | 0 / 3 |
-| Medium remaining | 2* / 5 (ENG-023, ENG-026 deferred with reasoning) |
+| High remaining | 1 / 4 (ENG-033 — needs product/design input for a new screen) |
+| Medium remaining | 1 open / 8 total (3 deferred: ENG-005/023/026; ENG-034 open, needs ops decision; ENG-032 closed this sprint — corrected finding, guard already existed) |
 | Low remaining | 0 / 14 — tier complete: 8 closed, 6 deferred/reviewed-with-reasoning |
-| Enhancement remaining | 4 / 8 (ENG-013/014 closed; ENG-015 justified, ENG-016 deferred) |
-| New this sprint (not yet triaged) | 3 — ENG-032 (Medium, salt defaults), ENG-033 (High, no profile screen), ENG-034 (Medium, no CD job) |
-| Overall % | 47.1% (16/34 closed, backlog expanded 31→34 this sprint) |
-| Current commit | `4862abb` |
-| Last regression | PASS — post-V18.0 certification, 2026-07-31 (backend 1705 passed/1 skipped/0 failed [1709 baseline − 4 tests removed with the dead function they tested] / frontend 13/13 / lint exit 0 / build 309.0kb / Docker `api` rebuilt and healthy after every backend-touching change / `npm ci` verified independently on macOS + Alpine). |
-| Current blocker | None |
-| Estimated completion | Repository certification complete — see `FINAL_REPOSITORY_SCORECARD.md` for the full verdict (8/10 stop conditions Met, remaining 8 Substantially met, 0 Not Met). Remaining: triage ENG-032/033/034, then 4 open Enhancement-tier items (017/018/019/020) — ENG-017/033/034 likely need ops/product/design input outside pure engineering scope; no fixed ETA |
+| Enhancement remaining | 2 open / 8 total (ENG-017 open/ops-only, ENG-019 partially verified/open; ENG-018 + ENG-020 closed this sprint; ENG-013/014 closed; ENG-015 justified, ENG-016 deferred) |
+| Overall % | 55.9% (19/34 closed, 11 deferred/reviewed-with-reasoning, 4 open) |
+| Current commit | `dbeda01` |
+| Last regression | PASS — post-V20.0 triage, 2026-08-01 (backend 1705 passed/1 skipped/0 failed / frontend 13/13 unaffected [no frontend files touched this stretch] / Docker `api` healthy). ENG-032's attempted fix was self-caught and reverted by this same regression discipline — see CHECKPOINT.md. |
+| Current blocker | None — ENG-033/034/017 are correctly blocked on external input, not stalled |
+| Estimated completion | Engineering-actionable backlog is now fully triaged: every Critical/High/Medium/Low item is closed or deferred-with-reasoning. Remaining 4 open items are each blocked on a named external input (product design for ENG-033, ops/deployment policy for ENG-034, infra access for ENG-017, browser tooling or manual QA for the remainder of ENG-019) — none are unilaterally engineering-actionable this session. |
 
 \* Backlog expanded from 21 to 31 items this cycle after merging `ISSUE_DATABASE.md`/`TODO_QUEUE.md` findings — see the V16.0 reconciliation entry below. This is real newly-surfaced scope, not re-litigation of closed work.
 
 \* ENG-005/ENG-011/ENG-012 counted as remaining/deferred, though all three deferrals were actively re-confirmed this cycle, not silently carried forward.
 
-## Burndown (recomputed after V18.0's certification sprint — 31 → 34 items)
+## Burndown (recomputed after V20.0's backlog triage — 34 items, all triaged)
 
-| Priority | Total | Closed | Deferred (reasoned) | Open |
+| Priority | Total | Closed | Deferred (reasoned) | Open (blocked on external input) |
 |---|---|---|---|---|
 | Critical | 0 | 0 | 0 | 0 |
-| High | 3 + 1* | 3 | 0 | 1 |
-| Medium | 6 + 2* | 3 | 3 | 2 |
+| High | 4 | 3 | 0 | 1 (ENG-033 — product/design) |
+| Medium | 8 | 4 | 3 | 1 (ENG-034 — ops/deployment policy) |
 | Low | 14 | 8 | 6 | 0 |
-| Enhancement | 8 | 2 | 1 + 1 justified | 4 |
-| **Total** | **34** | **16** | **9 (+1 justified)** | **7** |
+| Enhancement | 8 | 4 | 2 (1 justified) | 2 (ENG-017 — infra access; ENG-019 — browser tooling/manual QA) |
+| **Total** | **34** | **19** | **11 (1 justified)** | **4** |
 
-\* ENG-032 (Medium), ENG-033 (High), ENG-034 (Medium) — 3 new items surfaced during V18.0's documentation-cleanup gap analysis (genuine findings from `TECH_DEBT_REGISTER.md`/`PRODUCT_PROPOSAL.md`/`PUBLIC_RELEASE_READINESS.md` that fell out of prior backlog reconciliation). Not yet triaged through the STEP 1/2/3 process — re-verified as still-reproducible during V18.0 itself, but not yet judged for implementation.
+## V20.0 — Backlog triage sprint (2026-08-01)
+
+Triaged the 4 items still open after V18.0 (ENG-032/033/034 surfaced by V18.0's documentation cleanup, plus the pre-existing ENG-017/018/019/020 Enhancement tier) through the same STEP 1/2/3 re-verification discipline used throughout this session. **ENG-032 corrected**: re-verification found the production-safety guard it described already exists (`backend/app/main.py:27-54`) — both the original finding and this session's own earlier check had only looked in `config.py` and missed it. A redundant fix was attempted, caught by its own regression run, and reverted — net zero code change, closed as "no longer reproducible." **ENG-018 and ENG-020 closed** via genuine integration-level verification against the real local Docker stack (a synthesized 120-page PDF for ENG-018; hand-verified reading-analytics math, including confirming a `700.0` wpm result was a documented physiological-plausibility clamp firing correctly, not a placeholder, for ENG-020). **ENG-019 partially verified** (2 of many toggles confirmed round-trip correctly) and left honestly open rather than overclaiming full closure. **ENG-033/034/017 remain open**, each blocked on a named external input outside pure engineering scope, not stalled.
 
 ## V18.0 — Repository Certification sprint (2026-07-31)
 

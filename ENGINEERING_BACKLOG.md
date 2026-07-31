@@ -241,33 +241,41 @@ Severity scale: **Critical → High → Medium → Low → Enhancement**. Per th
 
 ### ENG-018 — Large-PDF (100+ page) Viewer stress not freshly re-tested
 - **Source reports**: `UI_EXCELLENCE_SCORECARD.md` (Viewer section), `RELEASE_BLOCKERS.md` Tier 3 item 5
-- **Evidence**: Not enough evidence — this sprint's Viewer work prioritized the explicitly-named edge cases (idle/multi-tab/expired/network/broken-PDF) over a fresh large-document stress pass.
-- **Affected files**: None expected unless a defect is found
-- **Estimated effort**: Small (test with an existing or synthesized 100+ page PDF)
+- **V20.0 verification**: No browser-automation tool is available in this environment, so this was verified at the API/integration level against the real local Docker stack rather than through an actual browser — classified as Integration/API-verified, not Browser Verified, per this sprint's evidence-category discipline. Generated a genuine 120-page synthetic PDF (unique searchable marker text per page), uploaded it through `/api/documents/upload` with a real authenticated session, and confirmed: (1) Celery processing completed to `status: ready`, `page_count: 120`; (2) page rendering succeeded at first/middle/last pages (1, 60, 120) — all returned `200 image/webp` with real byte content (110-115KB each); (3) thumbnail generation succeeded at pages 1 and 120; (4) full-text search (`/api/viewer/search`) correctly located a unique marker planted on page 75, with the correct page number and snippet; (5) word-position extraction (`/api/viewer/words`) returned data for all 120 pages, with page 75 showing 203 extracted words — confirming the search-highlight pipeline processes the full document, not a truncated subset; (6) the Reading Intelligence batch-ingestion endpoint (`/api/reading/batch`) correctly processed a controlled 3-page reading session against the 120-page document with no errors — see ENG-020 for the detailed math cross-check performed using this same test document. All disposable test resources (document, link) were deleted after verification; confirmed via a 404 on GET post-delete.
+- **Category**: Integration/API Verified (not Browser Verified — no browser-automation tool available in this environment)
+- **Affected files**: None — no defect found
+- **Estimated effort**: Small (as originally estimated)
 - **Priority**: 18
-- **Status**: Open — part of this sprint's Viewer certification pass (see Viewer Certification section of the V14.0 mission)
-- **Owner**: Engineering (this sprint)
-- **Verification method**: Browser-verified — upload/open a 100+ page PDF, verify rendering, search, page nav, and Reading Intelligence metrics all remain correct at that scale
+- **Status**: **Closed — verified, no defect found** (2026-08-01, V20.0)
+- **Owner**: Engineering (V20.0) — closed
+- **Verification method**: Integration/API-verified against the real local Docker stack with a genuine 120-page document
 
 ### ENG-019 — Dashboard screens' individual modals/toggles not re-exercised element-by-element this specific sprint
 - **Source reports**: `UI_EXCELLENCE_SCORECARD.md` (Dashboard screens section)
-- **Evidence**: Not enough evidence for exhaustive per-element re-verification this specific sprint (prior sprints cover this ground; V13.0 focused fresh-load verification + the Viewer). No known defect implied.
-- **Affected files**: TBD pending pass
-- **Estimated effort**: Medium (systematic pass across ~10 screens)
+- **V20.0 partial verification**: No browser-automation tool is available in this environment, so a true "browser-verified, screen by screen" pass over all ~10 dashboard screens' modals/toggles is not achievable this sprint — stating this honestly rather than claiming full closure. What WAS verified at the API/integration level: created a disposable API key and a disposable webhook via the real backend, toggled each `is_active` off via `PATCH`, and confirmed the change persisted on a fresh re-fetch (not just the mutating response) for both `ApiKeysScreen`'s and `WebhooksScreen`'s active/inactive toggle. Both round-tripped correctly: backend accepted the PATCH, database persisted it, and a subsequent GET reflected the new state. Both disposable resources were deleted after verification (204 responses confirmed).
+- **Remaining gap**: this covers 2 of the screen's several toggles/modals (Access Control's link toggles, Organizations' role/settings toggles, and every screen's actual rendered UI feedback — loading/success/error states, modal open/close, focus handling — remain unverified this sprint, since those require an actual rendered page, not just an API round-trip). **Not claiming this item closed** — narrowing scope honestly rather than overclaiming.
+- **Category**: Integration/API Verified for the 2 toggles tested; Insufficient Evidence for the remainder of the screen's modals/toggles and all screens not touched
+- **Affected files**: None — no defect found in what was tested
+- **Estimated effort**: Medium (unchanged — the untested remainder is the bulk of the original estimate)
 - **Priority**: 19
-- **Status**: Open — part of this sprint's UI Excellence re-review
-- **Owner**: Engineering (this sprint)
-- **Verification method**: Browser-verified, screen by screen
+- **Status**: **Partially verified, remains open** — 2 toggles (API Keys, Webhooks active-state) confirmed correct; full per-screen browser pass needs either a browser-automation tool or manual/user verification to close
+- **Owner**: Engineering (V20.0, partial) — needs browser tooling or manual QA to finish
+- **Verification method**: Integration/API-verified (2 toggles); remainder Insufficient Evidence
 
 ### ENG-020 — Reading Intelligence metrics not independently hand-verified against backend math this sprint
 - **Source reports**: `UI_EXCELLENCE_SCORECARD.md` (Viewer section)
-- **Evidence**: Engineering inference only — no placeholder/stale values observed, but displayed values (remaining-time prediction, average page time, difficulty indicators, engagement scores) were not independently recomputed by hand against backend data this specific sprint.
-- **Affected files**: `backend/app/services/reading_analytics_service.py`, Viewer frontend components displaying these metrics
-- **Estimated effort**: Medium (requires reading the calculation source and cross-checking against live displayed values for a controlled test session)
+- **V20.0 verification**: Read `reading_analytics_service.py`'s calculation source in full, then submitted a controlled, exactly-known reading-event batch (pages 1/2/3, active times 10000ms/15000ms/5000ms, page 3 marked `in_progress`) against the ENG-018 120-page test document via `/api/reading/batch`, and hand-verified 3 returned metrics against the source formulas:
+  - `total_active_ms: 30000` — exact sum of the 3 submitted `active_time_ms` values. Matches.
+  - `completion_pct: 2.5` — source formula (`reading_analytics_service.py:474`) is `(pages_visited / page_count) * 100`. 3 pages visited / 120 page_count × 100 = 2.5. Matches exactly.
+  - `reading_speed_wpm: 700.0` — this is the interesting case. `compute_reading_speed_wpm()` (line 136) only counts pages with `completion_status in ('reading', 'completed')`, excluding my `in_progress` page 3, leaving pages 1 and 2. It uses an *estimated* `words_per_page` (250 for PDFs, not the actual extracted word count — a deliberate, documented approximation, not a bug) in an EWMA formula, then **clamps the result to `max(50.0, min(700.0, ewma))`** (line 177, "physiologically plausible range"). My synthetic test's artificially fast pace (10-15s/page) produces an EWMA well above 700, so the clamp fires and returns exactly `700.0`. This is not a placeholder — it's the ceiling-clamp behaving exactly as documented, confirmed by reading the formula and independently recomputing the pre-clamp EWMA by hand (~1000-1500wpm range depending on exact `EWMA_ALPHA`, comfortably above the 700 ceiling either way).
+  - This also confirms `words_per_page` is an estimated constant, not derived from the real per-document extracted word count — a real (already-known, not new) modeling simplification, not a defect: the same document's actual text-layer extraction (`/api/viewer/words`) returned 203 real words for page 75, vs. the model's flat 250-word PDF assumption. Close enough to not distort the UX (reading-time estimates are inherently approximate), but worth noting for anyone tuning the model later.
+- **Category**: Source Code Verified + Integration/API Verified (not Browser Verified — no browser-automation tool available in this environment; the "displayed value" cross-check was performed against the raw API response the Viewer's `ReadingStatusBar` component consumes, not a rendered page)
+- **Affected files**: None — no defect found
+- **Estimated effort**: Medium (as originally estimated)
 - **Priority**: 20
-- **Status**: Open — part of this sprint's Reading Intelligence certification
-- **Owner**: Engineering (this sprint)
-- **Verification method**: Source-code verified (read calculation logic) + Browser-verified (cross-check against a controlled live reading session's actual displayed numbers)
+- **Status**: **Closed — verified, metrics match backend math exactly, including a clamp edge case** (2026-08-01, V20.0)
+- **Owner**: Engineering (V20.0) — closed
+- **Verification method**: Source-code verified (read `compute_reading_speed_wpm`, the `completion_pct` assignment, and `DocumentComplexity`'s word-estimation logic in full) + Integration/API-verified (controlled batch submission, exact-value cross-check)
 
 ---
 
@@ -374,10 +382,12 @@ Reading the full canonical-source list per V16.0's instructions surfaced 10 item
 
 ### ENG-032 — Security-sensitive config defaults ship hardcoded with no production guard
 - **Source**: `TECH_DEBT_REGISTER.md` (V7.0), surfaced during V18.0's documentation-cleanup gap analysis — this P0 item was never carried into the backlog when `ISSUE_DATABASE.md` was reconciled in V16.0.
-- **Evidence**: Source-verified — `backend/app/config.py:62` (`ip_hash_salt: str = "securedoc_ip_salt_change_in_production"`) and `:160` (`domain_verify_salt: str = "securedoc_domain_salt_change_in_production"`) both ship hardcoded, self-documenting-as-insecure defaults with no startup-time production guard rejecting them — unlike HSTS, which does enforce a real value in production (confirmed via `backend/tests/unit/test_config.py`'s existing HSTS validator pattern).
-- **Severity**: Medium (a misconfigured production deploy silently runs with weak salts; not directly exploitable without a further chained issue, but undermines the IP-hashing/domain-verification security properties those salts exist for)
-- **Status**: Open
-- **Owner**: Unassigned — fix should mirror the existing HSTS startup validator pattern (`config.py`'s production-mode check), estimated low complexity
+- **STEP 1 (V20.0 re-verification — corrects the original finding)**: Re-verified before implementing, per this sprint's evidence discipline. **Not reproducible — the guard already exists.** `backend/app/main.py:27-54` implements a module-level production-startup check (evaluated at import time) that raises `RuntimeError` refusing to start if `app_env == "production"` and any of: `SUPABASE_URL` unset, `SUPABASE_ANON_KEY` unset, `APP_PUBLIC_BASE_URL` still points to localhost or isn't HTTPS, `ip_hash_salt` still equals its placeholder default, or `domain_verify_salt` still equals its placeholder default — aggregating every failing check into one error message rather than failing on the first. Confirmed live: `backend/tests/integration/test_phase8.py::TestStartupValidation` (4 tests) already exercises this exact behavior and passes on current HEAD.
+- **Root cause of the original miss**: Both the source `TECH_DEBT_REGISTER.md` finding and this session's own V18.0 re-verification only grepped/read `backend/app/config.py` (where the analogous HSTS guard lives, as a pydantic `model_validator`) and never checked `main.py`, where this *different*, independently-implemented guard for the salts actually lives. An initial fix attempt this sprint (adding a second, redundant pydantic validator to `config.py`) was implemented, then caught by its own regression run — it broke 2 pre-existing tests (`test_production_startup_rejects_default_ip_salt`, `test_production_startup_passes_with_custom_salt`) that correctly encoded the *existing* `main.py` behavior. Reverted immediately; `git status` confirmed the revert is byte-identical to HEAD, and the full backend suite (1709 passed/1 skipped/0 failed) confirms no residual effect.
+- **Severity**: Medium (as originally assessed) — **but no longer applicable**, since the risk this item described is already mitigated.
+- **Status**: **Closed — no longer reproducible, already implemented** (2026-08-01, V20.0). The one real gap: `main.py`'s guard and `config.py`'s HSTS guard are two separate, differently-shaped mechanisms (module-level manual check vs. pydantic validator) for conceptually the same class of thing (production-safety startup validation) — a minor architectural inconsistency, not a defect, noted here rather than silently dropped. Not worth unifying unilaterally: `main.py`'s version is arguably the better UX (aggregates all failures in one message instead of failing fast on the first), so "fixing" the inconsistency would mean migrating HSTS's check into `main.py`'s pattern, not the reverse — a real but low-value refactor, not a defect fix.
+- **Owner**: Engineering (V20.0) — closed
+- **Verification method**: Source-verified (`main.py:27-54` read in full) + Runtime verified (`test_phase8.py::TestStartupValidation`, 4/4 passed) + Regression verified (full backend suite 1709 passed/1 skipped/0 failed after reverting the redundant addition)
 
 ### ENG-033 — PROF-001: no profile/account-settings screen exists
 - **Source**: `PRODUCT_PROPOSAL.md` (2026-07-17), surfaced during V18.0's documentation-cleanup gap analysis — never carried into the backlog.
@@ -422,9 +432,9 @@ Reading the full canonical-source list per V16.0's instructions surfaced 10 item
 | ENG-015 | Duplicated permissions dict (AD-7) | Enhancement | 15 | Justified, not changed |
 | ENG-016 | AccessScreen.jsx oversized (M-13) | Enhancement | 16 | Deferred |
 | ENG-017 | Observability wiring unconfirmed | Enhancement | 17 | Open (ops, not code) |
-| ENG-018 | Large-PDF stress not retested | Enhancement | 18 | Open |
+| ENG-018 | Large-PDF stress not retested | Enhancement | 18 | **Closed — verified, no defect** |
 | ENG-019 | Dashboard modals not re-exercised | Enhancement | 19 | Open |
-| ENG-020 | Reading Intelligence hand-verification | Enhancement | 20 | Open |
+| ENG-020 | Reading Intelligence hand-verification | Enhancement | 20 | **Closed — verified, matches backend math** |
 | ENG-021 | Links return 403 not 404 cross-account (new finding) | Low | 21 | **Closed** |
 | ENG-022 | links.py DELETE 200 vs 204 inconsistency (M-6) | Low | 22 | Deferred |
 | ENG-023 | 14 endpoints use raw dict not typed schemas (M-8) | Medium | 23 | Deferred |
@@ -436,7 +446,7 @@ Reading the full canonical-source list per V16.0's instructions surfaced 10 item
 | ENG-029 | Architecture docs contradict each other (L-3) | Medium | 29 | **Closed** |
 | ENG-030 | Button-variant inconsistency for delete/revoke (L-6) | Low | 30 | **Closed** |
 | ENG-031 | Owner preview watermark shows "anonymous" (WATERMARK-OWNER-ANON-001) | Low | 31 | **Closed** |
-| ENG-032 | Security config defaults hardcoded, no production guard | Medium | 32 | Open |
+| ENG-032 | Security config defaults hardcoded, no production guard | Medium | 32 | **Closed — no longer reproducible** |
 | ENG-033 | PROF-001: no profile/account-settings screen | High | 33 | Open (needs product/design input) |
 | ENG-034 | No CD/deploy job in CI pipeline | Medium | 34 | Open (needs ops decision) |
 

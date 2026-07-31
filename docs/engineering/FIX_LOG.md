@@ -674,3 +674,35 @@ Method: `ruff` (installed for this session) for AST-verified unused-import/unuse
 **Verification**: No code touched — documentation-only commit. `docs/governance/ARCHIVED_FILES.md`/`CLEANUP_LOG.md` updated with dated, append-only sections per the existing convention.
 
 **Files**: 48 archived files (see `docs/governance/ARCHIVED_FILES.md` for the full list), `archive/README.md`, `docs/governance/ARCHIVED_FILES.md`, `docs/governance/CLEANUP_LOG.md`, `docs/engineering/FIX_LOG.md`, `ENGINEERING_BACKLOG.md`.
+
+## Sprint V20.0 — ENG-032: corrected, no fix needed (2026-08-01)
+
+**Issue**: `ENGINEERING_BACKLOG.md` ENG-032 claimed no production-startup guard existed for `ip_hash_salt`/`domain_verify_salt`.
+
+**Finding**: The guard already exists — `backend/app/main.py:27-54`. Both the original source finding and this session's own V18.0 re-verification had only checked `config.py` and missed it. A redundant fix was implemented in `config.py`, caught by its own regression run (broke 2 pre-existing `test_phase8.py` tests encoding the real `main.py` behavior), and reverted.
+
+**Result**: Closed, no longer reproducible. Zero net code change.
+
+**Verification**: Full backend suite 1705 passed/1 skipped/0 failed after revert (confirmed identical to pre-attempt baseline). `git status` confirmed byte-identical to HEAD on the touched files.
+
+**Files**: None (net).
+
+## Sprint V20.0 — ENG-018, ENG-020: large-PDF stress + Reading Intelligence hand-verification (2026-08-01)
+
+**Issue**: `ENGINEERING_BACKLOG.md` ENG-018 (large-PDF Viewer stress not retested) and ENG-020 (Reading Intelligence metrics not hand-verified against backend math).
+
+**Verification, not a fix**: no browser-automation tool available — verified via direct API calls against the real local Docker stack. Generated a genuine 120-page synthetic PDF, uploaded and processed successfully (`ready`, `page_count: 120`), confirmed rendering/thumbnails/search/word-positions all correct at scale. Submitted a controlled reading-event batch and hand-verified `total_active_ms`, `completion_pct`, and `reading_speed_wpm` against `reading_analytics_service.py`'s source formulas — all matched exactly, including confirming the `700.0` wpm result was the documented physiological-plausibility clamp firing correctly (not a placeholder), by reading the clamp logic and independently recomputing the pre-clamp EWMA.
+
+**Result**: Both closed — verified, no defect found.
+
+**Files**: None — no code changed.
+
+## Sprint V20.0 — ENG-019: partial verification, remains open (2026-08-01)
+
+**Issue**: `ENGINEERING_BACKLOG.md` ENG-019 (dashboard modals/toggles not re-exercised).
+
+**Verification, not a fix**: verified 2 representative toggles (API key `is_active`, webhook `is_active`) round-trip correctly via `PATCH` + a fresh re-fetch confirming persistence. Explicitly did not extend this claim to the rest of the item's scope (other screens' toggles, actual rendered UI feedback) — no browser tool available to verify those, and asserting otherwise would overclaim the evidence.
+
+**Result**: Remains open. Partial evidence now on record instead of none.
+
+**Files**: None — no code changed.

@@ -110,6 +110,17 @@ Full backend + frontend suite run after every fix, plus live browser re-verifica
 
 Every prior "Browser re-check" entry in this table used a real browser driven manually against the local Docker stack. Starting with ENG-030, no browser-automation tool (Playwright, chromium-cli, etc.) was available in this environment (confirmed via `ToolSearch` and a `which`/`ls` check for common binaries). Rather than mislabel source/API-level checks as "browser-verified," both entries above are recorded honestly as their actual evidence class: isolated-diff + lint/test/build verification for the pure-CSS ENG-030 change, and Source + Integration/API verification (direct backend endpoint calls, not a rendered page) for ENG-031. **Full visual browser regression sweep for the "every 5 closed issues" cadence (Upload/Viewer/Reading Intelligence/Analytics/Access Control/Organizations/Notifications/Audit Log/API Keys/Webhooks/Storage/Billing/Share Links) is still owed and not yet satisfied this cycle** — flagged as an open item, not silently skipped.
 
+### V20.0 backlog triage (2026-08-01)
+
+| Checkpoint | Backend | Frontend | Notes |
+|---|---|---|---|
+| ENG-032 attempted fix (before self-revert) | **2 failed** (`test_phase8.py::TestStartupValidation` x2), 1707 passed, 1 skipped | N/A (no frontend touched) | Caught by this same regression discipline mid-fix — the 2 failures correctly identified that the "fix" was redundant with an existing guard. Reverted, not shipped. |
+| After ENG-032 revert | **1705 passed**, 1 skipped, 0 failed (identical to pre-attempt baseline) | N/A | `git status` confirmed byte-identical to HEAD on both touched files before re-running |
+| ENG-018/ENG-020 (verification only, no code changed) | N/A — no code changed | N/A | Integration/API-verified against the real local Docker stack with a genuine 120-page synthetic PDF: upload→process→render→search→word-positions→reading-analytics-ingestion all confirmed correct. Full disposable-resource cleanup confirmed (404 on GET post-delete). |
+| ENG-019 (partial verification, no code changed) | N/A — no code changed | N/A | 2 toggles (API key, webhook `is_active`) confirmed round-trip correctly via PATCH + fresh re-fetch; both disposable resources deleted after (204 confirmed) |
+
+**Zero regressions.** The one near-miss (ENG-032) was caught and reverted by the mandatory validation step before it could ship — exactly the scenario that step exists to catch.
+
 ### Why a local Docker stack instead of testing against production or trusting source alone
 
 The deployed instance auto-deploys from `origin/main` on push — verifying a fix there would mean shipping unverified code to production first. `docker compose up --build` (Postgres 16 + Redis 7 + the API + worker, all local-only) uses the same Supabase auth project as production but a completely separate local database, so real production data was never at risk, while still giving genuine, real-browser evidence rather than a source-code assumption that a CSS change "should" fix the clipping.

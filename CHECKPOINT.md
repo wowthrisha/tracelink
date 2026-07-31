@@ -2,24 +2,28 @@
 
 Running state snapshot, updated after every closed backlog item. See `PROGRESS.md` for the narrative log and `ENGINEERING_BACKLOG.md` for full issue detail.
 
-**Last updated**: 2026-07-31 17:00, after the V18.0 Repository Certification sprint.
+**Last updated**: 2026-08-01 13:15, after V20.0's backlog triage.
 
-## Burndown (backlog expanded 31 → 34 items in V18.0 — see PROGRESS.md)
+## Burndown (34 items, all triaged as of V20.0 — see PROGRESS.md)
 
-| Priority | Total | Closed | Deferred (reasoned) | Open |
+| Priority | Total | Closed | Deferred (reasoned) | Open (blocked on external input) |
 |---|---|---|---|---|
 | Critical | 0 | 0 | 0 | 0 |
 | High | 4 | 3 | 0 | 1 |
-| Medium | 8 | 3 | 3 | 2 |
+| Medium | 8 | 4 | 3 | 1 |
 | Low | 14 | 8 | 6 | 0 |
-| Enhancement | 8 | 2 | 2 | 4 |
-| **Total** | **34** | **16** | **11** | **7** |
+| Enhancement | 8 | 4 | 2 | 2 |
+| **Total** | **34** | **19** | **11** | **4** |
 
-Overall completion: **47.1%** (16/34). High/Medium/Low tiers were fully closed out as of V17.0; V18.0's documentation-cleanup pass then surfaced 3 genuine new items (ENG-032/033/034) that had fallen out of prior backlog reconciliation — not yet triaged. Per V17.0's explicit gate, the complete repository certification pass ran this sprint (see below) before any Enhancement work begins.
+Overall completion: **55.9%** (19/34). **Every Critical/High/Medium/Low item is closed or deferred with fresh, on-record reasoning.** The 4 remaining open items are each blocked on a named external input, not unilaterally engineering-actionable: ENG-033 (new profile screen — needs product/design direction), ENG-034 (CD/deploy job — needs a deployment-target decision), ENG-017 (observability wiring — needs infra/ops access), and ENG-019 (remainder of the dashboard toggle sweep — needs browser-automation tooling or manual QA, 2 of its toggles already confirmed correct at the API level).
 
 ## V18.0 Repository Certification — complete
 
 Full "Zero Technical Debt" sweep across backend/, frontend/, tests/, scripts/, docs/, docker/, .github/. 6 deliverables produced (`REPOSITORY_CERTIFICATION.md`, `DEAD_CODE_REPORT.md`, `DEPENDENCY_AUDIT.md`, `MODULE_BOUNDARY_REPORT.md`, `DOCUMENTATION_CLEANUP_PLAN.md`, `FINAL_REPOSITORY_SCORECARD.md`). 4 code commits (all backend/frontend suites re-verified green after each) + 1 documentation-archival commit (48 files, root `.md` count 55→14). Verdict: 8/10 stop conditions fully Met, remaining 8 Substantially met, 0 Not Met. Everything found-but-not-fixed is documented with file:line evidence, effort estimate, and regression risk — nothing silently dropped. Full verdict in `FINAL_REPOSITORY_SCORECARD.md`.
+
+## V20.0 Backlog triage — complete
+
+Triaged all 4 items still open after V18.0 through STEP 1/2/3 re-verification. **ENG-032 self-corrected**: the "missing production guard" it described already exists in `backend/app/main.py:27-54` — a redundant fix was implemented, caught by its own regression run (broke 2 pre-existing tests encoding the real behavior), and cleanly reverted; closed as no-longer-reproducible with the correction documented, not silently dropped. **ENG-018/ENG-020 closed** via genuine integration-level verification against the real Docker stack (120-page synthetic PDF stress test; hand-verified Reading Intelligence math against source formulas, including confirming an edge-case clamp value was correct behavior, not a placeholder). **ENG-019 partially verified** and left honestly open — 2 toggles confirmed, the remainder needs tooling this environment doesn't have. **ENG-033/034/017 remain open**, each with documented objective justification for why they're blocked on external input rather than a further engineering fix.
 
 ## V17.0 process refinement now in effect
 
@@ -53,7 +57,7 @@ Read `ISSUE_DATABASE.md`/`TODO_QUEUE.md` per V16.0's canonical-sources instructi
 
 ## Immediate next step
 
-Repository certification is **complete** (this sprint, V18.0). Next: triage the 3 new items it surfaced (ENG-032 salt defaults, ENG-033 no profile screen, ENG-034 no CD job) through the same STEP 1/2/3 process used for the rest of the backlog — each is already re-verified reproducible, but not yet judged for implementation. Also still due: an "every 5 closed issues" full browser regression sweep (Upload/Viewer/Reading Intelligence/Analytics/Access Control/Organizations/Notifications/Audit Log/API Keys/Webhooks/Storage/Billing/Share Links) per V17.0's cadence rule — not yet run this cycle (last full regression was the post-ENG-024 partial spot-check; V18.0's changes were verified via lint/test/build/isolated-diff, not a full manual UI sweep, since no browser-automation tool is available in this environment). Only after that gate does Enhancement-tier work (ENG-017/018/019/020) begin, per the FINAL ENGINEERING GATE.
+Backlog triage is **complete** (V20.0). Every remaining open item (ENG-017, 019, 033, 034) is blocked on a named external input this session cannot unilaterally supply — product/design direction, an ops/deployment-policy decision, infra access, or browser-automation tooling. No further engineering-actionable backlog work remains pending. Per V20.0's mandate, the next step is producing the FINAL deliverable set (`FINAL_RELEASE_CERTIFICATION.md`, `FINAL_ENGINEERING_REPORT.md`, etc.), synthesizing this session's full body of verification work honestly — including being explicit about what a genuine browser-driven "every button, every modal" pass would still require versus what has actually been confirmed via source review and API-level integration testing against the real local stack.
 
 ## Environment note — browser automation unavailable this session
 
