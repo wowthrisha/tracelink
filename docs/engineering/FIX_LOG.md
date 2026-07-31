@@ -642,3 +642,35 @@ Method: `ruff` (installed for this session) for AST-verified unused-import/unuse
 **Tests**: Frontend 13/13 passed. Build succeeded (308.9kb). Lint exit 0.
 
 **Files**: `frontend/src/screens/AppShell.jsx`, `frontend/src/screens/ViewerScreen.jsx`, `frontend/src/hooks/useViewerSession.js`.
+
+## Sprint V18.0 — Repository Certification: dead code + dependency hygiene (2026-07-31)
+
+**Issue**: `REPOSITORY_CERTIFICATION.md`/`DEAD_CODE_REPORT.md`/`DEPENDENCY_AUDIT.md`. Full sweep found: 2 dead imports + malformed `noqa` suppressions in `backend/tests/conftest.py`; 3 zero-usage Python packages in `requirements-dev.txt`; 5 floating dependency pins in `requirements.txt`; a CI job installing only `requirements.txt` while running pytest against dev-only packages; 2 zero-usage npm devDependencies; 1 duplicate `fmtDate()` in `AccessScreen.jsx`.
+
+**Fix**: Removed `asyncio`/`json` imports from `conftest.py`, fixed the `noqa` directives on the 6 remaining model-registration imports to actual rule codes (`# noqa: F401`). Removed `factory-boy`, `pytest-cov`, and the direct `anyio` pin from `requirements-dev.txt`. Pinned `prometheus-client`/4 OpenTelemetry packages to the exact versions confirmed running in the live Docker `api` container. Added `-r requirements-dev.txt` to the CI `backend-test` job's install step. Removed `@testing-library/user-event`/`@vitest/coverage-v8` from `package.json`, regenerated and cross-platform-reconciled `package-lock.json`. Swapped `AccessScreen.jsx`'s locally-redefined `fmtDate()` for the shared `utils/viewer.js` import (byte-identical implementation, 7 other screens already used the shared version).
+
+**Verification**: Backend suite 1709 passed/1 skipped/0 failed (unchanged). Frontend 13/13 passed, lint exit 0, build succeeded (309.0kb). `npm ci --ignore-scripts` verified independently on macOS and Alpine.
+
+**Files**: `backend/tests/conftest.py`, `backend/requirements.txt`, `backend/requirements-dev.txt`, `.github/workflows/ci.yml`, `frontend/package.json`, `frontend/package-lock.json`, `frontend/src/screens/AccessScreen.jsx`.
+
+## Sprint V18.0 — Repository Certification: dead function + dead CSS removal (2026-07-31)
+
+**Issue**: `get_optional_user()` (`backend/app/auth.py`) had zero production callers — confirmed via repo-wide grep, only exercised by its own dedicated unit-test class. `@keyframes progressAnim` (`frontend/SecureDoc.html`) had zero `className`/inline-`style` references anywhere.
+
+**Fix**: Removed both, plus the now-unused `TestGetOptionalUser` test class and its `get_optional_user` import in `test_auth.py`.
+
+**Contamination note**: both files carried substantial pre-existing uncommitted work (a JWKS-outage resilience fix in `auth.py` — new `JWKSUnavailableError` class and graceful-degradation logic; unrelated content in `SecureDoc.html`). Applied the established backup→isolate→verify→restore technique: backed up the full state, reset to clean HEAD, applied only this fix, verified the isolated diff (auth.py: 9 deletions; test_auth.py: 29 deletions; SecureDoc.html: 10 deletions — nothing else), committed, then restored the pre-existing work on top of the new commit, reapplying the same dead-code removal to the restored files so nothing regressed.
+
+**Verification**: `pytest tests/integration/test_jwks_outage.py tests/unit/test_auth.py` — 13/13 passed, confirming the restored JWKS work and the dead-code removal coexist correctly. Full backend suite: 1705 passed/1 skipped/0 failed (1709 baseline − 4 tests removed alongside the function they tested). Docker `api` container rebuilt, `/health` returns all-ok.
+
+**Files**: `backend/app/auth.py`, `backend/tests/unit/test_auth.py`, `frontend/SecureDoc.html`.
+
+## Sprint V18.0 — Repository Certification: documentation archival (2026-07-31)
+
+**Issue**: 41 days of accumulated sprint reports (2026-07-14 through 2026-07-30) sitting uncleaned at repository root and in `docs/engineering/`, despite this exact cleanup being recommended twice before and executed once (Sprint 6.3). Full reasoning in `DOCUMENTATION_CLEANUP_PLAN.md`.
+
+**Fix**: Archived 48 files to `archive/sprint7-18/`, following the existing `archive/sprint5-6/` convention. Merged root `FIX_LOG.md`'s unique V4.0/Sprint-7.0/V6.0 history into this canonical log (see the "Historical entries" section above, inserted at its correct chronological position). Re-surfaced 3 genuine open findings as new `ENGINEERING_BACKLOG.md` entries (ENG-032/033/034). Corrected `archive/README.md`'s stale references.
+
+**Verification**: No code touched — documentation-only commit. `docs/governance/ARCHIVED_FILES.md`/`CLEANUP_LOG.md` updated with dated, append-only sections per the existing convention.
+
+**Files**: 48 archived files (see `docs/governance/ARCHIVED_FILES.md` for the full list), `archive/README.md`, `docs/governance/ARCHIVED_FILES.md`, `docs/governance/CLEANUP_LOG.md`, `docs/engineering/FIX_LOG.md`, `ENGINEERING_BACKLOG.md`.

@@ -2,20 +2,24 @@
 
 Running state snapshot, updated after every closed backlog item. See `PROGRESS.md` for the narrative log and `ENGINEERING_BACKLOG.md` for full issue detail.
 
-**Last updated**: 2026-07-30 09:10, after ENG-031.
+**Last updated**: 2026-07-31 17:00, after the V18.0 Repository Certification sprint.
 
-## Burndown (backlog expanded 21 → 31 items in V16.0 — see PROGRESS.md)
+## Burndown (backlog expanded 31 → 34 items in V18.0 — see PROGRESS.md)
 
 | Priority | Total | Closed | Deferred (reasoned) | Open |
 |---|---|---|---|---|
 | Critical | 0 | 0 | 0 | 0 |
-| High | 3 | 3 | 0 | 0 |
-| Medium | 6 | 3 | 3 | 0 |
+| High | 4 | 3 | 0 | 1 |
+| Medium | 8 | 3 | 3 | 2 |
 | Low | 14 | 8 | 6 | 0 |
 | Enhancement | 8 | 2 | 2 | 4 |
-| **Total** | **31** | **16** | **11** | **4** |
+| **Total** | **34** | **16** | **11** | **7** |
 
-Overall completion: **51.6%** (16/31). **High, Medium, and Low tiers: 0 open items — all three tiers fully closed out.** Every "Not enough evidence" security gap from the original review is live-confirmed. Only 4 open items remain, all Enhancement-tier (ENG-017/018/019/020) — none blocking per the mission's stop conditions. Per V17.0's explicit gate, a complete repository certification pass runs next, before any Enhancement work begins.
+Overall completion: **47.1%** (16/34). High/Medium/Low tiers were fully closed out as of V17.0; V18.0's documentation-cleanup pass then surfaced 3 genuine new items (ENG-032/033/034) that had fallen out of prior backlog reconciliation — not yet triaged. Per V17.0's explicit gate, the complete repository certification pass ran this sprint (see below) before any Enhancement work begins.
+
+## V18.0 Repository Certification — complete
+
+Full "Zero Technical Debt" sweep across backend/, frontend/, tests/, scripts/, docs/, docker/, .github/. 6 deliverables produced (`REPOSITORY_CERTIFICATION.md`, `DEAD_CODE_REPORT.md`, `DEPENDENCY_AUDIT.md`, `MODULE_BOUNDARY_REPORT.md`, `DOCUMENTATION_CLEANUP_PLAN.md`, `FINAL_REPOSITORY_SCORECARD.md`). 4 code commits (all backend/frontend suites re-verified green after each) + 1 documentation-archival commit (48 files, root `.md` count 55→14). Verdict: 8/10 stop conditions fully Met, remaining 8 Substantially met, 0 Not Met. Everything found-but-not-fixed is documented with file:line evidence, effort estimate, and regression risk — nothing silently dropped. Full verdict in `FINAL_REPOSITORY_SCORECARD.md`.
 
 ## V17.0 process refinement now in effect
 
@@ -49,7 +53,7 @@ Read `ISSUE_DATABASE.md`/`TODO_QUEUE.md` per V16.0's canonical-sources instructi
 
 ## Immediate next step
 
-Low priority tier is now **complete** (8 closed, 6 reviewed/deferred with reasoning, 0 open). Per V17.0's explicit instruction, next is a **complete repository certification pass**: dead code, duplicate logic, duplicate validation, duplicate permissions, unused imports, unused hooks, unused CSS, stale comments, obsolete documentation, TODO/FIXME/console.log/debugger/print() — only remove something after proving it's unused. Also due: an "every 5 closed issues" full browser regression sweep (Upload/Viewer/Reading Intelligence/Analytics/Access Control/Organizations/Notifications/Audit Log/API Keys/Webhooks/Storage/Billing/Share Links) per V17.0's cadence rule — not yet run this cycle (last full regression was the post-ENG-024 partial spot-check). Only after certification is clean does Enhancement-tier work (ENG-017/018/019/020) begin, per the FINAL ENGINEERING GATE.
+Repository certification is **complete** (this sprint, V18.0). Next: triage the 3 new items it surfaced (ENG-032 salt defaults, ENG-033 no profile screen, ENG-034 no CD job) through the same STEP 1/2/3 process used for the rest of the backlog — each is already re-verified reproducible, but not yet judged for implementation. Also still due: an "every 5 closed issues" full browser regression sweep (Upload/Viewer/Reading Intelligence/Analytics/Access Control/Organizations/Notifications/Audit Log/API Keys/Webhooks/Storage/Billing/Share Links) per V17.0's cadence rule — not yet run this cycle (last full regression was the post-ENG-024 partial spot-check; V18.0's changes were verified via lint/test/build/isolated-diff, not a full manual UI sweep, since no browser-automation tool is available in this environment). Only after that gate does Enhancement-tier work (ENG-017/018/019/020) begin, per the FINAL ENGINEERING GATE.
 
 ## Environment note — browser automation unavailable this session
 

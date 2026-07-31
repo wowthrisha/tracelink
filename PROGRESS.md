@@ -6,34 +6,41 @@ Narrative progress log, one entry per closed (or explicitly deferred) backlog it
 
 | Field | Value |
 |---|---|
-| Current issue | none in progress — ENG-031 just closed, Low tier now complete |
-| Previous issue | ENG-031 (closed — owner preview watermark showed "anonymous") |
-| Next issue | Repository certification pass (dead code / duplicate logic / unused imports/hooks/CSS / stale comments / TODO/FIXME/console.log/debugger/print()), then Enhancement tier (017/018/019/020) |
+| Current issue | none in progress — V18.0 Repository Certification sprint complete |
+| Previous issue | V18.0 Repository Certification (dead code, dependencies, module boundaries, documentation archival) |
+| Next issue | Triage 3 new backlog items surfaced this sprint (ENG-032/033/034), then Enhancement tier (017/018/019/020) |
 | Critical remaining | 0 / 0 |
 | High remaining | 0 / 3 |
 | Medium remaining | 2* / 5 (ENG-023, ENG-026 deferred with reasoning) |
-| Low remaining | 0 / 14 — **tier complete**: 8 closed (007/008/009/010/021/024/030/031), 6 deferred/reviewed-with-reasoning (011/012/022/025/027/028) |
+| Low remaining | 0 / 14 — tier complete: 8 closed, 6 deferred/reviewed-with-reasoning |
 | Enhancement remaining | 4 / 8 (ENG-013/014 closed; ENG-015 justified, ENG-016 deferred) |
-| Overall % | 51.6% (16/31 closed) |
-| Current commit | `be3d5de` |
-| Last regression | PASS — post-ENG-031, 2026-07-30 (13 frontend / build 308.9kb / lint exit 0 / Docker `api` rebuild succeeded and healthy / integration-verified `/api/viewer/validate` watermark change against real local Supabase session). Full "every 5 closed issues" browser regression sweep due next per V17.0's cadence rule — not yet run this cycle. |
+| New this sprint (not yet triaged) | 3 — ENG-032 (Medium, salt defaults), ENG-033 (High, no profile screen), ENG-034 (Medium, no CD job) |
+| Overall % | 47.1% (16/34 closed, backlog expanded 31→34 this sprint) |
+| Current commit | `4862abb` |
+| Last regression | PASS — post-V18.0 certification, 2026-07-31 (backend 1705 passed/1 skipped/0 failed [1709 baseline − 4 tests removed with the dead function they tested] / frontend 13/13 / lint exit 0 / build 309.0kb / Docker `api` rebuilt and healthy after every backend-touching change / `npm ci` verified independently on macOS + Alpine). |
 | Current blocker | None |
-| Estimated completion | Low tier now fully closed out. Remaining: repository certification pass (not yet started), then 4 open Enhancement-tier items (017/018/019/020) — ENG-017 likely needs ops access outside pure engineering scope; no fixed ETA |
+| Estimated completion | Repository certification complete — see `FINAL_REPOSITORY_SCORECARD.md` for the full verdict (8/10 stop conditions Met, remaining 8 Substantially met, 0 Not Met). Remaining: triage ENG-032/033/034, then 4 open Enhancement-tier items (017/018/019/020) — ENG-017/033/034 likely need ops/product/design input outside pure engineering scope; no fixed ETA |
 
 \* Backlog expanded from 21 to 31 items this cycle after merging `ISSUE_DATABASE.md`/`TODO_QUEUE.md` findings — see the V16.0 reconciliation entry below. This is real newly-surfaced scope, not re-litigation of closed work.
 
 \* ENG-005/ENG-011/ENG-012 counted as remaining/deferred, though all three deferrals were actively re-confirmed this cycle, not silently carried forward.
 
-## Burndown (recomputed after V16.0's backlog merge — 21 → 31 items)
+## Burndown (recomputed after V18.0's certification sprint — 31 → 34 items)
 
 | Priority | Total | Closed | Deferred (reasoned) | Open |
 |---|---|---|---|---|
 | Critical | 0 | 0 | 0 | 0 |
-| High | 3 | 3 | 0 | 0 |
-| Medium | 6 | 3 | 3 | 0 |
+| High | 3 + 1* | 3 | 0 | 1 |
+| Medium | 6 + 2* | 3 | 3 | 2 |
 | Low | 14 | 8 | 6 | 0 |
 | Enhancement | 8 | 2 | 1 + 1 justified | 4 |
-| **Total** | **31** | **16** | **9 (+1 justified)** | **4** |
+| **Total** | **34** | **16** | **9 (+1 justified)** | **7** |
+
+\* ENG-032 (Medium), ENG-033 (High), ENG-034 (Medium) — 3 new items surfaced during V18.0's documentation-cleanup gap analysis (genuine findings from `TECH_DEBT_REGISTER.md`/`PRODUCT_PROPOSAL.md`/`PUBLIC_RELEASE_READINESS.md` that fell out of prior backlog reconciliation). Not yet triaged through the STEP 1/2/3 process — re-verified as still-reproducible during V18.0 itself, but not yet judged for implementation.
+
+## V18.0 — Repository Certification sprint (2026-07-31)
+
+Full-repository "Zero Technical Debt" certification per the V18.0 mandate — not a product-bug sprint. 5 parallel research passes (backend/frontend dead-code, dependency/CI audit, documentation audit, module-boundary audit) plus a targeted 6th pass on the dependency graph. Produced 6 deliverables: `REPOSITORY_CERTIFICATION.md`, `DEAD_CODE_REPORT.md`, `DEPENDENCY_AUDIT.md`, `MODULE_BOUNDARY_REPORT.md`, `DOCUMENTATION_CLEANUP_PLAN.md`, `FINAL_REPOSITORY_SCORECARD.md`. Fixed: 2 dead imports, 1 dead function + its test class, 1 dead CSS keyframe, 1 duplicate function, 5 dependency-hygiene issues (3 removed packages, 5 re-pinned versions, 1 CI fix), and archived 48 obsolete documentation files (root reduced from 55 `.md` files to 14). Verdict: 8/10 stop conditions fully Met, remaining 8 Substantially met, 0 Not Met — every documented exception has file:line evidence, an effort estimate, and a regression-risk assessment rather than being silently dropped. Full details in `FINAL_REPOSITORY_SCORECARD.md`.
 
 **High, Medium, and Low tiers: 0 open items remain** (all closed or deferred/reviewed with fresh, on-record reasoning). Only the Enhancement tier has open items (ENG-017/018/019/020). Per V17.0's explicit gate, a full repository certification pass runs next, before any Enhancement-tier work begins.
 
