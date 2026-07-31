@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import jwt as pyjwt
 from fastapi import HTTPException
 
-from app.auth import get_current_user, get_optional_user
+from app.auth import get_current_user
 
 TEST_USER_ID = "550e8400-e29b-41d4-a716-446655440000"
 TEST_EMAIL = "user@example.com"
@@ -69,30 +69,3 @@ class TestGetCurrentUser:
             with pytest.raises(HTTPException) as exc_info:
                 await get_current_user("Bearer rotated.token")
         assert exc_info.value.status_code == 401
-
-
-class TestGetOptionalUser:
-
-    @pytest.mark.asyncio
-    async def test_valid_token_returns_dict(self):
-        with patch("app.auth.jwt.get_unverified_header", return_value=_VALID_HEADER), \
-             patch("app.auth._get_public_key", new_callable=AsyncMock, return_value=MagicMock()), \
-             patch("app.auth.jwt.decode", return_value=_VALID_PAYLOAD):
-            user = await get_optional_user("Bearer valid.token")
-        assert user["user_id"] == TEST_USER_ID
-
-    @pytest.mark.asyncio
-    async def test_missing_header_returns_none(self):
-        result = await get_optional_user(None)
-        assert result is None
-
-    @pytest.mark.asyncio
-    async def test_invalid_token_returns_none(self):
-        with patch("app.auth.jwt.get_unverified_header", side_effect=pyjwt.DecodeError("bad")):
-            result = await get_optional_user("Bearer bad.token.here")
-        assert result is None
-
-    @pytest.mark.asyncio
-    async def test_wrong_scheme_returns_none(self):
-        result = await get_optional_user("Basic badtoken")
-        assert result is None

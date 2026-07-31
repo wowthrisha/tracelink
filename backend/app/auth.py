@@ -147,15 +147,6 @@ async def get_current_user(
         raise HTTPException(status_code=401, detail="Must be: Bearer <token>")
     return await verify_supabase_token(parts[1])
 
-async def get_optional_user(authorization: Optional[str] = Header(default=None)) -> Optional[dict]:
-    if not authorization:
-        return None
-    try:
-        return await get_current_user(authorization)
-    except HTTPException:
-        return None
-
-
 def require_scope(scope: str):
     """
     FastAPI dependency factory that enforces API key scope.
