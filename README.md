@@ -85,11 +85,10 @@ Copy `backend/.env.example` and set these:
 |----------|-------------|
 | `DATABASE_URL` | PostgreSQL connection (`postgresql+asyncpg://...`) |
 | `REDIS_URL` | Redis connection (`redis://...`) |
-| `JWT_SECRET` | 32-byte hex secret (`python3 -c "import secrets; print(secrets.token_hex(32))"`) |
 | `SUPABASE_URL` | Supabase project URL |
 | `SUPABASE_ANON_KEY` | Supabase anon (publishable) key |
-| `SUPABASE_SERVICE_KEY` | Supabase service role key — never expose to browser |
-| `STORAGE_BACKEND` | `s3`, `gcs`, or `demo` |
+| `SUPABASE_SERVICE_ROLE_KEY` | Supabase service role key — never expose to browser |
+| `USE_DEMO_STORAGE` | Set to `1` for local dev (in-memory/demo storage, no S3 needed); omit for real object storage — see `backend/.env.example` for the S3/R2 variables |
 | `APP_PUBLIC_BASE_URL` | Root URL for share links (e.g. `https://your-domain.com`) |
 | `ALLOWED_ORIGINS` | Comma-separated CORS origins |
 

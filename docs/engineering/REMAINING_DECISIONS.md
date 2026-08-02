@@ -128,3 +128,39 @@ Option A (mobile viewer only) is the pragmatic choice for a document security pr
 ---
 
 *All items above are tracked for discussion. Once a direction is chosen for each, engineering can implement without further review.*
+
+---
+
+## Sprint V10.0 additions (2026-07-23)
+
+Items requiring a product/legal/architecture decision before engineering can act, surfaced or reconfirmed this session. Full evidence for each in `ISSUE_DATABASE.md` and the referenced phase reports.
+
+### RD-009 — AUTH-006: session token storage migration
+
+**Current state**: session token lives in `localStorage`, a real XSS-exposure vector. A complete, phased implementation plan already exists (`SECURITY_HARDENING_PLAN.md`) but has not been scheduled as its own initiative.
+**Decision needed**: when to schedule this as dedicated, tracked engineering work — not a product decision so much as a prioritization one, but explicitly called out per this sprint's own instruction not to partially implement security redesigns.
+**Estimated effort**: per the existing plan — Phase 0 (CORS + backend dual-read) 0.5–1 day, Phase 1 (frontend cutover + CSRF) 2–4 days, Phase 2 (header-path deprecation) 0.5 day.
+**Stakeholder**: Engineering leadership (prioritization), Security.
+
+### RD-010 — Org-owned document deletion behavior
+
+**Current state**: `Document.org_id` has no `ForeignKey` constraint; deleting an organization silently orphans its documents rather than cascading, blocking, or reassigning them. The delete-org confirmation's copy ("Members will lose access") is not fully accurate as a result — the org owner and each document's original uploader retain access via a separate ownership check.
+**Decision needed**: should org deletion cascade-delete owned documents, block deletion while documents exist, or reassign ownership? Each has different data-loss and UX implications.
+**Estimated effort**: 1–2 days once a direction is chosen (schema FK + migration + updated confirmation copy).
+**Stakeholder**: Product, Legal (data-retention implications if cascade-delete is chosen).
+
+### RD-011 — `resolve_annotation` cross-viewer permission scope
+
+**Current state**: any viewer holding a valid session on a share link can resolve any other viewer's annotation on that link, not just their own — the route's own code comment previously claimed this was "uploader-facing," which was false and has been corrected to describe actual behavior (not changed).
+**Decision needed**: is this intentional collaborative-review behavior (any reviewer can mark a shared discussion thread resolved), or should it be restricted to the annotation's own author/session? Tightening this without a decision risks breaking a real, currently-working collaborative workflow.
+**Estimated effort**: trivial once decided (a same-session check mirroring the existing `delete_viewer_annotation` pattern).
+**Stakeholder**: Product (workflow intent).
+
+### RD-012 — Responsive/mobile/tablet support
+
+**Current state**: `AppShell.jsx` gates the entire app behind a 768px-minimum-width "desktop only" message. The app's one CSS media query (640px) is consequently unreachable dead code.
+**Decision needed**: does TraceLink need to support tablet/mobile viewports at all? If yes, this is a real UI-design initiative (every fixed-width modal, the 210px sidebar, and every table layout would need review), not a bug fix.
+**Estimated effort**: discovery/design pass first (1 week+), implementation scope depends entirely on the answer.
+**Stakeholder**: Product, Design.
+
+*All items above are tracked for discussion. Once a direction is chosen for each, engineering can implement without further review — consistent with how RD-001 through RD-008 above are meant to be used.*

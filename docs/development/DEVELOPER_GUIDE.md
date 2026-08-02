@@ -59,7 +59,7 @@ cp .env.example .env
 # Edit .env: set DATABASE_URL, REDIS_URL, SUPABASE_*, etc.
 
 # Start PostgreSQL and Redis (Docker)
-docker compose up -d postgres redis
+docker compose up -d db redis
 
 # Run migrations
 alembic upgrade head
