@@ -167,11 +167,11 @@ class WatermarkService:
         font = _load_font(font_size)
 
         bbox = draw.textbbox((0, 0), mark_text, font=font)
-        text_width = bbox[2] - bbox[0]
         text_height = bbox[3] - bbox[1]
 
         margin = max(4, int(min(width, height) * 0.01))
-        # Lower-LEFT corner (document stamp is lower-right)
+        # Lower-LEFT corner (document stamp is lower-right) — left-aligned to a
+        # fixed margin, so (unlike the lower-right stamp) text width isn't needed.
         x = margin
         y = height - text_height - margin
 

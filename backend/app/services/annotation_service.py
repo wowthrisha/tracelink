@@ -14,17 +14,11 @@ from app.models.viewer_profile import ViewerProfile
 from app.services.policy import enforcer as policy_enforcer
 from app.services.viewer_cache import link_cache, LinkSnapshot
 from app.services.viewer_profile import derive_display_name
+from app.services.viewer_service import _get_session_id
 
 logger = logging.getLogger(__name__)
 
 _UPLOADER_SESSION_PREFIX = "uploader:"
-
-
-def _get_session_id(request: Request) -> Optional[str]:
-    sid = request.headers.get("X-Session-ID", "").strip()
-    if sid:
-        return sid
-    return request.cookies.get("sdoc_session", "").strip() or None
 
 
 def _is_uploader_row(session_id: Optional[str]) -> bool:

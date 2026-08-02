@@ -37,8 +37,8 @@ Async / thread safety
 import time
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timezone, timedelta
-from typing import Any, Optional, Tuple
+from datetime import datetime
+from typing import Any, Optional
 
 
 # ── TTL constants ─────────────────────────────────────────────────────────────

@@ -87,8 +87,10 @@ class TestBundleCorrectness:
         trimmed = bundle.strip()
         # esbuild minifies the App component name and wraps the bundle in an IIFE.
         # Verify the render call exists anywhere in the bundle with the correct structure.
+        # Minified identifiers can legitimately include "$" (esbuild's mangler uses it
+        # once it exhausts plain alphanumeric short names), so match on [\w$]+, not \w+.
         assert re.search(
-            r'ReactDOM\.createRoot\(document\.getElementById\("root"\)\)\.render\(React\.createElement\(\w+,null\)\);',
+            r'ReactDOM\.createRoot\(document\.getElementById\("root"\)\)\.render\(React\.createElement\([\w$]+,null\)\);',
             trimmed,
         ), "Bundle does not contain ReactDOM render — app entry point may be missing"
 

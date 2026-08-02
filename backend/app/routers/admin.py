@@ -41,14 +41,10 @@ async def get_audit_log(
         except ValueError:
             raise HTTPException(status_code=422, detail="org_id must be a valid UUID")
 
-        # Verify caller is admin/owner of the org
-        from app.services.org_service import get_membership, role_gte
-        membership = await get_membership(db, org_uuid, user_uuid)
-        if not membership or not role_gte(membership.role, "admin"):
-            raise HTTPException(
-                status_code=403,
-                detail="Requires admin role or higher in the organization",
-            )
+        # Verify caller is admin/owner of the org (shared with every other
+        # org-scoped router — see app.services.org_service.require_role)
+        from app.services.org_service import require_role
+        await require_role(db, org_uuid, user_uuid, "admin")
         query = query.where(AdminAuditLog.org_id == org_uuid)
     else:
         # Without org_id: return only entries where caller is the actor

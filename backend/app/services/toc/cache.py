@@ -36,30 +36,6 @@ def _get_l1():
     return toc_cache
 
 
-def get_cached_toc(doc_id: str) -> Optional[List[dict]]:
-    """L1 → L2 lookup. Returns list of TocEntry dicts, or None on miss."""
-    # L1
-    result = _get_l1().get(doc_id)
-    if result is not None:
-        return result
-
-    # L2 (Redis)
-    try:
-        from app.services.page_cache import get_redis_page_cache
-        r = get_redis_page_cache()
-        if r is not None:
-            raw = None
-            import asyncio
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                # Can't await here — this is a sync helper called in async context
-                # Callers in async routes should use get_cached_toc_async instead
-                return None
-    except Exception:
-        pass
-    return None
-
-
 async def get_cached_toc_async(doc_id: str) -> Optional[List[dict]]:
     """Async L1 → L2 lookup. Returns list of TocEntry dicts, or None on miss."""
     l1 = _get_l1()

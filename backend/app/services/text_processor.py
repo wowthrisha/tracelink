@@ -16,7 +16,6 @@ Supported types
 XSS contract: this module never generates HTML.
 """
 
-import re
 
 # Plain-text extensions (text viewer handles these directly)
 SUPPORTED_TEXT_EXTENSIONS: frozenset[str] = frozenset({"txt", "md", "log"})

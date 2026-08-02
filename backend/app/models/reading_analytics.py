@@ -11,10 +11,9 @@ from typing import Optional
 
 from sqlalchemy import (
     BigInteger, Boolean, DateTime, Enum, Float, ForeignKey,
-    Index, Integer, String, Text, func,
+    Index, Integer, String, func,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy.dialects.postgresql import UUID as PGUUID
 
 from app.database import Base
 

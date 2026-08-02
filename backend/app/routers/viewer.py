@@ -34,7 +34,13 @@ from app.middleware.rate_limit import limiter
 
 # Service-layer helpers — imported here so tests that patch
 # `app.routers.viewer.*` names continue to work without modification.
-from app.services.viewer_service import (
+# noqa: F401 — clear_page_cache/clear_thumb_cache/clear_metadata_caches look
+# unused within this module but are imported directly from
+# `app.routers.viewer` by 6 test files (test_phase1/3/4, test_stability,
+# test_viewer_pipeline) — a static unused-import checker can't see that
+# cross-file usage. Confirmed via `grep -rn "from app.routers.viewer import.*clear_"`
+# before restoring; do not remove without checking that grep again.
+from app.services.viewer_service import (  # noqa: F401
     _check_link_active,
     _check_doc_ready,
     _get_session_id,
@@ -438,7 +444,6 @@ async def get_toc(
         )
 
     toc_entries = []
-    supported = True
 
     from app.services.adapters import get_adapter as _get_adapter
     _toc_adapter = _get_adapter(file_type)
@@ -610,11 +615,18 @@ async def download_document(
     filename = (doc.filename or "document").rsplit(".", 1)[0] + "_watermarked.pdf"
 
     tmp_fd, tmp_path = _tempfile.mkstemp(suffix=".pdf", prefix="sdoc_dl_")
-    try:
-        with _os.fdopen(tmp_fd, "wb") as tmp_f:
+
+    def _write_and_size(fd: int, path: str) -> int:
+        with _os.fdopen(fd, "wb") as tmp_f:
             writer.write(tmp_f)
+        return _os.path.getsize(path)
+
+    try:
+        # Offloaded like the per-page watermarking step above — writing a
+        # multi-page PDF to disk is CPU+disk bound and was previously
+        # blocking the event loop for the duration of the write.
+        total_size = await loop.run_in_executor(None, _write_and_size, tmp_fd, tmp_path)
         del writer
-        total_size = _os.path.getsize(tmp_path)
     except Exception:
         _os.unlink(tmp_path)
         raise

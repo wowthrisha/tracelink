@@ -19,7 +19,6 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, field_validator
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import get_current_user
@@ -27,7 +26,7 @@ from app.database import get_db
 from app.metrics import annotations_total
 from app.middleware.rate_limit import limiter
 from app.models.annotation import VALID_ANNOTATION_TYPES
-from app.models.document import Document
+from app.routers.documents import _get_accessible_document
 from app.services.annotation_service import (
     _resolve_link_and_verify_session,
     _serialize_annotation,
@@ -267,7 +266,9 @@ async def toggle_bookmark_route(
     return await toggle_bookmark(db, str(link_row.id), session_id, page_number, body.label)
 
 
-# ── Resolve annotation (uploader-facing) ─────────────────────────────────────
+# ── Resolve annotation (any viewer session on this link — not owner-restricted;
+#    the owner-restricted equivalent is resolve_feedback() below, gated by
+#    document ownership) ────────────────────────────────────────────────────
 
 @router.patch("/api/viewer/annotations/{token}/{annotation_id}/resolve")
 @limiter.limit("60/minute")
@@ -293,11 +294,11 @@ async def list_document_annotations(
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    doc = (await db.execute(select(Document).where(Document.id == doc_id))).scalar_one_or_none()
-    if doc is None:
-        raise HTTPException(status_code=404, detail="Document not found")
-    if str(doc.user_id) != str(current_user["user_id"]):
-        raise HTTPException(status_code=403, detail="Access denied")
+    try:
+        doc_uuid = doc_id if isinstance(doc_id, uuid.UUID) else uuid.UUID(doc_id)
+    except (ValueError, AttributeError, TypeError):
+        raise HTTPException(status_code=400, detail="Invalid document ID")
+    doc = await _get_accessible_document(doc_uuid, current_user, db)
     return await fetch_document_annotations(db, doc, annotation_type, resolved)
 
 
@@ -311,11 +312,11 @@ async def export_annotations(
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    doc = (await db.execute(select(Document).where(Document.id == doc_id))).scalar_one_or_none()
-    if doc is None:
-        raise HTTPException(status_code=404, detail="Document not found")
-    if str(doc.user_id) != str(current_user["user_id"]):
-        raise HTTPException(status_code=403, detail="Access denied")
+    try:
+        doc_uuid = doc_id if isinstance(doc_id, uuid.UUID) else uuid.UUID(doc_id)
+    except (ValueError, AttributeError, TypeError):
+        raise HTTPException(status_code=400, detail="Invalid document ID")
+    doc = await _get_accessible_document(doc_uuid, current_user, db)
     gen, filename = await build_annotations_export(db, doc)
     return StreamingResponse(
         gen, media_type="text/csv",
@@ -363,11 +364,11 @@ async def reply_to_feedback(
     any viewer share-link session.
     """
     from app.models.annotation import ViewerAnnotation
-    doc = (await db.execute(select(Document).where(Document.id == doc_id))).scalar_one_or_none()
-    if doc is None:
-        raise HTTPException(status_code=404, detail="Document not found")
-    if str(doc.user_id) != str(current_user["user_id"]):
-        raise HTTPException(status_code=403, detail="Access denied")
+    try:
+        doc_uuid = doc_id if isinstance(doc_id, uuid.UUID) else uuid.UUID(doc_id)
+    except (ValueError, AttributeError, TypeError):
+        raise HTTPException(status_code=400, detail="Invalid document ID")
+    doc = await _get_accessible_document(doc_uuid, current_user, db)
     target = await db.get(ViewerAnnotation, annotation_id)
     if target is None:
         raise HTTPException(status_code=404, detail="Annotation not found")
@@ -388,11 +389,11 @@ async def resolve_feedback(
     from app.models.annotation import ViewerAnnotation
     from app.models.link import ShareLink
     from datetime import datetime, timezone
-    doc = (await db.execute(select(Document).where(Document.id == doc_id))).scalar_one_or_none()
-    if doc is None:
-        raise HTTPException(status_code=404, detail="Document not found")
-    if str(doc.user_id) != str(current_user["user_id"]):
-        raise HTTPException(status_code=403, detail="Access denied")
+    try:
+        doc_uuid = doc_id if isinstance(doc_id, uuid.UUID) else uuid.UUID(doc_id)
+    except (ValueError, AttributeError, TypeError):
+        raise HTTPException(status_code=400, detail="Invalid document ID")
+    doc = await _get_accessible_document(doc_uuid, current_user, db)
     annot = await db.get(ViewerAnnotation, annotation_id)
     if annot is None:
         raise HTTPException(status_code=404, detail="Annotation not found")
@@ -428,11 +429,7 @@ async def list_document_feedback(
         doc_uuid = doc_id if isinstance(doc_id, uuid.UUID) else uuid.UUID(doc_id)
     except (ValueError, AttributeError, TypeError):
         raise HTTPException(status_code=400, detail="Invalid document ID")
-    doc = (await db.execute(select(Document).where(Document.id == doc_uuid))).scalar_one_or_none()
-    if doc is None:
-        raise HTTPException(status_code=404, detail="Document not found")
-    if str(doc.user_id) != str(current_user["user_id"]):
-        raise HTTPException(status_code=403, detail="Access denied")
+    doc = await _get_accessible_document(doc_uuid, current_user, db)
     return await fetch_feedback_list(
         db, doc, resolved, search, date_from, date_to, page_number, author_role, reviewer
     )
@@ -452,11 +449,7 @@ async def list_feedback_reviewers(
         doc_uuid = doc_id if isinstance(doc_id, uuid.UUID) else uuid.UUID(doc_id)
     except (ValueError, AttributeError, TypeError):
         raise HTTPException(status_code=400, detail="Invalid document ID")
-    doc = (await db.execute(select(Document).where(Document.id == doc_uuid))).scalar_one_or_none()
-    if doc is None:
-        raise HTTPException(status_code=404, detail="Document not found")
-    if str(doc.user_id) != str(current_user["user_id"]):
-        raise HTTPException(status_code=403, detail="Access denied")
+    doc = await _get_accessible_document(doc_uuid, current_user, db)
     return await fetch_feedback_reviewers(db, doc)
 
 
@@ -481,11 +474,7 @@ async def export_feedback(
         doc_uuid = doc_id if isinstance(doc_id, uuid.UUID) else uuid.UUID(doc_id)
     except (ValueError, AttributeError, TypeError):
         raise HTTPException(status_code=400, detail="Invalid document ID")
-    doc = (await db.execute(select(Document).where(Document.id == doc_uuid))).scalar_one_or_none()
-    if doc is None:
-        raise HTTPException(status_code=404, detail="Document not found")
-    if str(doc.user_id) != str(current_user["user_id"]):
-        raise HTTPException(status_code=403, detail="Access denied")
+    doc = await _get_accessible_document(doc_uuid, current_user, db)
     gen, filename = await build_feedback_export(
         db, doc, resolved, search, date_from, date_to, page_number, author_role, reviewer
     )
@@ -509,11 +498,7 @@ async def export_reviewer_activity(
         doc_uuid = doc_id if isinstance(doc_id, uuid.UUID) else uuid.UUID(doc_id)
     except (ValueError, AttributeError, TypeError):
         raise HTTPException(status_code=400, detail="Invalid document ID")
-    doc = (await db.execute(select(Document).where(Document.id == doc_uuid))).scalar_one_or_none()
-    if doc is None:
-        raise HTTPException(status_code=404, detail="Document not found")
-    if str(doc.user_id) != str(current_user["user_id"]):
-        raise HTTPException(status_code=403, detail="Access denied")
+    doc = await _get_accessible_document(doc_uuid, current_user, db)
     gen, filename = await build_reviewer_activity_export(db, doc)
     return StreamingResponse(
         gen, media_type="text/csv",
@@ -533,11 +518,11 @@ async def list_visual_annotations(
     current_user=Depends(get_current_user),
 ):
     """List only ANNOTATION_TYPES (highlight/draw/rectangle/arrow). Document owner only."""
-    doc = (await db.execute(select(Document).where(Document.id == doc_id))).scalar_one_or_none()
-    if doc is None:
-        raise HTTPException(status_code=404, detail="Document not found")
-    if str(doc.user_id) != str(current_user["user_id"]):
-        raise HTTPException(status_code=403, detail="Access denied")
+    try:
+        doc_uuid = doc_id if isinstance(doc_id, uuid.UUID) else uuid.UUID(doc_id)
+    except (ValueError, AttributeError, TypeError):
+        raise HTTPException(status_code=400, detail="Invalid document ID")
+    doc = await _get_accessible_document(doc_uuid, current_user, db)
     return await fetch_visual_annotations(db, doc, annotation_type)
 
 
@@ -552,11 +537,11 @@ async def export_visual_annotations(
     current_user=Depends(get_current_user),
 ):
     """Export visual annotations (highlight/draw/rectangle/arrow) as CSV. Document owner only."""
-    doc = (await db.execute(select(Document).where(Document.id == doc_id))).scalar_one_or_none()
-    if doc is None:
-        raise HTTPException(status_code=404, detail="Document not found")
-    if str(doc.user_id) != str(current_user["user_id"]):
-        raise HTTPException(status_code=403, detail="Access denied")
+    try:
+        doc_uuid = doc_id if isinstance(doc_id, uuid.UUID) else uuid.UUID(doc_id)
+    except (ValueError, AttributeError, TypeError):
+        raise HTTPException(status_code=400, detail="Invalid document ID")
+    doc = await _get_accessible_document(doc_uuid, current_user, db)
     gen, filename = await build_visual_annotations_export(db, doc)
     return StreamingResponse(
         gen, media_type="text/csv",

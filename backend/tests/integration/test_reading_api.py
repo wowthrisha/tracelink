@@ -270,6 +270,66 @@ async def test_viewer_session_returns_zeros_with_no_data(client, sample_link):
 
 
 @pytest.mark.asyncio
+async def test_viewer_session_insights_hidden_by_default(client, db_session, sample_link):
+    """Comparative insights (difficulty, current_page_avg_ms, pace_vs_average) are
+    null unless the link explicitly enables show_reading_insights — this is the
+    uploader-opt-in permission gate added alongside the viewer-facing insights panel."""
+    session_id = "hiddentest1234567890"[:32]
+    link = sample_link
+    assert not (link.permissions and __import__("json").loads(link.permissions).get("show_reading_insights"))
+
+    with patch("app.routers.reading.enforcer") as mock_enforcer:
+        mock_enforcer.is_active_session = AsyncMock(return_value=True)
+        await client.post("/api/reading/batch", json={
+            "token": link.token,
+            "session_id": session_id,
+            "page_data": _make_page_data(pages=(1,)),
+            "session_meta": _session_meta(elapsed=60_000, active=45_000, page_count=3, current_page=1),
+        })
+        resp = await client.get(f"/api/reading/session/{session_id}", params={"token": link.token})
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["difficulty"] is None
+    assert data["current_page_avg_ms"] is None
+    assert data["pace_vs_average"] is None
+
+
+@pytest.mark.asyncio
+async def test_viewer_session_insights_shown_when_enabled(client, db_session, sample_document_in_db):
+    """When show_reading_insights=True on the link, difficulty and current_page_avg_ms
+    are populated (pace_vs_average requires a second session to compare against, so
+    it's asserted separately as None here rather than faked)."""
+    from app.services.link_service import LinkService
+
+    link_svc = LinkService()
+    link = await link_svc.create_link(
+        db_session,
+        document_id=str(sample_document_in_db.id),
+        label="Insights-enabled link",
+        permissions={"show_reading_insights": True},
+    )
+
+    session_id = "insightson1234567890"[:32]
+    with patch("app.routers.reading.enforcer") as mock_enforcer:
+        mock_enforcer.is_active_session = AsyncMock(return_value=True)
+        await client.post("/api/reading/batch", json={
+            "token": link.token,
+            "session_id": session_id,
+            "page_data": _make_page_data(pages=(1,)),
+            "session_meta": _session_meta(elapsed=60_000, active=45_000, page_count=3, current_page=1),
+        })
+        resp = await client.get(f"/api/reading/session/{session_id}", params={"token": link.token})
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["difficulty"] in ("Easy", "Moderate", "Complex")
+    assert data["current_page_avg_ms"] is not None and data["current_page_avg_ms"] >= 0
+    # Only one session exists for this document — no other session to compare pace against.
+    assert data["pace_vs_average"] is None
+
+
+@pytest.mark.asyncio
 async def test_batch_page_out_of_range_ignored(client, db_session, sample_link, sample_document):
     """Pages > document.page_count should be silently dropped."""
     session_id = "rangetest1234567890"[:32]

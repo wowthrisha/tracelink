@@ -3,7 +3,6 @@
 Formulas are documented inline. All scores are on a 0–100 scale.
 No values are fabricated — every metric derives from collected event data.
 """
-import math
 import statistics
 import uuid
 from datetime import datetime, timezone
@@ -568,7 +567,6 @@ def generate_insights(
         return insights
 
     global_avg_ms = statistics.mean(all_times)
-    global_median_ms = statistics.median(all_times)
 
     total_sessions = len(sessions)
     completed_sessions = [s for s in sessions if s.completion_pct >= 90]
@@ -731,7 +729,6 @@ class ReadingAnalyticsService:
           total_elapsed_ms, total_active_ms, started_at (ISO), page_count,
           initial_estimate_ms (optional)
         """
-        from app.models.event import AccessEvent
 
         # Resolve link_id and document_id from the token
         link_result = await db.execute(
@@ -952,6 +949,41 @@ class ReadingAnalyticsService:
             page_events, current_page, complexity.page_count, complexity, rs.reading_speed_wpm
         )
 
+        # Viewer-safe page/document insights — used by the Viewer's optional
+        # "Reading Insights" panel (uploader-controlled via a link permission,
+        # never shown unless the link enables it). Deliberately excludes
+        # anything uploader-only (no other viewers' identities, no drop-off/
+        # confusion-page detection, no per-viewer breakdown).
+        difficulty = _complexity_to_difficulty_label(complexity.complexity_factor)
+
+        avg_page_time_result = await db.execute(
+            select(func.avg(PageReadingEvent.active_time_ms)).where(
+                PageReadingEvent.document_id == rs.document_id,
+                PageReadingEvent.page_number == current_page,
+            )
+        )
+        avg_page_time_ms = avg_page_time_result.scalar()
+
+        pace_vs_average = None
+        if rs.avg_ms_per_page:
+            other_avg_result = await db.execute(
+                select(func.avg(ReadingSession.avg_ms_per_page)).where(
+                    ReadingSession.document_id == rs.document_id,
+                    ReadingSession.session_id != session_id,
+                    ReadingSession.avg_ms_per_page.is_not(None),
+                )
+            )
+            other_avg_ms_per_page = other_avg_result.scalar()
+            if other_avg_ms_per_page:
+                # Lower avg_ms_per_page = reading faster. Ignore noise under 10%.
+                ratio = rs.avg_ms_per_page / other_avg_ms_per_page
+                if ratio < 0.9:
+                    pace_vs_average = "faster"
+                elif ratio > 1.1:
+                    pace_vs_average = "slower"
+                else:
+                    pace_vs_average = "typical"
+
         return {
             "total_active_ms": rs.total_active_ms,
             "total_elapsed_ms": rs.total_elapsed_ms,
@@ -964,6 +996,9 @@ class ReadingAnalyticsService:
             "avg_ms_per_page": round(rs.avg_ms_per_page, 0) if rs.avg_ms_per_page else None,
             "engagement_score": rs.engagement_score,
             "focus_score": rs.focus_score,
+            "difficulty": difficulty,
+            "current_page_avg_ms": round(avg_page_time_ms) if avg_page_time_ms else None,
+            "pace_vs_average": pace_vs_average,
         }
 
     async def get_document_summary(
@@ -1032,7 +1067,10 @@ class ReadingAnalyticsService:
         if not doc:
             return None
 
-        complexity = await get_or_create_document_complexity(db, document_id)
+        # Return value intentionally unused here — this call's side effect
+        # (lazily creating the DocumentComplexity row on first access) is what
+        # matters; other code paths for this document assume that row exists.
+        await get_or_create_document_complexity(db, document_id)
 
         page_results = await db.execute(
             select(PageReadingEvent).where(PageReadingEvent.document_id == document_id)
@@ -1241,6 +1279,16 @@ async def _update_complexity_from_sessions(
     )
     complexity.session_count = total_result.scalar() or 0
     complexity.updated_at = datetime.now(timezone.utc)
+
+
+def _complexity_to_difficulty_label(complexity_factor: float) -> str:
+    """Map complexity_factor (0.5-2.0, see get_or_create_document_complexity)
+    to a plain-language difficulty label for the viewer-facing insights panel."""
+    if complexity_factor < 0.85:
+        return "Easy"
+    if complexity_factor <= 1.3:
+        return "Moderate"
+    return "Complex"
 
 
 def _serialize_complexity(c: DocumentComplexity) -> dict:

@@ -8,21 +8,20 @@ Endpoints:
   GET  /api/reading/document/{document_id}/insights NL insights
   GET  /api/reading/document/{document_id}/viewers  per-viewer breakdown
 """
+import json
 import logging
 import uuid
-from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth import get_current_user, require_scope
+from app.auth import require_scope
 from app.database import get_db
 from app.middleware.rate_limit import limiter
 from app.models.link import ShareLink
 from app.services.policy import enforcer
 from app.services.reading_analytics_service import ReadingAnalyticsService
-from app.utils.crypto import mask_email
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/reading", tags=["reading"])
@@ -162,7 +161,7 @@ async def get_viewer_session(
     summary = await svc.get_viewer_session_summary(db, session_id)
     if not summary:
         # No reading data yet — return zeros
-        return {
+        summary = {
             "total_active_ms": 0,
             "total_elapsed_ms": 0,
             "estimated_remaining_ms": None,
@@ -174,7 +173,26 @@ async def get_viewer_session(
             "avg_ms_per_page": None,
             "engagement_score": None,
             "focus_score": None,
+            "difficulty": None,
+            "current_page_avg_ms": None,
+            "pace_vs_average": None,
         }
+
+    # The comparative-insights fields (difficulty, this-page average, pace vs.
+    # other viewers) are uploader-opt-in via the link's permissions — everything
+    # else in `summary` (remaining time, completion, this viewer's own speed)
+    # was already viewer-visible before this field existed and stays that way.
+    # `ShareLink.permissions` is a raw JSON *string* column (Text, nullable) —
+    # not an auto-deserialized dict, see app/models/link.py.
+    try:
+        permissions = json.loads(link.permissions) if link.permissions else {}
+    except (ValueError, TypeError):
+        permissions = {}
+    if not permissions.get("show_reading_insights", False):
+        summary["difficulty"] = None
+        summary["current_page_avg_ms"] = None
+        summary["pace_vs_average"] = None
+
     return summary
 
 

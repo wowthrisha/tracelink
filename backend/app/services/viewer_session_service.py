@@ -106,6 +106,7 @@ async def build_validate_response(
         "watermark_enabled": True,
         "can_annotate": False,
         "enable_info": True,
+        "show_reading_insights": False,
     }
     if link.permissions:
         try:

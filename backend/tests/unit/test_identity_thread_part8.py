@@ -195,7 +195,11 @@ class TestUploaderReplyCreation:
                 request=_make_starlette_request(), doc_id=doc.id, annotation_id=comment.id,
                 body=AnnotationReplyCreate(comment_text="hi"), db=db, current_user=current_user,
             )
-        assert exc.value.status_code == 403
+        # 404, not 403: annotations.py now reuses documents.py's shared
+        # _get_accessible_document(), which returns 404 for both "doesn't
+        # exist" and "no access" to avoid leaking document existence to an
+        # unauthorized caller — same convention documents.py already used.
+        assert exc.value.status_code == 404
 
     @pytest.mark.asyncio
     async def test_uploader_reply_succeeds_with_expired_viewer_session(self, setup):

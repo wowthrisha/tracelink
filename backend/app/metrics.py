@@ -10,7 +10,7 @@ Security constraints:
   (e.g. /api/viewer/page/{token}/{page} not /api/viewer/page/abc123.../1).
 """
 import re
-from prometheus_client import Counter, Histogram, Gauge, REGISTRY
+from prometheus_client import Counter, Histogram, Gauge
 
 # ── HTTP layer ────────────────────────────────────────────────────────────────
 

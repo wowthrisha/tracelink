@@ -23,7 +23,6 @@ Two main responsibilities:
     updated.
 """
 import logging
-import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -133,7 +132,7 @@ async def expire_and_delete_documents(
     Returns:
         {"marked_expired": N, "deleted": N, "errors": [...], "dry_run": bool}
     """
-    from sqlalchemy import select, or_
+    from sqlalchemy import select
     from app.models.document import Document
     from app.services.viewer_cache import invalidate_doc_entries
     from app.services.page_cache import clear_doc_bytes
