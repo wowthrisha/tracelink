@@ -1,5 +1,5 @@
 import { C, mono } from '../constants/tokens.js';
-import { _errMsg } from '../utils/viewer.js';
+import { _errMsg, fmtDate } from '../utils/viewer.js';
 import { useToast } from '../contexts/toast.jsx';
 import { Card, Header, SectionLabel, Chip, Btn, Field, Modal } from '../components/atoms.jsx';
 const { useState, useEffect, useCallback } = React;
@@ -10,11 +10,6 @@ const ALL_SCOPES = [
   'analytics:read',
   'webhooks:read', 'webhooks:write',
 ];
-
-function fmtDate(iso) {
-  if (!iso) return '—';
-  return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
-}
 
 function fmtRelative(iso) {
   if (!iso) return 'Never';
@@ -47,18 +42,17 @@ function NewKeyModal({ onClose, onCreated }) {
   };
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-      <Card style={{ width: 460, padding: '22px 24px', display: 'flex', flexDirection: 'column', gap: 16 }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <SectionLabel>Create API Key</SectionLabel>
-          <Btn variant="ghost" size="sm" onClick={onClose} aria-label="Close">✕</Btn>
-        </div>
+    <Modal open onClose={onClose} title="Create API Key" width={460}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
         <Field label="Key name">
           <input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Production integration"
             style={{ fontSize: 12, background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 6, padding: '7px 10px', color: C.textPrimary, width: '100%' }} />
         </Field>
         <div>
-          <div style={{ fontSize: 10, fontWeight: 600, color: C.textMuted, textTransform: 'uppercase', letterSpacing: '.5px', marginBottom: 8 }}>Scopes</div>
+          <div style={{ fontSize: 10, fontWeight: 600, color: C.textMuted, textTransform: 'uppercase', letterSpacing: '.5px', marginBottom: 4 }}>Scopes</div>
+          <div style={{ fontSize: 10, color: C.textMuted, lineHeight: 1.5, marginBottom: 8 }}>
+            Choose exactly what this key is allowed to do — pick only what the integration needs.
+          </div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
             {ALL_SCOPES.map(s => {
               const active = scopes.includes(s);
@@ -81,8 +75,8 @@ function NewKeyModal({ onClose, onCreated }) {
             {saving ? 'Creating…' : 'Create key'}
           </Btn>
         </div>
-      </Card>
-    </div>
+      </div>
+    </Modal>
   );
 }
 
@@ -90,13 +84,17 @@ function NewKeyReveal({ keyData, onDismiss }) {
   const toast = useToast();
   const [copied, setCopied] = useState(false);
   const handleCopy = () => {
-    navigator.clipboard.writeText(keyData.key).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); });
-    toast('Key copied to clipboard', 'success');
+    navigator.clipboard.writeText(keyData.key)
+      .then(() => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+        toast('Key copied to clipboard', 'success');
+      })
+      .catch(() => toast('Failed to copy key — copy it manually.', 'error'));
   };
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-      <Card style={{ width: 520, padding: '22px 24px', display: 'flex', flexDirection: 'column', gap: 14 }}>
-        <SectionLabel style={{ color: C.success }}>✓ API key created</SectionLabel>
+    <Modal open onClose={onDismiss} title="✓ API key created" width={520}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         <div style={{ fontSize: 11, color: C.warning, lineHeight: 1.6 }}>
           Copy this key now. It will not be shown again.
         </div>
@@ -110,8 +108,8 @@ function NewKeyReveal({ keyData, onDismiss }) {
         <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
           <Btn variant="primary" size="sm" onClick={onDismiss}>Done</Btn>
         </div>
-      </Card>
-    </div>
+      </div>
+    </Modal>
   );
 }
 
@@ -291,7 +289,10 @@ export function ApiKeysScreen() {
               style={{ fontSize: 12, background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 6, padding: '7px 10px', color: C.textPrimary, width: '100%' }} />
           </Field>
           <div>
-            <div style={{ fontSize: 10, fontWeight: 600, color: C.textMuted, textTransform: 'uppercase', letterSpacing: '.5px', marginBottom: 8 }}>Scopes</div>
+            <div style={{ fontSize: 10, fontWeight: 600, color: C.textMuted, textTransform: 'uppercase', letterSpacing: '.5px', marginBottom: 4 }}>Scopes</div>
+            <div style={{ fontSize: 10, color: C.textMuted, lineHeight: 1.5, marginBottom: 8 }}>
+              Choose exactly what this key is allowed to do — pick only what the integration needs.
+            </div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
               {ALL_SCOPES.map(s => {
                 const active = editScopes.includes(s);
@@ -376,7 +377,7 @@ export function ApiKeysScreen() {
             borderRadius: 8, padding: '12px 14px', fontSize: 13, color: C.textSecondary, lineHeight: 1.6
           }}>
             <strong style={{ color: C.error }}>⚠ This cannot be undone.</strong><br />
-            <strong style={{ color: C.textPrimary }}>"{deleteKeyModal?.name}"</strong> will be permanently deleted along with its delivery history.
+            <strong style={{ color: C.textPrimary }}>"{deleteKeyModal?.name}"</strong> will be permanently deleted. Any integration still using it will stop working immediately.
           </div>
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
             <Btn variant="secondary" onClick={() => setDeleteKeyModal(null)}>Cancel</Btn>

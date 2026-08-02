@@ -38,6 +38,7 @@ export function UploadScreen({ onViewDoc, onAccessDoc }) {
   const [docs, setDocs] = useState([]);
   const [overview, setOverview] = useState(null);
   const [docsLoading, setDocsLoading] = useState(true);
+  const [deleting, setDeleting] = useState(false);
   const [groups, setGroups] = useState([]);
   const [activeGroupFilter, setActiveGroupFilter] = useState(null);
   const [selectedGroupId, setSelectedGroupId] = useState('');
@@ -47,6 +48,7 @@ export function UploadScreen({ onViewDoc, onAccessDoc }) {
   const [retentionPolicy, setRetentionPolicy] = useState('never');
   const [quickShareDoc, setQuickShareDoc] = useState(null);
   const [deleteGroupModal, setDeleteGroupModal] = useState(null);
+  const [deletingGroupId, setDeletingGroupId] = useState(null);
   const [sortKey, setSortKey] = useState('uploaded_at');
   const [sortDir, setSortDir] = useState('desc');
   const [visibleCount, setVisibleCount] = useState(25);
@@ -163,12 +165,15 @@ export function UploadScreen({ onViewDoc, onAccessDoc }) {
   };
 
   const handleDeleteGroup = async (g) => {
+    setDeletingGroupId(g.id);
     try {
       await window.SecureDocAPI.deleteGroup(g.id);
       toast(`Group "${g.name}" deleted`, 'success');
       if (activeGroupFilter === g.id) setActiveGroupFilter(null);
+      setDeleteGroupModal(null);
       await fetchGroups(); await fetchDocs();
     } catch (e) { toast(_errMsg(e, 'Failed to delete group'), 'error'); }
+    finally { setDeletingGroupId(null); }
   };
 
   const handleAssignGroup = async (doc, gid) => {
@@ -240,7 +245,7 @@ export function UploadScreen({ onViewDoc, onAccessDoc }) {
     { label: 'Total Documents', value: docCount.toString(), sub: planLabel, icon: '◫', color: docLimit && docCount >= docLimit ? C.error : C.teal2 },
     { label: 'Active Shares', value: (overview?.active_links || 0).toString(), sub: `${overview?.expiring_soon_count || 0} expiring within 14d`, icon: '◈', color: C.teal2 },
     { label: 'Views Today', value: (overview?.total_views_today || 0).toLocaleString(), sub: `+${weekViews} this week`, icon: '▦', color: C.success },
-    { label: 'Blocked Attempts', value: (overview?.blocked_attempts_today || 0).toString(), sub: `${highRiskCount} high-risk docs`, icon: '⊗', color: C.warning },
+    { label: 'Blocked Attempts', value: (overview?.blocked_attempts_today || 0).toString(), sub: `${highRiskCount} high-risk docs`, icon: '⊗', color: C.warning, tooltip: 'Prints, copies, downloads, and right-clicks blocked today — your protections working as intended.' },
   ];
 
   return (
@@ -389,11 +394,11 @@ export function UploadScreen({ onViewDoc, onAccessDoc }) {
             borderRadius: 8, padding: '12px 14px', fontSize: 13, color: C.textSecondary, lineHeight: 1.6
           }}>
             <strong style={{ color: C.error }}>⚠ This cannot be undone.</strong><br />
-            All share links for <strong style={{ color: C.textPrimary }}>"{deleteModal?.filename || deleteModal?.name}"</strong> will be permanently revoked.
+            <strong style={{ color: C.textPrimary }}>"{deleteModal?.filename || deleteModal?.name}"</strong> and all its share links, annotations, and analytics will be permanently deleted.
           </div>
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
             <Btn variant="secondary" onClick={() => setDeleteModal(null)}>Cancel</Btn>
-            <Btn variant="danger" onClick={() => handleDelete(deleteModal)}>Delete Document</Btn>
+            <Btn variant="danger" loading={deleting} onClick={() => handleDelete(deleteModal)}>Delete Document</Btn>
           </div>
         </div>
       </Modal>
@@ -409,7 +414,8 @@ export function UploadScreen({ onViewDoc, onAccessDoc }) {
           </div>
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
             <Btn variant="secondary" onClick={() => setDeleteGroupModal(null)}>Cancel</Btn>
-            <Btn variant="danger" onClick={() => { handleDeleteGroup(deleteGroupModal); setDeleteGroupModal(null); }}>Delete Group</Btn>
+            <Btn variant="danger" loading={deletingGroupId === deleteGroupModal?.id}
+              onClick={() => handleDeleteGroup(deleteGroupModal)}>Delete Group</Btn>
           </div>
         </div>
       </Modal>

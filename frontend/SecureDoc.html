@@ -143,6 +143,13 @@
       }
     }
 
+    @keyframes shake {
+      10%, 90% { transform: translateX(-1px); }
+      20%, 80% { transform: translateX(2px); }
+      30%, 50%, 70% { transform: translateX(-4px); }
+      40%, 60% { transform: translateX(4px); }
+    }
+
     .fade-up {
       animation: fadeUp .22s cubic-bezier(.22, 1, .36, 1) both;
     }
@@ -202,9 +209,6 @@
       .header-root {
         padding: 0 10px !important;
       }
-      .header-btn-label {
-        display: none !important;
-      }
       /* Toolbar: hide text labels, compress spacing */
       .toolbar-btn-label {
         display: none !important;
@@ -215,10 +219,6 @@
       }
     }
 
-    /* Smooth page transitions */
-    .screen-enter {
-      animation: fadeIn .18s ease both;
-    }
   </style>
 </head>
 

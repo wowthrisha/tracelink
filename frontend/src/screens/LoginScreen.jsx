@@ -42,6 +42,11 @@ export function LoginScreen({ onLogin }) {
       if (mode === 'reset') {
         if (!newPassword || newPassword.length < 6) { setError('Password must be at least 6 characters.'); setLoading(false); return; }
         await window.SecureDocAPI.resetPassword(resetToken, newPassword);
+        // Clear the used access_token/type=recovery fragment so a refresh doesn't
+        // re-parse it and drop the user back into the (now-invalid) reset form.
+        if (typeof window !== 'undefined' && window.history?.replaceState) {
+          window.history.replaceState(null, '', window.location.pathname + window.location.search);
+        }
         setInfo('Password updated successfully. You can now sign in.');
         setMode('login');
         setLoading(false);

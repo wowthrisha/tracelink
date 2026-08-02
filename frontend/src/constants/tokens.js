@@ -38,3 +38,18 @@ export const C = {
 };
 
 export const mono = { fontFamily: "'DM Mono', monospace" };
+
+// Spacing scale — use for new padding/margin/gap values instead of a raw
+// number. Values chosen to match the sizes that had already organically
+// converged across the app (V7.0 frontend-maturity review found 44 distinct
+// padding pairs and 13 distinct gap values with no shared scale). Existing
+// call sites are NOT retrofitted here — that's a broad mechanical sweep
+// better done as its own pass — but new code has something to reach for now.
+export const S = {
+  xs: 4,
+  sm: 8,
+  md: 12,
+  lg: 16,
+  xl: 20,
+  xxl: 24,
+};

@@ -7,9 +7,11 @@ export function StatCard({ s }) {
   const [hov, setHov] = useState(false);
   return (
     <div onMouseEnter={() => setHov(true)} onMouseLeave={() => setHov(false)}
+      title={s.tooltip || undefined}
       style={{
         background: C.surface, border: `1px solid ${hov ? C.borderMed : C.border}`,
-        borderRadius: 10, padding: '14px 16px', transition: 'all .15s'
+        borderRadius: 10, padding: '14px 16px', transition: 'all .15s',
+        cursor: s.tooltip ? 'help' : 'default'
       }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
         <SectionLabel>{s.label}</SectionLabel>

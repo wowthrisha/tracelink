@@ -1,15 +1,10 @@
 import { C, mono } from '../constants/tokens.js';
-import { _errMsg } from '../utils/viewer.js';
+import { _errMsg, fmtDate } from '../utils/viewer.js';
 import { useToast } from '../contexts/toast.jsx';
 import { Card, Header, SectionLabel, Chip, Btn, Field, Modal } from '../components/atoms.jsx';
 const { useState, useEffect, useCallback } = React;
 
 const ALL_EVENTS = ['document.processed', 'link.viewed', 'analytics.completed'];
-
-function fmtDate(iso) {
-  if (!iso) return '—';
-  return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
-}
 
 function CreateWebhookModal({ onClose, onCreated }) {
   const toast = useToast();
@@ -33,12 +28,8 @@ function CreateWebhookModal({ onClose, onCreated }) {
   };
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-      <Card style={{ width: 480, padding: '22px 24px', display: 'flex', flexDirection: 'column', gap: 16 }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <SectionLabel>New Webhook</SectionLabel>
-          <Btn variant="ghost" size="sm" onClick={onClose} aria-label="Close">✕</Btn>
-        </div>
+    <Modal open onClose={onClose} title="New Webhook" width={480}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
         <Field label="Endpoint URL">
           <input value={url} onChange={e => setUrl(e.target.value)} placeholder="https://your-server.com/webhook"
             style={{ fontSize: 12, background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 6, padding: '7px 10px', color: C.textPrimary, width: '100%' }} />
@@ -70,8 +61,8 @@ function CreateWebhookModal({ onClose, onCreated }) {
             {saving ? 'Creating…' : 'Register webhook'}
           </Btn>
         </div>
-      </Card>
-    </div>
+      </div>
+    </Modal>
   );
 }
 
@@ -79,13 +70,17 @@ function SecretReveal({ webhook, onDismiss }) {
   const toast = useToast();
   const [copied, setCopied] = useState(false);
   const handleCopy = () => {
-    navigator.clipboard.writeText(webhook.secret).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); });
-    toast('Secret copied', 'success');
+    navigator.clipboard.writeText(webhook.secret)
+      .then(() => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+        toast('Secret copied', 'success');
+      })
+      .catch(() => toast('Failed to copy secret — copy it manually.', 'error'));
   };
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-      <Card style={{ width: 520, padding: '22px 24px', display: 'flex', flexDirection: 'column', gap: 14 }}>
-        <SectionLabel style={{ color: C.success }}>✓ Webhook registered</SectionLabel>
+    <Modal open onClose={onDismiss} title="✓ Webhook registered" width={520}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         <div style={{ fontSize: 11, color: C.warning, lineHeight: 1.6 }}>Copy your signing secret now — it will not be shown again.</div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: C.surface2, borderRadius: 7, padding: '10px 12px', border: `1px solid ${C.border}` }}>
           <code style={{ ...mono, fontSize: 11, color: C.teal1, flex: 1, wordBreak: 'break-all' }}>{webhook.secret}</code>
@@ -97,8 +92,8 @@ function SecretReveal({ webhook, onDismiss }) {
         <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
           <Btn variant="primary" size="sm" onClick={onDismiss}>Done</Btn>
         </div>
-      </Card>
-    </div>
+      </div>
+    </Modal>
   );
 }
 
@@ -117,16 +112,10 @@ function DeliveryPanel({ webhook, onClose }) {
   const statusColor = s => ({ success: C.success, failed: C.error, pending: C.warning, skipped: C.textMuted }[s] || C.textMuted);
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-      <Card style={{ width: 600, maxHeight: '80vh', display: 'flex', flexDirection: 'column', padding: 0, overflow: 'hidden' }}>
-        <div style={{ padding: '14px 18px', borderBottom: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <div>
-            <SectionLabel>Delivery History</SectionLabel>
-            <div style={{ ...mono, fontSize: 10, color: C.textMuted, marginTop: 2 }}>{webhook.url}</div>
-          </div>
-          <Btn variant="ghost" size="sm" onClick={onClose} aria-label="Close">✕</Btn>
-        </div>
-        <div style={{ flex: 1, overflow: 'auto' }}>
+    <Modal open onClose={onClose} title="Delivery History" width={600}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <div style={{ ...mono, fontSize: 10, color: C.textMuted, marginTop: -6 }}>{webhook.url}</div>
+        <div style={{ maxHeight: '60vh', overflow: 'auto' }}>
           {loading ? (
             <div style={{ padding: 32, textAlign: 'center', color: C.textMuted, fontSize: 12 }}>Loading…</div>
           ) : deliveries.length === 0 ? (
@@ -158,8 +147,8 @@ function DeliveryPanel({ webhook, onClose }) {
             </table>
           )}
         </div>
-      </Card>
-    </div>
+      </div>
+    </Modal>
   );
 }
 
@@ -235,7 +224,7 @@ export function WebhooksScreen() {
           <div>
             <div style={{ fontSize: 12, fontWeight: 600, color: C.textSecondary, marginBottom: 4 }}>Webhooks</div>
             <div style={{ fontSize: 11, color: C.textMuted, lineHeight: 1.6, maxWidth: 560 }}>
-              SecureDoc posts signed JSON payloads to your endpoints when events occur. Payloads are signed with HMAC-SHA256 using your webhook secret. Events: <code style={mono}>document.processed</code>, <code style={mono}>link.viewed</code>, <code style={mono}>analytics.completed</code>.
+              A webhook lets another app get notified automatically when something happens here — for example, when a document is viewed. SecureDoc posts signed JSON payloads to your endpoints when events occur. Payloads are signed with HMAC-SHA256 using your webhook secret. Events: <code style={mono}>document.processed</code>, <code style={mono}>link.viewed</code>, <code style={mono}>analytics.completed</code>.
             </div>
           </div>
         </Card>

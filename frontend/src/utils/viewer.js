@@ -1,3 +1,9 @@
+// Format an ISO date string as "Jan 1, 2026"; '—' for missing/null.
+export function fmtDate(iso) {
+  if (!iso) return '—';
+  return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
 // Extract a human-readable message from an API error or any thrown value.
 export function _errMsg(e, fallback) {
   if (!e) return fallback || 'An error occurred';

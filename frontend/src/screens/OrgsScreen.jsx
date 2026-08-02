@@ -1,13 +1,8 @@
 import { C, mono } from '../constants/tokens.js';
-import { _errMsg } from '../utils/viewer.js';
+import { _errMsg, fmtDate } from '../utils/viewer.js';
 import { useToast } from '../contexts/toast.jsx';
 import { Card, Header, SectionLabel, Chip, Btn, Field, Modal } from '../components/atoms.jsx';
 const { useState, useEffect, useCallback } = React;
-
-function fmtDate(iso) {
-  if (!iso) return '—';
-  return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
-}
 
 function CreateOrgModal({ onClose, onCreated }) {
   const toast = useToast();
@@ -25,12 +20,8 @@ function CreateOrgModal({ onClose, onCreated }) {
   };
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-      <Card style={{ width: 420, padding: '22px 24px', display: 'flex', flexDirection: 'column', gap: 16 }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <SectionLabel>Create Organization</SectionLabel>
-          <Btn variant="ghost" size="sm" onClick={onClose} aria-label="Close">✕</Btn>
-        </div>
+    <Modal open onClose={onClose} title="Create Organization" width={420}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
         <Field label="Organization name">
           <input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Acme Corp"
             style={{ fontSize: 12, background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 6, padding: '7px 10px', color: C.textPrimary, width: '100%' }} />
@@ -41,8 +32,8 @@ function CreateOrgModal({ onClose, onCreated }) {
             {saving ? 'Creating…' : 'Create'}
           </Btn>
         </div>
-      </Card>
-    </div>
+      </div>
+    </Modal>
   );
 }
 
@@ -62,12 +53,8 @@ function RenameOrgModal({ org, onClose, onRenamed }) {
   };
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-      <Card style={{ width: 420, padding: '22px 24px', display: 'flex', flexDirection: 'column', gap: 16 }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <SectionLabel>Rename Organization</SectionLabel>
-          <Btn variant="ghost" size="sm" onClick={onClose} aria-label="Close">✕</Btn>
-        </div>
+    <Modal open onClose={onClose} title="Rename Organization" width={420}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
         <Field label="New name">
           <input value={name} onChange={e => setName(e.target.value)}
             style={{ fontSize: 12, background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 6, padding: '7px 10px', color: C.textPrimary, width: '100%' }} />
@@ -78,8 +65,8 @@ function RenameOrgModal({ org, onClose, onRenamed }) {
             {saving ? 'Saving…' : 'Rename'}
           </Btn>
         </div>
-      </Card>
-    </div>
+      </div>
+    </Modal>
   );
 }
 
@@ -104,12 +91,8 @@ function InviteMemberModal({ org, onClose, onInvited }) {
   };
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1100 }}>
-      <Card style={{ width: 420, padding: '22px 24px', display: 'flex', flexDirection: 'column', gap: 16 }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <SectionLabel>Invite Member to {org.name}</SectionLabel>
-          <Btn variant="ghost" size="sm" onClick={onClose} aria-label="Close">✕</Btn>
-        </div>
+    <Modal open onClose={onClose} title={`Invite Member to ${org.name}`} width={420}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
         <div style={{ fontSize: 11, color: C.textMuted, lineHeight: 1.5 }}>
           The user must already have a SecureDoc account. They will be added immediately.
         </div>
@@ -131,8 +114,8 @@ function InviteMemberModal({ org, onClose, onInvited }) {
           <Btn variant="ghost" size="sm" onClick={onClose}>Cancel</Btn>
           <Btn variant="primary" size="sm" loading={saving} onClick={handleInvite}>Add Member</Btn>
         </div>
-      </Card>
-    </div>
+      </div>
+    </Modal>
   );
 }
 
@@ -143,6 +126,7 @@ function MembersPanel({ org, onClose }) {
   const [showInvite, setShowInvite] = useState(false);
   const [removingId, setRemovingId] = useState(null);
   const [changingRoleId, setChangingRoleId] = useState(null);
+  const [removeModal, setRemoveModal] = useState(null);
 
   const fetchMembers = () => {
     setLoading(true);
@@ -177,19 +161,14 @@ function MembersPanel({ org, onClose }) {
   const ownerCount = members.filter(m => m.role === 'owner').length;
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-      <Card style={{ width: 600, maxHeight: '80vh', display: 'flex', flexDirection: 'column', padding: 0, overflow: 'hidden' }}>
-        <div style={{ padding: '14px 18px', borderBottom: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <div>
-            <SectionLabel>Members — {org.name}</SectionLabel>
-            <div style={{ fontSize: 11, color: C.textMuted, marginTop: 2 }}>{members.length} member{members.length !== 1 ? 's' : ''}</div>
-          </div>
-          <div style={{ display: 'flex', gap: 6 }}>
-            <Btn variant="primary" size="sm" onClick={() => setShowInvite(true)} style={{ fontSize: 10 }}>+ Invite Member</Btn>
-            <Btn variant="ghost" size="sm" onClick={onClose} aria-label="Close">✕</Btn>
-          </div>
+    <>
+    <Modal open onClose={onClose} title={`Members — ${org.name}`} width={600}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: -6 }}>
+          <div style={{ fontSize: 11, color: C.textMuted }}>{members.length} member{members.length !== 1 ? 's' : ''}</div>
+          <Btn variant="primary" size="sm" onClick={() => setShowInvite(true)} style={{ fontSize: 10 }}>+ Invite Member</Btn>
         </div>
-        <div style={{ flex: 1, overflow: 'auto' }}>
+        <div style={{ maxHeight: '60vh', overflow: 'auto' }}>
           {loading ? (
             <div style={{ padding: 28, textAlign: 'center', color: C.textMuted, fontSize: 12 }}>Loading…</div>
           ) : members.length === 0 ? (
@@ -229,7 +208,7 @@ function MembersPanel({ org, onClose }) {
                     <td style={{ padding: '8px 14px' }}>
                       <Btn variant="ghost" size="sm"
                         disabled={removingId === m.user_id || (m.role === 'owner' && ownerCount <= 1)}
-                        onClick={() => handleRemove(m)}
+                        onClick={() => setRemoveModal(m)}
                         style={{ fontSize: 10, color: C.error }}>
                         {removingId === m.user_id ? '…' : 'Remove'}
                       </Btn>
@@ -240,9 +219,29 @@ function MembersPanel({ org, onClose }) {
             </table>
           )}
         </div>
-      </Card>
-      {showInvite && <InviteMemberModal org={org} onClose={() => setShowInvite(false)} onInvited={fetchMembers} />}
-    </div>
+      </div>
+    </Modal>
+    {showInvite && <InviteMemberModal org={org} onClose={() => setShowInvite(false)} onInvited={fetchMembers} />}
+
+    <Modal open={!!removeModal} onClose={() => setRemoveModal(null)} title="Remove Member" width={400}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <div style={{
+          background: C.errorBg, border: `1px solid ${C.errorBdr}`,
+          borderRadius: 8, padding: '12px 14px', fontSize: 13, color: C.textSecondary, lineHeight: 1.6
+        }}>
+          <strong style={{ color: C.error }}>⚠ This cannot be undone.</strong><br />
+          <strong style={{ color: C.textPrimary }}>{removeModal?.email || 'This member'}</strong> will lose access to this organization and its shared documents immediately.
+        </div>
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+          <Btn variant="secondary" onClick={() => setRemoveModal(null)}>Cancel</Btn>
+          <Btn variant="danger" loading={removingId === removeModal?.user_id}
+            onClick={() => { handleRemove(removeModal); setRemoveModal(null); }}>
+            Remove Member
+          </Btn>
+        </div>
+      </div>
+    </Modal>
+    </>
   );
 }
 
@@ -298,7 +297,7 @@ export function OrgsScreen() {
           <div>
             <div style={{ fontSize: 12, fontWeight: 600, color: C.textSecondary, marginBottom: 4 }}>Organizations</div>
             <div style={{ fontSize: 11, color: C.textMuted, lineHeight: 1.6, maxWidth: 560 }}>
-              Group users and share resources across your team. Organization members can collaborate on documents and access shared analytics.
+              Group users and share resources across your team. Organization members can collaborate on documents and access shared analytics. Optional — skip this if you're working alone.
             </div>
           </div>
         </Card>

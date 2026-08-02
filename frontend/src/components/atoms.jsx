@@ -58,7 +58,7 @@ export function Chip({ children, color = C.teal2, bg, border }) {
 }
 
 /* ─── BUTTON ───────────────────────────────────────────────── */
-export function Btn({ children, variant = 'primary', disabled, loading, onClick, style, size = 'md' }) {
+export function Btn({ children, variant = 'primary', disabled, loading, onClick, style, size = 'md', title }) {
   const [hov, setHov] = useState(false);
   const pad = size === 'sm' ? '5px 11px' : size === 'lg' ? '10px 20px' : '8px 15px';
   const fz = size === 'sm' ? 11 : size === 'lg' ? 14 : 12.5;
@@ -71,14 +71,14 @@ export function Btn({ children, variant = 'primary', disabled, loading, onClick,
     gap: 6, whiteSpace: 'nowrap', ...style,
   };
   if (isDisabled) return (
-    <button disabled aria-busy={loading ? 'true' : undefined} style={{
+    <button disabled title={title} aria-busy={loading ? 'true' : undefined} style={{
       ...base, background: 'transparent',
       color: 'rgba(90,200,208,0.2)', border: '1px solid rgba(90,200,208,0.08)',
       textDecoration: loading ? 'none' : 'line-through', cursor: 'not-allowed'
     }}>{loading ? '…' : children}</button>
   );
   if (variant === 'primary') return (
-    <button onClick={onClick} onMouseEnter={() => setHov(true)} onMouseLeave={() => setHov(false)}
+    <button onClick={onClick} title={title} onMouseEnter={() => setHov(true)} onMouseLeave={() => setHov(false)}
       style={{
         ...base, background: hov ? C.teal1 : C.teal2, color: '#080B0C', fontWeight: 700,
         boxShadow: hov ? `0 0 20px rgba(90,200,208,0.3)` : '0 0 0 rgba(0,0,0,0)'
@@ -87,7 +87,7 @@ export function Btn({ children, variant = 'primary', disabled, loading, onClick,
     </button>
   );
   if (variant === 'secondary') return (
-    <button onClick={onClick} onMouseEnter={() => setHov(true)} onMouseLeave={() => setHov(false)}
+    <button onClick={onClick} title={title} onMouseEnter={() => setHov(true)} onMouseLeave={() => setHov(false)}
       style={{
         ...base, background: hov ? C.accentBgHover : C.accentBg,
         color: hov ? C.teal1 : C.textSecondary,
@@ -97,7 +97,7 @@ export function Btn({ children, variant = 'primary', disabled, loading, onClick,
     </button>
   );
   if (variant === 'ghost') return (
-    <button onClick={onClick} onMouseEnter={() => setHov(true)} onMouseLeave={() => setHov(false)}
+    <button onClick={onClick} title={title} onMouseEnter={() => setHov(true)} onMouseLeave={() => setHov(false)}
       style={{
         ...base, background: hov ? C.accentBg : 'transparent',
         color: hov ? C.teal2 : C.textMuted, border: 'none'
@@ -106,7 +106,7 @@ export function Btn({ children, variant = 'primary', disabled, loading, onClick,
     </button>
   );
   if (variant === 'danger') return (
-    <button onClick={onClick} onMouseEnter={() => setHov(true)} onMouseLeave={() => setHov(false)}
+    <button onClick={onClick} title={title} onMouseEnter={() => setHov(true)} onMouseLeave={() => setHov(false)}
       style={{
         ...base, background: hov ? '#F06855' : C.error, color: '#fff',
         boxShadow: hov ? `0 0 18px rgba(224,90,69,0.35)` : 'none'
@@ -115,7 +115,7 @@ export function Btn({ children, variant = 'primary', disabled, loading, onClick,
     </button>
   );
   if (variant === 'outline-danger') return (
-    <button onClick={onClick} onMouseEnter={() => setHov(true)} onMouseLeave={() => setHov(false)}
+    <button onClick={onClick} title={title} onMouseEnter={() => setHov(true)} onMouseLeave={() => setHov(false)}
       style={{
         ...base, background: hov ? C.errorBg : 'transparent',
         color: C.error, border: `1px solid ${hov ? C.error : C.errorBdr}`
