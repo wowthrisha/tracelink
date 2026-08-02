@@ -17,13 +17,23 @@ _jwks_cache: dict = {}
 _jwks_fetched_at: float = 0.0
 _JWKS_TTL = 3600
 
+
+class JWKSUnavailableError(Exception):
+    """Raised when the Supabase JWKS endpoint cannot be reached (DNS/network/HTTP failure)."""
+
+
 async def _fetch_jwks():
     global _jwks_fetched_at
     url = f"{settings.supabase_url}/auth/v1/.well-known/jwks.json"
-    async with httpx.AsyncClient(timeout=10.0) as client:
-        r = await client.get(url)
-        r.raise_for_status()
-        data = r.json()
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.get(url)
+            r.raise_for_status()
+            data = r.json()
+    except httpx.HTTPError as e:
+        logger.error("AUTH: JWKS fetch failed for %s: %s: %s", url, type(e).__name__, e)
+        raise JWKSUnavailableError(f"Could not reach {url}: {e}") from e
+
     _jwks_cache.clear()
     for jwk in data.get("keys", []):
         kid = jwk.get("kid", "default")
@@ -33,7 +43,21 @@ async def _fetch_jwks():
 
 async def _get_public_key(kid: Optional[str]):
     if not _jwks_cache or time.time() - _jwks_fetched_at > _JWKS_TTL:
-        await _fetch_jwks()
+        try:
+            await _fetch_jwks()
+        except JWKSUnavailableError:
+            if _jwks_cache:
+                # Degrade gracefully: keep serving with the last known-good keys
+                # rather than failing every request during a transient Supabase outage.
+                logger.warning(
+                    "AUTH: JWKS refresh failed, falling back to stale cache (age=%ds)",
+                    int(time.time() - _jwks_fetched_at),
+                )
+            else:
+                raise HTTPException(
+                    status_code=503,
+                    detail="Authentication service temporarily unavailable. Please try again shortly.",
+                )
     if kid and kid in _jwks_cache:
         return _jwks_cache[kid]
     if len(_jwks_cache) == 1:
@@ -57,8 +81,13 @@ async def verify_supabase_token(token: str) -> dict:
     except jwt.ExpiredSignatureError:
         raise HTTPException(status_code=401, detail="Token expired. Please sign in again.")
     except jwt.InvalidTokenError:
-        # Try once more after refreshing JWKS (handles key rotation)
-        await _fetch_jwks()
+        # Try once more after refreshing JWKS (handles key rotation).
+        # If Supabase is unreachable, fall through to the retry below, which
+        # will either use a stale cache or raise a clean 503 — never a raw 500.
+        try:
+            await _fetch_jwks()
+        except JWKSUnavailableError:
+            pass
         try:
             public_key = await _get_public_key(header.get("kid"))
             payload = jwt.decode(token, public_key, algorithms=[alg], audience="authenticated")
