@@ -13,7 +13,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import require_scope
@@ -256,11 +256,26 @@ async def update_retention(
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
 
+    old_policy = doc.retention_policy
     doc.retention_policy = body.retention_policy
     doc.expires_at = compute_expires_at(doc.created_at, body.retention_policy)
 
     if body.lifecycle_state:
         doc.lifecycle_state = body.lifecycle_state
+
+    from app.services.audit_service import log_audit_event
+    await log_audit_event(
+        db,
+        event_type="document.retention_changed",
+        actor_user_id=user["user_id"],
+        target_type="document",
+        target_id=str(doc.id),
+        details={
+            "old_policy": old_policy,
+            "new_policy": body.retention_policy,
+            "new_expires_at": doc.expires_at.isoformat() if doc.expires_at else None,
+        },
+    )
 
     await db.commit()
     return {

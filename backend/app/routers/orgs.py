@@ -5,7 +5,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -15,6 +15,7 @@ from app.database import get_db
 from app.models.org import ORG_ROLES, OrgMembership, Organization, role_gte
 from app.services.org_service import (
     _slugify,
+    ensure_not_last_owner,
     ensure_unique_slug,
     get_membership,
     require_role,
@@ -436,15 +437,7 @@ async def update_member_role(
 
     # Prevent downgrading the only owner
     if target.role == "owner" and new_role != "owner":
-        owner_count_result = await db.execute(
-            select(func.count()).select_from(OrgMembership).where(
-                OrgMembership.org_id == org_uuid, OrgMembership.role == "owner"
-            )
-        )
-        if (owner_count_result.scalar() or 0) <= 1:
-            raise HTTPException(
-                status_code=409, detail="Cannot remove the last owner from the organization"
-            )
+        await ensure_not_last_owner(db, org_uuid)
 
     old_role = target.role
     target.role = new_role
@@ -476,7 +469,9 @@ async def remove_member(
     db: AsyncSession = Depends(get_db),
     user: dict = Depends(get_current_user),
 ):
-    org, actor = await _get_org_and_member(org_id, user, db, minimum_role="admin")
+    # Any org member may call this (self-removal/"leave org" must be reachable at
+    # any role); admin-or-higher is enforced explicitly below for removing someone else.
+    org, actor = await _get_org_and_member(org_id, user, db, minimum_role="viewer")
     org_uuid = uuid.UUID(org_id)
 
     try:
@@ -486,6 +481,9 @@ async def remove_member(
 
     # Allow self-removal (leave org) at any role
     is_self = target_uuid == uuid.UUID(user["user_id"])
+
+    if not is_self and not role_gte(actor.role, "admin"):
+        raise HTTPException(status_code=403, detail="Requires admin role or higher")
 
     target = await get_membership(db, org_uuid, target_uuid)
     if not target:
@@ -499,15 +497,7 @@ async def remove_member(
 
     # Prevent removing the last owner
     if target.role == "owner":
-        owner_count_result = await db.execute(
-            select(func.count()).select_from(OrgMembership).where(
-                OrgMembership.org_id == org_uuid, OrgMembership.role == "owner"
-            )
-        )
-        if (owner_count_result.scalar() or 0) <= 1:
-            raise HTTPException(
-                status_code=409, detail="Cannot remove the last owner from the organization"
-            )
+        await ensure_not_last_owner(db, org_uuid)
 
     removed_role = target.role
     await db.delete(target)

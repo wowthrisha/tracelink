@@ -57,6 +57,9 @@ class WebhookDelivery(Base):
     __tablename__ = "webhook_deliveries"
     __table_args__ = (
         Index("ix_webhook_deliveries_webhook_id", "webhook_id"),
+        # Covers get_deliveries()'s `WHERE webhook_id = ... ORDER BY created_at DESC`
+        # so that query doesn't need a separate sort step once deliveries accumulate.
+        Index("ix_webhook_deliveries_webhook_created", "webhook_id", "created_at"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)

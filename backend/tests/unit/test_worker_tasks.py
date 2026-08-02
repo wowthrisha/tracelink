@@ -145,3 +145,38 @@ class TestPurgeStaleSessionsAsync:
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.drop_all)
         await engine.dispose()
+
+
+class TestTaskRegistration:
+    """
+    Regression test for a real bug: celery_app.py's `include=` list determines
+    which task modules the Celery *worker* process imports at boot (via
+    `celery_app.loader.import_default_modules()`), separately from whatever
+    the FastAPI/test process happens to import. `app.workers.webhook_tasks`
+    was missing from that list, so `@celery_app.task(name="securedoc.deliver_webhook")`
+    never ran in a real worker process — webhook_service.py/webhooks.py's
+    `send_task("securedoc.deliver_webhook", ...)` calls would enqueue a task
+    name no worker had ever registered. Passed silently because tests import
+    the task modules directly, which masks an `include=` omission.
+    """
+
+    def test_all_task_modules_are_registered_with_the_worker(self):
+        from app.workers.celery_app import celery_app
+
+        # Mirrors what a real `celery -A app.workers.celery_app worker` boot does —
+        # importing task modules directly (as other tests/callers do) does NOT
+        # exercise this path and would not have caught the missing include=.
+        celery_app.loader.import_default_modules()
+
+        expected = {
+            "securedoc.process_document",
+            "securedoc.purge_stale_sessions",
+            "securedoc.requeue_orphaned_uploads",
+            "securedoc.take_storage_snapshot",
+            "securedoc.sync_document_access_times",
+            "securedoc.cleanup_expired_documents",
+            "securedoc.cleanup_orphaned_viewer_profiles",
+            "securedoc.deliver_webhook",
+        }
+        missing = expected - set(celery_app.tasks)
+        assert not missing, f"Task(s) not registered with the worker: {missing}"

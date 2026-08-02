@@ -1,19 +1,22 @@
 import json
+import logging
 import secrets
 import uuid
 from datetime import datetime, timezone
-from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth import get_current_user, require_scope
+from app.auth import require_scope
 from app.database import get_db
 from app.middleware.rate_limit import limiter
 from app.models.webhook import WEBHOOK_EVENTS, WebhookDelivery, WebhookEndpoint
+from app.services.audit_service import log_audit_event
 from app.utils.ssrf_guard import validate_ssrf_url
 from app.workers.celery_app import celery_app
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/webhooks", tags=["webhooks"])
 
@@ -108,6 +111,17 @@ async def create_webhook(
     )
     ep.events = events
     db.add(ep)
+    await db.flush()
+
+    await log_audit_event(
+        db,
+        event_type="webhook.created",
+        actor_user_id=user["user_id"],
+        target_type="webhook",
+        target_id=str(ep.id),
+        details={"url": ep.url, "events": events},
+    )
+
     await db.commit()
     await db.refresh(ep)
     return _ep_response(ep, include_secret=True)
@@ -161,6 +175,15 @@ async def update_webhook(
     # so touch it explicitly.
     ep.updated_at = datetime.now(timezone.utc)
 
+    await log_audit_event(
+        db,
+        event_type="webhook.updated",
+        actor_user_id=user["user_id"],
+        target_type="webhook",
+        target_id=str(ep.id),
+        details={"changed": sorted(body.keys())},
+    )
+
     await db.commit()
     await db.refresh(ep)
     return _ep_response(ep)
@@ -173,7 +196,18 @@ async def delete_webhook(
     user: dict = Depends(require_scope("webhooks:write")),
 ):
     ep = await _get_user_webhook(webhook_id, user, db)
+    ep_id, ep_url = str(ep.id), ep.url
     await db.delete(ep)
+
+    await log_audit_event(
+        db,
+        event_type="webhook.deleted",
+        actor_user_id=user["user_id"],
+        target_type="webhook",
+        target_id=ep_id,
+        details={"url": ep_url},
+    )
+
     await db.commit()
 
 
@@ -244,6 +278,9 @@ async def test_webhook(
             args=[str(ep.id), str(delivery_id)],
         )
     except Exception:
-        pass  # Test ping failure is non-fatal; delivery record already created
+        # Non-fatal — the delivery record already exists and will show as
+        # pending/stuck, but log it: a broker-dispatch failure here would
+        # otherwise be completely invisible.
+        logger.error("webhooks: failed to dispatch test delivery %s for webhook %s", delivery_id, ep.id, exc_info=True)
 
     return {"delivery_id": str(delivery_id), "status": "queued"}

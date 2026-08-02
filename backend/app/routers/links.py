@@ -1,8 +1,7 @@
 import ipaddress
 import json
+import logging
 import uuid
-from datetime import datetime, timezone
-from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -18,11 +17,13 @@ from app.schemas.link import (
     LinkSummary,
     RevokeResponse,
 )
-from app.services.link_service import LinkService
+from app.services.link_service import LinkService, is_link_active
 from app.services.viewer_cache import invalidate_link
 from app.utils.crypto import hash_password
 from app.config import settings
-from app.auth import get_current_user, require_scope
+from app.auth import require_scope
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/links", tags=["links"])
 link_svc = LinkService()
@@ -58,22 +59,16 @@ async def _get_base_url_for_doc(doc: Document, db) -> str:
             if org_result and org_result.custom_domain_verified and org_result.custom_domain:
                 return f"https://{org_result.custom_domain}"
         except Exception:
-            pass
+            # Falls back to the default base URL below — not fatal, but log
+            # it: a silently-broken custom-domain lookup would otherwise
+            # never surface, and the link would just quietly use the wrong host.
+            logger.warning("links: custom-domain lookup failed for org %s", doc.org_id, exc_info=True)
     return settings.app_public_base_url
 
 
 def _link_to_summary(link: ShareLink, base_url: str = "") -> LinkSummary:
-    now = datetime.now(timezone.utc)
-    expires = link.expires_at
-    if expires and expires.tzinfo is None:
-        expires = expires.replace(tzinfo=timezone.utc)
+    is_active = is_link_active(link)
 
-    is_active = (
-        link.revoked_at is None
-        and (expires is None or expires > now)
-        and (link.max_views is None or link.view_count < link.max_views)
-    )
-    
     permissions = None
     if link.permissions:
         try:
@@ -160,6 +155,12 @@ async def create_link(
                 "label": link.label,
             },
         )
+        # link_svc.create_link() already committed its own transaction above —
+        # log_audit_event() only adds+flushes (never commits), so without this
+        # the audit row is silently rolled back when the request-scoped session
+        # closes. Confirmed live: link.created never appeared in the audit log
+        # despite this call executing on every request.
+        await db.commit()
     except Exception:
         pass
 
@@ -243,6 +244,9 @@ async def revoke_link(
             target_id=str(link_id),
             details={"document_id": str(revoked.document_id), "token": revoked.token[:8] + "..."},
         )
+        # link_svc.revoke_link() already committed its own transaction above —
+        # see the matching comment on link.created for why this commit is required.
+        await db.commit()
     except Exception:
         pass
 
@@ -334,6 +338,10 @@ async def update_link(
                 "changed": sorted(payload.model_fields_set),
             },
         )
+        # The field updates above were already committed at db.commit() a few
+        # lines up — see the matching comment on link.created for why this
+        # second commit is required for the audit row itself to persist.
+        await db.commit()
     except Exception:
         pass
 

@@ -17,6 +17,29 @@ from app.services.policy import enforcer
 logger = logging.getLogger(__name__)
 
 
+def is_link_active(link: ShareLink, now: Optional[datetime] = None) -> bool:
+    """Pure predicate: is this link currently usable (not revoked/expired/view-capped)?
+
+    Single source of truth for "is this link active" — shared by the links-list
+    summary (a display flag) and anything else that needs the same check without
+    the raise-with-analytics-logging behavior `LinkService.validate_link` has.
+    """
+    now = now or datetime.now(timezone.utc)
+    if link.revoked_at is not None:
+        return False
+    expires = link.expires_at
+    if expires is not None:
+        if expires.tzinfo is None:
+            expires = expires.replace(tzinfo=timezone.utc)
+        # Matches validate_link()'s enforcement exactly: `expires < now` is the
+        # actual expired condition, so a link is still active AT expires itself.
+        if expires < now:
+            return False
+    if link.max_views is not None and link.view_count >= link.max_views:
+        return False
+    return True
+
+
 @dataclass
 class ValidationResult:
     link: ShareLink

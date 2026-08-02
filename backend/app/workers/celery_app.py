@@ -11,7 +11,7 @@ celery_app = Celery(
     "securedoc",
     broker=settings.redis_url,
     backend=settings.redis_url,
-    include=["app.workers.tasks", "app.workers.cleanup"],
+    include=["app.workers.tasks", "app.workers.cleanup", "app.workers.webhook_tasks"],
 )
 
 celery_app.conf.update(

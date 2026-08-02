@@ -26,7 +26,7 @@ from app.services.storage import get_storage_service
 from app.config import settings
 from app.metrics import upload_duration_seconds, document_uploads_total
 from app.middleware.rate_limit import limiter
-from app.auth import get_current_user, require_scope
+from app.auth import require_scope
 from app.models.billing import UserBilling, PLAN_PRO
 
 router = APIRouter(prefix="/api/documents", tags=["documents"])
@@ -253,6 +253,21 @@ async def upload_document(
     await db.commit()
     logger.info("Document %s uploaded by user %s (%s)", doc_id, user_uuid, original_filename)
 
+    # Audit log: document.uploaded
+    try:
+        from app.services.audit_service import log_audit_event as _log_audit
+        await _log_audit(
+            db,
+            event_type="document.uploaded",
+            actor_user_id=user["user_id"],
+            org_id=str(resolved_org_id) if resolved_org_id else None,
+            target_type="document",
+            target_id=str(doc_id),
+            details={"filename": original_filename, "file_type": file_type, "size_bytes": len(file_bytes)},
+        )
+    except Exception:
+        pass
+
     # Trigger processing: demo mode runs in-process; production queues a Celery task
     if os.getenv("USE_DEMO_STORAGE") == "1":
         logger.info("Demo mode: scheduling in-process rendering for document %s", doc_id)
@@ -459,7 +474,6 @@ async def _get_accessible_document(
     document_id: uuid.UUID, user: dict, db
 ) -> Document:
     """Return document if user owns it or is a member of the document's org."""
-    from sqlalchemy import or_ as _or
     from app.models.org import OrgMembership as _OrgMembership
     user_uuid = uuid.UUID(user["user_id"])
 

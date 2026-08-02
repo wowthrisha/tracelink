@@ -19,8 +19,11 @@ async def log_audit_event(
     ip_hash: Optional[str] = None,
 ) -> None:
     """
-    Write an immutable audit log entry.  Never raises — caller wraps in
-    try/except to prevent audit failure from breaking the primary operation.
+    Write an immutable audit log entry.
+
+    Never raises — every failure path (bad UUID, DB error, etc.) is caught
+    and logged internally below. Callers do NOT need to wrap this call in
+    their own try/except; doing so is redundant.
     """
     try:
         entry = AdminAuditLog(

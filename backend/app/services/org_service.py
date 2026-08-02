@@ -3,10 +3,10 @@ import uuid
 from typing import Optional
 
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.org import ORG_ROLES, OrgMembership, Organization, role_gte
+from app.models.org import OrgMembership, Organization, role_gte
 
 
 def _slugify(name: str) -> str:
@@ -42,6 +42,23 @@ async def require_role(
             detail=f"Requires {minimum_role} role or higher",
         )
     return member
+
+
+async def ensure_not_last_owner(db: AsyncSession, org_id: uuid.UUID) -> None:
+    """Raise 409 if the org currently has only one owner.
+
+    Shared by both the role-downgrade and member-removal paths — an org
+    losing its last owner would become permanently unmanageable.
+    """
+    owner_count_result = await db.execute(
+        select(func.count()).select_from(OrgMembership).where(
+            OrgMembership.org_id == org_id, OrgMembership.role == "owner"
+        )
+    )
+    if (owner_count_result.scalar() or 0) <= 1:
+        raise HTTPException(
+            status_code=409, detail="Cannot remove the last owner from the organization"
+        )
 
 
 async def ensure_unique_slug(db: AsyncSession, slug: str, exclude_id: Optional[uuid.UUID] = None) -> str:

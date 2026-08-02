@@ -14,10 +14,19 @@ AUDIT_EVENT_TYPES = frozenset({
     "member.role_changed",
     "member.removed",
     "api_key.created",
+    "api_key.rotated",
     "api_key.revoked",
     "api_key.deleted",
     "document.deleted",
+    "document.uploaded",
+    "link.created",
+    "link.updated",
     "link.revoked",
+    "link.deleted",
+    "webhook.created",
+    "webhook.updated",
+    "webhook.deleted",
+    "document.retention_changed",
 })
 
 

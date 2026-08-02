@@ -297,6 +297,58 @@ class TestRBAC:
         # admin rank < owner rank → admin granting owner → blocked
         assert not role_gte("admin", "owner")
 
+    @pytest.mark.asyncio
+    async def test_viewer_can_leave_org(self, client, db_session):
+        """A plain viewer/editor member must be able to remove themselves (leave org),
+        even though they lack the admin role required to remove other members."""
+        from app.auth import get_current_user
+        from app.main import app
+
+        cr = await client.post("/api/orgs", json={"name": "RBAC Org 4"})
+        org_id = cr.json()["id"]
+
+        user_b_id = str(uuid.uuid4())
+        await client.post(f"/api/orgs/{org_id}/members", json={"user_id": user_b_id, "role": "viewer"})
+
+        original = app.dependency_overrides.get(get_current_user)
+        app.dependency_overrides[get_current_user] = lambda: {
+            "user_id": user_b_id, "email": "b@test.com",
+            "role": "authenticated", "scopes": [], "auth_method": "jwt",
+        }
+        try:
+            r = await client.delete(f"/api/orgs/{org_id}/members/{user_b_id}")
+            assert r.status_code == 204
+        finally:
+            if original:
+                app.dependency_overrides[get_current_user] = original
+
+    @pytest.mark.asyncio
+    async def test_viewer_cannot_remove_other_member(self, client, db_session):
+        """A viewer must still be blocked from removing someone else — only
+        self-removal is exempt from the admin-role requirement."""
+        from app.auth import get_current_user
+        from app.main import app
+
+        cr = await client.post("/api/orgs", json={"name": "RBAC Org 5"})
+        org_id = cr.json()["id"]
+
+        user_b_id = str(uuid.uuid4())
+        user_c_id = str(uuid.uuid4())
+        await client.post(f"/api/orgs/{org_id}/members", json={"user_id": user_b_id, "role": "viewer"})
+        await client.post(f"/api/orgs/{org_id}/members", json={"user_id": user_c_id, "role": "viewer"})
+
+        original = app.dependency_overrides.get(get_current_user)
+        app.dependency_overrides[get_current_user] = lambda: {
+            "user_id": user_b_id, "email": "b@test.com",
+            "role": "authenticated", "scopes": [], "auth_method": "jwt",
+        }
+        try:
+            r = await client.delete(f"/api/orgs/{org_id}/members/{user_c_id}")
+            assert r.status_code == 403
+        finally:
+            if original:
+                app.dependency_overrides[get_current_user] = original
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Action 17: Admin Audit Logs

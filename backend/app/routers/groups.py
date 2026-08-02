@@ -7,7 +7,7 @@ from app.database import get_db
 from app.models.group import DocumentGroup
 from app.models.document import Document
 from app.schemas.group import GroupCreateRequest, GroupUpdateRequest, GroupResponse
-from app.auth import get_current_user
+from app.auth import require_scope
 
 router = APIRouter(prefix="/api/groups", tags=["groups"])
 
@@ -26,7 +26,7 @@ def _group_to_response(group: DocumentGroup, doc_count: int) -> GroupResponse:
 @router.get("", response_model=dict)
 async def list_groups(
     db: AsyncSession = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: dict = Depends(require_scope("documents:read")),
 ):
     user_uuid = uuid.UUID(user["user_id"])
     result = await db.execute(
@@ -54,7 +54,7 @@ async def list_groups(
 async def create_group(
     payload: GroupCreateRequest,
     db: AsyncSession = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: dict = Depends(require_scope("documents:write")),
 ):
     user_uuid = uuid.UUID(user["user_id"])
 
@@ -84,7 +84,7 @@ async def create_group(
 async def get_group(
     group_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: dict = Depends(require_scope("documents:read")),
 ):
     user_uuid = uuid.UUID(user["user_id"])
     result = await db.execute(
@@ -109,7 +109,7 @@ async def update_group(
     group_id: uuid.UUID,
     payload: GroupUpdateRequest,
     db: AsyncSession = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: dict = Depends(require_scope("documents:write")),
 ):
     user_uuid = uuid.UUID(user["user_id"])
     result = await db.execute(
@@ -154,7 +154,7 @@ async def update_group(
 async def delete_group(
     group_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: dict = Depends(require_scope("documents:write")),
 ):
     user_uuid = uuid.UUID(user["user_id"])
     result = await db.execute(
@@ -183,7 +183,7 @@ async def assign_documents_to_group(
     group_id: uuid.UUID,
     body: dict,
     db: AsyncSession = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: dict = Depends(require_scope("documents:write")),
 ):
     """Assign a list of document IDs to a group. Pass document_ids: [uuid, ...]."""
     user_uuid = uuid.UUID(user["user_id"])
@@ -200,17 +200,19 @@ async def assign_documents_to_group(
         raise HTTPException(status_code=404, detail="Group not found")
 
     doc_ids = body.get("document_ids", [])
-    assigned = 0
+    doc_uuids = []
     for doc_id in doc_ids:
         try:
-            doc_uuid = uuid.UUID(str(doc_id))
+            doc_uuids.append(uuid.UUID(str(doc_id)))
         except ValueError:
             continue
-        doc_result = await db.execute(
-            select(Document).where(Document.id == doc_uuid, Document.user_id == user_uuid)
+
+    assigned = 0
+    if doc_uuids:
+        docs_result = await db.execute(
+            select(Document).where(Document.id.in_(doc_uuids), Document.user_id == user_uuid)
         )
-        doc = doc_result.scalar_one_or_none()
-        if doc:
+        for doc in docs_result.scalars().all():
             doc.group_id = group_id
             assigned += 1
 
@@ -223,7 +225,7 @@ async def remove_document_from_group(
     group_id: uuid.UUID,
     document_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: dict = Depends(require_scope("documents:write")),
 ):
     """Remove a single document from its group."""
     user_uuid = uuid.UUID(user["user_id"])
