@@ -403,6 +403,39 @@ Reading the full canonical-source list per V16.0's instructions surfaced 10 item
 - **Status**: Open — a CD job is infrastructure/deployment-policy work (what to push to, what triggers a release, rollback strategy) requiring an ops decision, not a pure code fix
 - **Owner**: Unassigned (needs deployment-target decision before implementation)
 
+### ENG-035 — Reading Insights link permission has no UI toggle; feature unreachable from the product
+- **Source**: found during V21.0's targeted verification of the `show_reading_insights` comparative-insights feature (a body of work committed this same sprint, see commits `87d2c7d`/`b87aae2`/`28bb563`).
+- **Evidence**: Source-verified — `backend/app/services/viewer_session_service.py` and `backend/app/routers/reading.py` fully implement the gated comparative-insights feature (difficulty, this-page average, pace-vs-average, nulled server-side unless the link's `show_reading_insights` permission is `true`), but `frontend/src/screens/AccessScreen.jsx`'s create-link and edit-link permission-toggle grids had no `show_reading_insights` entry in either the state default or the rendered label map — the flag could only ever be set via a direct API call, never through the product UI.
+- **Severity**: Medium (a fully-built, tested backend feature was completely unreachable by any user — not a data-correctness bug, but the feature had zero real-world usability)
+- **Status**: **Closed** (2026-08-02, V21.0) — added `show_reading_insights: false` to both permission-state defaults and `show_reading_insights: 'Reading Insights'` to both label maps in `AccessScreen.jsx`, matching the existing 7-toggle pattern exactly (same `Toggle` component, same `Object.entries(...).map()` render, same `setPermissions` update). No backend change needed — the persistence/gating logic was already correct.
+- **Owner**: Engineering (V21.0) — closed
+- **Verification method**: Source-verified (confirmed `link.permissions` arrives as an already-parsed object from `/api/links`'s `_link_to_summary`, not a raw JSON string, so the new toggle round-trips correctly) + lint/test/build-verified (eslint exit 0, 13/13 frontend tests, build 309.1kb). No browser-automation tool available in this environment — not claimed as Browser Verified; the toggle follows an identical, already-working pattern used by 7 sibling toggles in the same component.
+
+### ENG-036 — Reading Insights "average page time" silently included the requesting viewer's own session
+- **Source**: found during the same V21.0 verification pass as ENG-035.
+- **Evidence**: Source-verified — `reading_analytics_service.py`'s `get_viewer_session_summary()` computed `current_page_avg_ms` via `AVG(PageReadingEvent.active_time_ms)` filtered only on `document_id`+`page_number`, with no exclusion of the requesting viewer's own `session_id` — unlike the sibling `pace_vs_average` calculation 7 lines below it, which explicitly excludes `session_id != session_id`. The UI presents this value as "most readers spend about X on this page," which was misleading whenever the requesting viewer was the only (or first) reader of that page — the app would echo the viewer's own time back to them framed as a comparison to other readers.
+- **Severity**: Low-Medium (misleading UI copy in an edge case, not a security or data-integrity issue; only manifests before a second reader has visited the same page)
+- **Status**: **Closed** (2026-08-02, V21.0) — added `PageReadingEvent.session_id != session_id` to the query's `WHERE` clause, matching the established `pace_vs_average` exclusion pattern immediately below it in the same function.
+- **Owner**: Engineering (V21.0) — closed
+- **Verification method**: Test Verified — the pre-existing test `test_viewer_session_insights_shown_when_enabled` was asserting the buggy self-inclusive behavior as correct (`current_page_avg_ms is not None` with only one session on the document); running the fix against it caught the regression immediately (`assert None is not None` failure), confirming both the bug and the fix. Corrected the test's expectation (renamed to `..._single_session`, now asserts `None` when no other session exists) and added a new positive-case test (`test_viewer_session_current_page_avg_excludes_own_session`) with two sessions of deliberately very different active-time values (20,000ms vs. 500,000ms), asserting the returned average exactly equals the *other* session's value — proving self-exclusion, not just absence-of-crash. Full backend suite: 1706 passed (1705 + 1 new test)/1 skipped/0 failed.
+
+### ENG-037 — `is_link_active()`'s "single source of truth" claim is inaccurate; enforcement path still duplicates the logic
+- **Source**: found during V21.0's security re-verification of the just-committed Sprint V6.0 governance-fix batch (commit `87d2c7d`).
+- **Evidence**: Source-verified — commit `87d2c7d` and `docs/engineering/FIX_LOG.md`'s Sprint V6.0 section both claim `is_link_active(link, now)` is "a single pure predicate... now shared by the router's display flag and the service's actual enforcement." Grepping `is_link_active` across `backend/app/` shows exactly 2 references: the definition and one call site in `links.py:70` (`_link_to_summary`, a pure display field). The actual enforcement path, `LinkService.validate_link()` (`link_service.py:106-278`), does **not** call `is_link_active` — it retains its own separately-written revoked/expired inline checks. Per this sprint's Section 0 rule ("if old documentation conflicts with current implementation, current verified behaviour wins — document the discrepancy and correct the backlog"), correcting this here.
+- **Current risk**: none live — both independent implementations currently agree at the exact expiry boundary (verified by reading both). This is a documentation-accuracy correction and a future-maintainability risk (the exact class of bug the original refactor was meant to prevent — two independently-maintained copies of "is this link active" that could silently drift apart again), not a live authorization bug.
+- **Severity**: Low (no current defect; fragility risk if either copy is edited without remembering the other exists)
+- **Status**: Open — completing the refactor means routing `validate_link()`'s enforcement through the shared predicate, which touches the single highest-stakes function in the app (real access enforcement for every share-link view). Deliberately not done as a same-sprint drive-by fix; needs its own dedicated test cycle (all revoked/expired/max-views boundary tests re-run against the consolidated path) rather than folding into this sprint's broader work.
+- **Owner**: Unassigned — low urgency, moderate care required when picked up
+- **Verification method**: Source-verified (grepped all callers, read both implementations side by side, confirmed current agreement)
+
+### ENG-038 — `ensure_not_last_owner()` has an unguarded TOCTOU race (pre-existing, not introduced by this sprint)
+- **Source**: found during the same V21.0 security re-verification pass as ENG-037.
+- **Evidence**: Source-verified — `org_service.py`'s `ensure_not_last_owner()` (extracted from 2 previously-duplicated inline copies in commit `87d2c7d`) does a plain `SELECT count(*)` with no row locking (`FOR UPDATE`) before allowing an owner-demote or owner-removal to proceed. Two concurrent requests could both read "owner count = 2" and both pass the check before either commits, leaving an org with zero owners. Confirmed via `git show 87d2c7d` that this exact unguarded pattern already existed, duplicated, before the refactor — extracting it into a shared function is behavior-preserving, not a new or worsened regression.
+- **Severity**: Low (requires two genuinely concurrent requests from an org's last two owners acting on themselves/each other at the same instant — a narrow race window, and the blast radius is an orgless-owner state, not data loss or unauthorized access)
+- **Status**: Open — needs a `SELECT ... FOR UPDATE` (or equivalent row lock) added to the count query, with a dedicated concurrency test (2 simultaneous requests against a 2-owner org) to prove the fix actually closes the window rather than just adding a lock that isn't exercised by any test
+- **Owner**: Unassigned
+- **Verification method**: Source-verified (read the query, confirmed no locking clause) + Git history verified (confirmed pre-existing via `git show` on the prior duplicated inline copies)
+
 ## Explicitly not on this backlog (verified non-issues)
 
 - **Storage screen usage bars** (`FIXES_TODO.md` §5) — investigated and ruled out; the fill-bar computation is correct (`width: 0.0032554%` for a 328-byte file, verified via DOM inline-style inspection). An earlier automated check mismeasured the empty track div. No action needed.
@@ -449,6 +482,10 @@ Reading the full canonical-source list per V16.0's instructions surfaced 10 item
 | ENG-032 | Security config defaults hardcoded, no production guard | Medium | 32 | **Closed — no longer reproducible** |
 | ENG-033 | PROF-001: no profile/account-settings screen | High | 33 | Open (needs product/design input) |
 | ENG-034 | No CD/deploy job in CI pipeline | Medium | 34 | Open (needs ops decision) |
+| ENG-035 | Reading Insights permission has no UI toggle | Medium | 35 | **Closed** |
+| ENG-036 | Reading Insights "average page time" self-inclusive | Low-Medium | 36 | **Closed** |
+| ENG-037 | `is_link_active()` not actually used by enforcement path | Low | 37 | Open (low urgency, needs care) |
+| ENG-038 | `ensure_not_last_owner()` TOCTOU race (pre-existing) | Low | 38 | Open |
 
 **Critical: 0. High: 3 (all closed). Medium: 5 (2 closed, 1 deferred, 2 new: 1 deferred, 1 open). Low: 14 (5 closed, 3 deferred, 6 open). Enhancement: 8.**
 

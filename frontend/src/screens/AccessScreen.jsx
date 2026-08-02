@@ -70,6 +70,7 @@ export function AccessScreen({ doc, onSelectDoc, defaultTab }) {
     watermark_enabled: true,
     can_annotate: false,
     enable_info: true,
+    show_reading_insights: false,
   });
 
   const docName = doc?.filename || doc?.name || 'Document';
@@ -314,6 +315,7 @@ export function AccessScreen({ doc, onSelectDoc, defaultTab }) {
                       watermark_enabled: 'Watermark',
                       can_annotate: 'Annotations',
                       enable_info: 'Info Panel',
+                      show_reading_insights: 'Reading Insights',
                     }).map(([key, labelText]) => (
                       <div key={key} style={{
                         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
@@ -917,7 +919,7 @@ function EditLinkModal({ link, saving, onClose, onSave }) {
   const [ipAllowlist, setIpAllowlist] = useState((link.ip_allowlist || []).join(', '));
   const [permissions, setPermissions] = useState(link.permissions || {
     can_download: false, can_print: false, can_copy: false, can_right_click: false,
-    watermark_enabled: true, can_annotate: false, enable_info: true,
+    watermark_enabled: true, can_annotate: false, enable_info: true, show_reading_insights: false,
   });
 
   const toast = useToast();
@@ -977,7 +979,7 @@ function EditLinkModal({ link, saving, onClose, onSave }) {
             {Object.entries({
               can_download: 'Download', can_print: 'Print', can_copy: 'Copy Text',
               can_right_click: 'Right Click', watermark_enabled: 'Watermark',
-              can_annotate: 'Annotations', enable_info: 'Info Panel',
+              can_annotate: 'Annotations', enable_info: 'Info Panel', show_reading_insights: 'Reading Insights',
             }).map(([key, labelText]) => (
               <div key={key} style={{
                 display: 'flex', alignItems: 'center', justifyContent: 'space-between',

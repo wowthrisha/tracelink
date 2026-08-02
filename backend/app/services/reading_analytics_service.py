@@ -960,6 +960,7 @@ class ReadingAnalyticsService:
             select(func.avg(PageReadingEvent.active_time_ms)).where(
                 PageReadingEvent.document_id == rs.document_id,
                 PageReadingEvent.page_number == current_page,
+                PageReadingEvent.session_id != session_id,
             )
         )
         avg_page_time_ms = avg_page_time_result.scalar()

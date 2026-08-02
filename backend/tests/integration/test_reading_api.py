@@ -296,10 +296,13 @@ async def test_viewer_session_insights_hidden_by_default(client, db_session, sam
 
 
 @pytest.mark.asyncio
-async def test_viewer_session_insights_shown_when_enabled(client, db_session, sample_document_in_db):
-    """When show_reading_insights=True on the link, difficulty and current_page_avg_ms
-    are populated (pace_vs_average requires a second session to compare against, so
-    it's asserted separately as None here rather than faked)."""
+async def test_viewer_session_insights_shown_when_enabled_single_session(client, db_session, sample_document_in_db):
+    """When show_reading_insights=True on the link, difficulty is always populated.
+    current_page_avg_ms and pace_vs_average both require at least one OTHER session's
+    data to compare against (both queries explicitly exclude the requesting viewer's
+    own session_id, per ENG — a session must never be compared against itself) — with
+    only one session on the document, both stay None rather than echoing the viewer's
+    own numbers back as if they were "other readers"."""
     from app.services.link_service import LinkService
 
     link_svc = LinkService()
@@ -324,9 +327,51 @@ async def test_viewer_session_insights_shown_when_enabled(client, db_session, sa
     assert resp.status_code == 200
     data = resp.json()
     assert data["difficulty"] in ("Easy", "Moderate", "Complex")
-    assert data["current_page_avg_ms"] is not None and data["current_page_avg_ms"] >= 0
-    # Only one session exists for this document — no other session to compare pace against.
+    # No OTHER session exists for this document — must not self-compare.
+    assert data["current_page_avg_ms"] is None
     assert data["pace_vs_average"] is None
+
+
+@pytest.mark.asyncio
+async def test_viewer_session_current_page_avg_excludes_own_session(client, db_session, sample_document_in_db):
+    """current_page_avg_ms must reflect OTHER readers' time on the current page, not
+    the requesting viewer's own — with a second session's data present, the value
+    must come from that other session, not be pulled from the requester's own batch."""
+    from app.services.link_service import LinkService
+
+    link_svc = LinkService()
+    link = await link_svc.create_link(
+        db_session,
+        document_id=str(sample_document_in_db.id),
+        label="Insights-enabled link, 2 sessions",
+        permissions={"show_reading_insights": True},
+    )
+
+    session_a = "sessionaaaaaaaaaaaaaaaaaaaaaaaaa"[:32]
+    session_b = "sessionbbbbbbbbbbbbbbbbbbbbbbbbb"[:32]
+    with patch("app.routers.reading.enforcer") as mock_enforcer:
+        mock_enforcer.is_active_session = AsyncMock(return_value=True)
+        # Other reader (session_b) spent exactly 20_000ms active on page 1.
+        await client.post("/api/reading/batch", json={
+            "token": link.token,
+            "session_id": session_b,
+            "page_data": [{"page_number": 1, "active_time_ms": 20_000, "completion_status": "completed"}],
+            "session_meta": _session_meta(elapsed=20_000, active=20_000, page_count=3, current_page=1),
+        })
+        # Requesting reader (session_a) spent a very different 500_000ms on page 1 —
+        # if the query were still self-inclusive, this would skew/dominate the average.
+        await client.post("/api/reading/batch", json={
+            "token": link.token,
+            "session_id": session_a,
+            "page_data": [{"page_number": 1, "active_time_ms": 500_000, "completion_status": "completed"}],
+            "session_meta": _session_meta(elapsed=500_000, active=500_000, page_count=3, current_page=1),
+        })
+        resp = await client.get(f"/api/reading/session/{session_a}", params={"token": link.token})
+
+    assert resp.status_code == 200
+    data = resp.json()
+    # Must equal session_b's 20_000ms exactly — proves session_a's own 500_000ms was excluded.
+    assert data["current_page_avg_ms"] == 20_000
 
 
 @pytest.mark.asyncio
