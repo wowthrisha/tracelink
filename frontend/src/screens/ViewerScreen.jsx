@@ -19,7 +19,7 @@ import { ReadingStatusBar } from '../components/ReadingStatusBar.jsx';
 import { LinksPanel } from '../components/LinksPanel.jsx';
 import { TocSidebar } from '../components/TocSidebar.jsx';
 import { PageThumb } from '../components/PageThumb.jsx';
-import { Modal, Header } from '../components/atoms.jsx';
+import { Modal, Header, Btn } from '../components/atoms.jsx';
 import { AccessGate } from '../components/AccessGate.jsx';
 import { ViewerInfoPanel } from '../components/ViewerInfoPanel.jsx';
 import { AnnotationLayer } from '../components/AnnotationLayer.jsx';
@@ -90,6 +90,7 @@ export function ViewerScreen({ doc, publicToken, onSelectDoc, onBack, ownerEmail
     imgSrc2, imgLoading2, page2Error,
     pageAspectRatio, setPageAspectRatio,
     pageImgRef, pageContainerRef,
+    retryPage,
   } = usePageLoader({ session, page, twoPageMode, isTextDoc, onAuth401: () => reinitRef.current?.() });
 
   const isTwoPage = twoPageMode;
@@ -138,7 +139,7 @@ export function ViewerScreen({ doc, publicToken, onSelectDoc, onBack, ownerEmail
   const docReadyLatchRef = useRef(false);
   if (session && imgReady) docReadyLatchRef.current = true;
   const isDocumentReady = docReadyLatchRef.current;
-  const { display: readingDisplay } = useReadingAnalytics(session, page, PAGE_COUNT, isDocumentReady);
+  const { display: readingDisplay, insights: readingInsights } = useReadingAnalytics(session, page, PAGE_COUNT, isDocumentReady);
 
   useEffect(() => {
     if (document.getElementById('sdoc-vx-styles')) return;
@@ -191,7 +192,10 @@ export function ViewerScreen({ doc, publicToken, onSelectDoc, onBack, ownerEmail
         showInsights={showInsights} setShowInsights={v => {
           setShowInsights(v);
           const heatmapDocId = doc?.id || session?.document_id;
-          if (v && heatmapDocId) {
+          // Owner-preview only — these endpoints require analytics:read and will
+          // 401 + force-reload a public share-link viewer's session (see
+          // FIX_LOG.md, INSIGHTS-PUBLIC-001).
+          if (v && heatmapDocId && !publicToken) {
             // Fetch legacy page heatmap
             if (!insightsData && !insightsLoading) {
               setInsightsLoading(true);
@@ -214,7 +218,7 @@ export function ViewerScreen({ doc, publicToken, onSelectDoc, onBack, ownerEmail
             }
           }
         }}
-        hasInsights={!!(doc?.id || session?.document_id)}
+        hasInsights={!publicToken && !!(doc?.id || session?.document_id)}
         showLinks={showLinks} setShowLinks={setShowLinks}
         linksCount={linksLoaded ? (pageLinksRef.current[page] || []).length : 0}
         isFullscreen={isFullscreen} toggleFullscreen={toggleFullscreen}
@@ -289,7 +293,7 @@ export function ViewerScreen({ doc, publicToken, onSelectDoc, onBack, ownerEmail
       )}
 
       {/* Feature 7: Insights modal — fixed overlay, owner-only */}
-      {showInsights && (doc?.id || session?.document_id) && (
+      {showInsights && !publicToken && (doc?.id || session?.document_id) && (
         <InsightsModal
           docName={docName}
           loading={insightsLoading}
@@ -499,6 +503,7 @@ export function ViewerScreen({ doc, publicToken, onSelectDoc, onBack, ownerEmail
                 <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: C.surface, flexDirection: 'column', gap: 10, padding: '20px 24px' }}>
                   <span style={{ fontSize: 22, color: 'rgba(224,154,69,0.7)' }}>⚠</span>
                   <span style={{ ...mono, fontSize: 11, color: C.textMuted, textAlign: 'center', lineHeight: 1.5 }}>{pageError}</span>
+                  <Btn variant="secondary" size="sm" onClick={retryPage}>Retry</Btn>
                 </div>
               )}
 
@@ -780,6 +785,7 @@ export function ViewerScreen({ doc, publicToken, onSelectDoc, onBack, ownerEmail
       {session && (
         <ReadingStatusBar
           display={readingDisplay}
+          insights={readingInsights}
           page={page}
           pageCount={PAGE_COUNT}
         />

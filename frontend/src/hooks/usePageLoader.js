@@ -126,8 +126,12 @@ export function usePageLoader({ session, page, twoPageMode, isTextDoc, onAuth401
         setPageError(null);
         // imgReady set by onLoad handler to trigger crossfade after browser decodes image
       } catch {
-        console.warn('[SecureDoc] page fetch network error, falling back to img src', url);
-        setImgSrc(url);
+        // Network error (fetch never completed) — do NOT fall back to a bare
+        // <img src> here: page images require the X-Session-ID header, which
+        // an <img> tag cannot send, so that "fallback" always 400s silently
+        // with no error shown. Surface a real, actionable error instead.
+        console.error('[SecureDoc] page fetch network error', url);
+        setPageError('Network error loading this page. Check your connection and try again.');
         setImgReady(true);
       } finally {
         setImgLoading(false);
@@ -138,6 +142,13 @@ export function usePageLoader({ session, page, twoPageMode, isTextDoc, onAuth401
     inflightRef.current.set(key, fetchPromise);
     await fetchPromise;
   }, []);
+
+  // Manual retry for a failed page — bypasses nothing special, just re-runs
+  // loadPage for the current page (cache was never populated on failure).
+  const retryPage = useCallback(() => {
+    if (!session) return;
+    loadPage(session.link_token, page, session.session_id);
+  }, [session, page, loadPage]);
 
   const prefetchPage = useCallback((token, pageNum, sessionId, total) => {
     if (pageNum < 1 || pageNum > total) return;
@@ -238,5 +249,6 @@ export function usePageLoader({ session, page, twoPageMode, isTextDoc, onAuth401
     pageAspectRatio, setPageAspectRatio,
     pageImgRef,
     pageContainerRef,
+    retryPage,
   };
 }

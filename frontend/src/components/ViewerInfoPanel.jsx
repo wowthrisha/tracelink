@@ -1,9 +1,12 @@
 import { C, mono } from '../constants/tokens.js';
+import { _errMsg } from '../utils/viewer.js';
+import { useToast } from '../contexts/toast.jsx';
 import { SectionLabel, RiskBadge, StatusDot, Divider } from './atoms.jsx';
 
 const { useState } = React;
 
 export function ViewerInfoPanel({ doc, docId, page, session, pageCount, onSidecarExtract }) {
+  const toast = useToast();
   const [extracting, setExtracting] = useState(false);
   const [extractDone, setExtractDone] = useState(false);
   const hasAuth = !!(typeof localStorage !== 'undefined' && localStorage.getItem?.('securedoc_token'));
@@ -18,7 +21,9 @@ export function ViewerInfoPanel({ doc, docId, page, session, pageCount, onSideca
       await window.SecureDocAPI.extractSidecars(eid);
       setExtractDone(true);
       onSidecarExtract?.();
-    } catch {}
+    } catch (err) {
+      toast(_errMsg(err, 'Failed to start extraction — try again.'), 'error');
+    }
     finally { setExtracting(false); }
   };
 

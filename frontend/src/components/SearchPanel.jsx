@@ -4,6 +4,7 @@ export function SearchPanel({ session, onClose, onNavigate, onQueryChange, onAct
   const [query, setQuery] = useState('');
   const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [searchError, setSearchError] = useState(false);
   const [currentIdx, setCurrentIdx] = useState(0);
   const inputRef = useRef(null);
 
@@ -11,9 +12,10 @@ export function SearchPanel({ session, onClose, onNavigate, onQueryChange, onAct
 
   useEffect(() => {
     onQueryChange?.(query.trim());
-    if (!query.trim() || !session) { setResults([]); onActiveChange?.(0); onResultsChange?.([]); return; }
+    if (!query.trim() || !session) { setResults([]); setSearchError(false); onActiveChange?.(0); onResultsChange?.([]); return; }
     const timer = setTimeout(async () => {
       setLoading(true);
+      setSearchError(false);
       try {
         const data = await window.SecureDocAPI.searchDocument(
           session.link_token, query, session.session_id
@@ -26,6 +28,7 @@ export function SearchPanel({ session, onClose, onNavigate, onQueryChange, onAct
         if (found.length > 0) onNavigate(found[0].page);
       } catch {
         setResults([]);
+        setSearchError(true);
       } finally {
         setLoading(false);
       }
@@ -127,8 +130,8 @@ export function SearchPanel({ session, onClose, onNavigate, onQueryChange, onAct
       )}
 
       {!loading && query.trim() && results.length === 0 && (
-        <div style={{ fontSize: 11, color: 'rgba(148,160,176,0.6)', padding: '8px 2px 2px', fontFamily: "'DM Sans',sans-serif" }}>
-          No matches found
+        <div style={{ fontSize: 11, color: searchError ? 'rgba(224,90,69,0.85)' : 'rgba(148,160,176,0.6)', padding: '8px 2px 2px', fontFamily: "'DM Sans',sans-serif" }}>
+          {searchError ? 'Search failed — check your connection and try again.' : 'No matches found'}
         </div>
       )}
     </div>

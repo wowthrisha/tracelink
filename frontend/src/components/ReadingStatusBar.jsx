@@ -64,7 +64,13 @@ function Sep() {
   return <div style={{ width: 1, height: 16, background: 'rgba(90,200,208,0.1)', flexShrink: 0, alignSelf: 'center' }} />;
 }
 
-export function ReadingStatusBar({ display, page, pageCount }) {
+const PACE_SENTENCE = {
+  faster: 'You are reading faster than most readers.',
+  typical: 'You are reading at a typical pace for this document.',
+  slower: 'You are reading slower than most readers — that\'s okay, take your time.',
+};
+
+export function ReadingStatusBar({ display, insights, page, pageCount }) {
   const [expanded, setExpanded] = useState(false);
 
   if (!display) return null;
@@ -183,6 +189,7 @@ export function ReadingStatusBar({ display, page, pageCount }) {
           <Stat label="This page" value={_fmtMs(currentPageActiveMs)} sub="current page" />
           <Stat label="Avg / page" value={avgMsPerPage ? _fmtMs(avgMsPerPage) : '—'} sub={readingSpeedWpm ? `${readingSpeedWpm} wpm` : 'estimating…'} />
           <Stat label="Pages seen" value={pagesVisited > 0 ? pagesVisited : '—'} sub={pageCount > 0 ? `of ${pageCount}` : ''} />
+          {insights?.difficulty && <Stat label="Difficulty" value={insights.difficulty} />}
 
           {/* Progress gauge */}
           <div style={{ flex: 1, minWidth: 100, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end' }}>
@@ -203,6 +210,29 @@ export function ReadingStatusBar({ display, page, pageCount }) {
               color={completionPct >= 75 ? '#3DD68C' : completionPct >= 40 ? '#5AC8D0' : '#3A8A90'}
             />
           </div>
+        </div>
+      )}
+
+      {/* Comparative insights — only rendered when the uploader has enabled
+          "Reading Insights" on this link; otherwise `insights` stays null and
+          nothing here renders. */}
+      {expanded && (insights?.currentPageAvgMs || insights?.paceVsAverage) && (
+        <div style={{
+          borderTop: '1px solid rgba(90,200,208,0.07)',
+          padding: '8px 16px 10px',
+          display: 'flex', flexDirection: 'column', gap: 3,
+          background: 'rgba(6,8,9,0.6)',
+        }}>
+          {insights.currentPageAvgMs && (
+            <span style={{ fontSize: 10.5, color: 'rgba(176,196,200,0.85)' }}>
+              Most readers spend about {_fmtMs(insights.currentPageAvgMs)} on this page.
+            </span>
+          )}
+          {insights.paceVsAverage && (
+            <span style={{ fontSize: 10.5, color: 'rgba(176,196,200,0.85)' }}>
+              {PACE_SENTENCE[insights.paceVsAverage]}
+            </span>
+          )}
         </div>
       )}
     </div>

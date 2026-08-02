@@ -433,6 +433,37 @@ export function useReadingAnalytics(session, page, pageCount, isDocumentReady) {
     };
   }, [session, _flush]);
 
+  // ── Comparative insights (difficulty, this-page average, pace vs. other
+  // viewers) — this data is a cross-session server aggregate, unlike
+  // everything else in `display` above (which is computed entirely
+  // client-side from this viewer's own local timers). Fetched periodically
+  // rather than every second since it changes slowly. The backend returns
+  // nulls for all three fields unless the link owner has enabled
+  // `show_reading_insights`, so `insights` naturally stays null-shaped (and
+  // the panel hides itself) when the uploader hasn't opted in — no
+  // permission flag needs to be threaded through the frontend to know this.
+  const [insights, setInsights] = useState(null);
+
+  useEffect(() => {
+    if (!session?.link_token || !session?.session_id || !window.SecureDocAPI?.getViewerReadingSummary) return;
+    let cancelled = false;
+    const fetchInsights = () => {
+      window.SecureDocAPI.getViewerReadingSummary(session.link_token, session.session_id)
+        .then(data => {
+          if (cancelled || !data) return;
+          setInsights({
+            difficulty: data.difficulty ?? null,
+            currentPageAvgMs: data.current_page_avg_ms ?? null,
+            paceVsAverage: data.pace_vs_average ?? null,
+          });
+        })
+        .catch(() => {});
+    };
+    fetchInsights();
+    const timer = setInterval(fetchInsights, 20_000);
+    return () => { cancelled = true; clearInterval(timer); };
+  }, [session, page]);
+
   // ── Public surface ─────────────────────────────────────────────────────────
 
   const onScroll = useCallback((pct) => {
@@ -468,6 +499,7 @@ export function useReadingAnalytics(session, page, pageCount, isDocumentReady) {
 
   return {
     display,
+    insights,
     onScroll,
     onZoomChange,
     onFullscreen,
