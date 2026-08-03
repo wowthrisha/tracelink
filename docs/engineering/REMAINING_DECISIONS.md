@@ -137,7 +137,7 @@ Items requiring a product/legal/architecture decision before engineering can act
 
 ### RD-009 — AUTH-006: session token storage migration
 
-**Current state**: session token lives in `localStorage`, a real XSS-exposure vector. A complete, phased implementation plan already exists (`SECURITY_HARDENING_PLAN.md`) but has not been scheduled as its own initiative.
+**Current state**: session token lives in `localStorage`, a real XSS-exposure vector. A complete, phased implementation plan already exists (`docs/security/SECURITY_HARDENING_PLAN.md`) but has not been scheduled as its own initiative.
 **Decision needed**: when to schedule this as dedicated, tracked engineering work — not a product decision so much as a prioritization one, but explicitly called out per this sprint's own instruction not to partially implement security redesigns.
 **Estimated effort**: per the existing plan — Phase 0 (CORS + backend dual-read) 0.5–1 day, Phase 1 (frontend cutover + CSRF) 2–4 days, Phase 2 (header-path deprecation) 0.5 day.
 **Stakeholder**: Engineering leadership (prioritization), Security.

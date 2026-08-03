@@ -331,7 +331,7 @@ Reading the full canonical-source list per V16.0's instructions surfaced 10 item
 - **Source**: `ISSUE_DATABASE.md` M-14 (V4.0/Sprint7.0)
 - **Evidence**: Source-verified — `frontend/api.js`'s `authHeaders()` reads the bearer token from `localStorage`. A successful XSS on this origin could exfiltrate the token (session hijack), though `SECURITY_CERTIFICATION.md`'s live XSS testing this sprint (ENG-009) found no injectable field.
 - **Severity**: Medium-High in isolation (token-theft-via-XSS is a real class of risk) — **but** the actual exploit path requires a successful XSS first, and none has been found live or in source (zero `dangerouslySetInnerHTML` anywhere, JSX escaping confirmed working on every field tested).
-- **Status**: **Deferred, re-confirmed** — a full migration plan already exists (`SECURITY_HARDENING_PLAN.md`, referenced in `ISSUE_DATABASE.md`), and per this repo's own established policy, architecture migrations of this kind ("localStorage token → httpOnly cookie" is a real auth-model change touching CORS, CSRF posture, and every API client) are documented and planned, not partially patched mid-sprint. Re-confirming this deferral rather than silently carrying it: the risk is real but requires a *second* vulnerability (XSS) to be exploitable, and this sprint's XSS testing (ENG-009) found none live.
+- **Status**: **Deferred, re-confirmed** — a full migration plan already exists (`docs/security/SECURITY_HARDENING_PLAN.md`, referenced in `ISSUE_DATABASE.md`), and per this repo's own established policy, architecture migrations of this kind ("localStorage token → httpOnly cookie" is a real auth-model change touching CORS, CSRF posture, and every API client) are documented and planned, not partially patched mid-sprint. Re-confirming this deferral rather than silently carrying it: the risk is real but requires a *second* vulnerability (XSS) to be exploitable, and this sprint's XSS testing (ENG-009) found none live.
 - **Owner**: Unassigned (architecture decision + migration plan owner)
 
 ### ENG-027 — Modal-entrance-animation duration drifts (.15s/.18s/.22s/.25s)
@@ -436,6 +436,14 @@ Reading the full canonical-source list per V16.0's instructions surfaced 10 item
 - **Owner**: Unassigned
 - **Verification method**: Source-verified (read the query, confirmed no locking clause) + Git history verified (confirmed pre-existing via `git show` on the prior duplicated inline copies)
 
+### ENG-039 — API keys with zero scopes can still manage Organizations, other API Keys, and Billing
+- **Source**: `archive/sprint18-certification/MODULE_BOUNDARY_REPORT.md` (V18.0) — flagged there as "the most security-relevant finding in this report" but never carried into the backlog before that report was archived during V21.0's documentation consolidation. Correcting that gap now rather than letting the finding get lost.
+- **Evidence**: Source-verified, re-confirmed live during V21.0 (2026-08-02) — `backend/app/routers/documents.py`, `groups.py`, `links.py`, `webhooks.py`, `analytics.py`, `reading.py`, and `storage.py` all use scope-based `Depends(require_scope(...))` (an API key must hold the specific scope to call the endpoint). `backend/app/routers/orgs.py` (all 12 routes, including member invite/role-change/removal), `backend/app/routers/api_keys.py` (all 6 routes), and `backend/app/routers/billing.py` (all 3 routes) use only `Depends(get_current_user)` with no scope check at all. `require_scope()` only restricts `auth_method == "api_key"` callers — an API key created with zero scopes granted can still invite/remove organization members, rotate/revoke other API keys, and touch billing, as long as it authenticates. JWT/browser callers are unaffected either way (scope checks never apply to them).
+- **Severity**: Medium-High (a real permission-boundary gap for the API-key auth path specifically — not exploitable by an unauthenticated attacker, but an API key intentionally scoped narrowly by its creator does not actually enforce that narrowing for these 3 routers)
+- **Status**: Open — extending `require_scope` coverage to `orgs.py`/`api_keys.py`/`billing.py` (mirroring the existing pattern in the 7 already-compliant routers) is the clear fix, but it changes real authorization behavior for every existing API key using these routes today and needs its own dedicated test-and-verify cycle (what scope name(s) to introduce for org-management and billing-management, whether any existing integration relies on the current unscoped behavior) rather than a same-sprint drive-by fix
+- **Owner**: Unassigned — recommend a security-focused reviewer for the scope-naming and rollout design
+- **Verification method**: Source-verified (grepped every `Depends(` in all 10 relevant routers, confirmed the 7-vs-3 split)
+
 ## Explicitly not on this backlog (verified non-issues)
 
 - **Storage screen usage bars** (`FIXES_TODO.md` §5) — investigated and ruled out; the fill-bar computation is correct (`width: 0.0032554%` for a 328-byte file, verified via DOM inline-style inspection). An earlier automated check mismeasured the empty track div. No action needed.
@@ -486,6 +494,7 @@ Reading the full canonical-source list per V16.0's instructions surfaced 10 item
 | ENG-036 | Reading Insights "average page time" self-inclusive | Low-Medium | 36 | **Closed** |
 | ENG-037 | `is_link_active()` not actually used by enforcement path | Low | 37 | Open (low urgency, needs care) |
 | ENG-038 | `ensure_not_last_owner()` TOCTOU race (pre-existing) | Low | 38 | Open |
+| ENG-039 | API keys with zero scopes can manage Orgs/API-Keys/Billing | Medium-High | 39 | Open (needs security-reviewed rollout) |
 
 **Critical: 0. High: 3 (all closed). Medium: 5 (2 closed, 1 deferred, 2 new: 1 deferred, 1 open). Low: 14 (5 closed, 3 deferred, 6 open). Enhancement: 8.**
 

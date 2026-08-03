@@ -120,3 +120,28 @@ Discovered while staging this sprint's archiving commit: a second, never-committ
 | `PUBLIC_RELEASE_READINESS.md` | Version-numbering contradiction resolved by archiving the disagreeing docs (`ZERO_DEFECT_CERTIFICATION.md` lives in `docs/release/`, out of this batch's scope — flagged separately, not silently dropped); no-CD-pipeline gap re-added as `ENGINEERING_BACKLOG.md` ENG-034 |
 
 **Kept at root, not archived**: `SECURITY_HARDENING_PLAN.md` (actively cited by `ENGINEERING_BACKLOG.md` ENG-026 as the live migration plan for an open item) and `REPOSITORY_CERTIFICATION.md` (this sprint's own in-progress entry point).
+
+---
+
+## Sprint V21.0 — Newly Archived / Relocated (2026-08-02)
+
+V18.0's 6 certification deliverables had, by this sprint, served their purpose: every still-actionable finding in them had already been carried forward into `ENGINEERING_BACKLOG.md` (as ENG-032 through ENG-038). Per V21.0's explicit instruction not to leave multiple `FINAL_*`/certification-style documents scattered at root, and to consolidate toward one authoritative `docs/release/FINAL_RELEASE_CERTIFICATION.md`, these are archived now rather than kept indefinitely at root as V18.0's note above assumed they would be.
+
+### From repository root → `archive/sprint18-certification/`
+
+| File | Reason |
+|------|--------|
+| `REPOSITORY_CERTIFICATION.md` | V18.0 sprint entry point — sprint is long closed; superseded going forward by `docs/release/FINAL_RELEASE_CERTIFICATION.md` |
+| `DEAD_CODE_REPORT.md` | Point-in-time dead-code sweep; still-open findings (e.g. the annotation-subsystem private-boundary pattern) remain tracked in `ENGINEERING_BACKLOG.md`, not lost |
+| `DEPENDENCY_AUDIT.md` | Point-in-time dependency audit; fixes already applied and documented in `docs/engineering/FIX_LOG.md` |
+| `MODULE_BOUNDARY_REPORT.md` | Point-in-time architecture audit; the one security-relevant finding (API-key scope gaps in `orgs.py`/`api_keys.py`/`billing.py`) remains open and trackable — flagged here for a future backlog entry if not already covered |
+| `DOCUMENTATION_CLEANUP_PLAN.md` | Point-in-time plan; already executed (see V18.0 section above) |
+| `FINAL_REPOSITORY_SCORECARD.md` | Point-in-time scorecard; superseded by `docs/release/FINAL_RELEASE_CERTIFICATION.md` |
+
+### From repository root → `docs/security/`
+
+| File | Reason |
+|------|--------|
+| `SECURITY_HARDENING_PLAN.md` | Not archived — still an actively-cited live plan (`ENGINEERING_BACKLOG.md` ENG-026), but relocated out of root into `docs/security/` alongside the repo's other current security documentation, since it's a living reference doc, not a certification snapshot. `ENGINEERING_BACKLOG.md`'s citation updated to the new path. |
+
+**Root `.md` count after this sprint's consolidation**: 9 (down from V18.0's 16) — `README.md`, `CHANGELOG.md`, `CODE_OF_CONDUCT.md`, `CONTRIBUTING.md`, `SECURITY.md`, `ENGINEERING_BACKLOG.md`, `PROGRESS.md`, `CHECKPOINT.md`, `REGRESSION_REPORT.md`. The last four are deliberately kept at root rather than moved under `docs/engineering/` alongside their siblings (`ACTION_LOG.md`, `FIX_LOG.md`, `ISSUE_DATABASE.md`, `RELEASE_STATE.md`) — they are this session's actively-referenced, frequently-updated canonical tracking docs, and moving them carries real risk (this session's own Downloads-sync habit and every prior sprint's instructions reference them by root path) for no clear discoverability benefit over the risk of broken references. This is a deliberate, reasoned deviation from V21.0's suggested minimal-root template, not an oversight.
