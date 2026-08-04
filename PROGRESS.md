@@ -6,38 +6,46 @@ Narrative progress log, one entry per closed (or explicitly deferred) backlog it
 
 | Field | Value |
 |---|---|
-| Current issue | none in progress — V20.0 backlog triage complete |
-| Previous issue | ENG-019 (partially verified — 2 toggles confirmed, remainder needs browser tooling) |
-| Next issue | ENG-033 (needs product/design input) and ENG-034 (needs ops decision) — both documented, awaiting external input, not further engineering-actionable this session |
+| Current issue | none in progress — V21.0 Production Release Closure sprint complete |
+| Previous issue | ENG-035/ENG-036 (Reading Insights UI toggle + self-inclusive average fix) |
+| Next issue | 7 open items (ENG-017/019/033/034/037/038/039), each blocked on a named external input — not further engineering-actionable this session |
 | Critical remaining | 0 / 0 |
 | High remaining | 1 / 4 (ENG-033 — needs product/design input for a new screen) |
-| Medium remaining | 1 open / 8 total (3 deferred: ENG-005/023/026; ENG-034 open, needs ops decision; ENG-032 closed this sprint — corrected finding, guard already existed) |
-| Low remaining | 0 / 14 — tier complete: 8 closed, 6 deferred/reviewed-with-reasoning |
-| Enhancement remaining | 2 open / 8 total (ENG-017 open/ops-only, ENG-019 partially verified/open; ENG-018 + ENG-020 closed this sprint; ENG-013/014 closed; ENG-015 justified, ENG-016 deferred) |
-| Overall % | 55.9% (19/34 closed, 11 deferred/reviewed-with-reasoning, 4 open) |
-| Current commit | `dbeda01` |
-| Last regression | PASS — post-V20.0 triage, 2026-08-01 (backend 1705 passed/1 skipped/0 failed / frontend 13/13 unaffected [no frontend files touched this stretch] / Docker `api` healthy). ENG-032's attempted fix was self-caught and reverted by this same regression discipline — see CHECKPOINT.md. |
-| Current blocker | None — ENG-033/034/017 are correctly blocked on external input, not stalled |
-| Estimated completion | Engineering-actionable backlog is now fully triaged: every Critical/High/Medium/Low item is closed or deferred-with-reasoning. Remaining 4 open items are each blocked on a named external input (product design for ENG-033, ops/deployment policy for ENG-034, infra access for ENG-017, browser tooling or manual QA for the remainder of ENG-019) — none are unilaterally engineering-actionable this session. |
+| Medium remaining | 2 open / 10 total (ENG-034 needs ops decision, ENG-039 needs security-reviewed rollout; 3 deferred: ENG-005/023/026; 5 closed) |
+| Low remaining | 2 open / 17 total (ENG-037/038, both low-urgency; 9 closed, 6 deferred/reviewed-with-reasoning) |
+| Enhancement remaining | 2 open / 8 total (ENG-017 ops-only, ENG-019 partially verified; ENG-018/020 closed this sprint; ENG-013/014 closed; ENG-015 justified, ENG-016 deferred) |
+| Overall % | 53.8% (21/39 closed, 11 deferred/reviewed/justified, 7 open) |
+| Current commit | `d607216` |
+| Last regression | PASS — post-V21.0, 2026-08-04 (backend 1706 passed/1 skipped/0 failed / frontend 13/13 / lint exit 0 / build 309.1kb / Docker `api`+`migrate` rebuilt and healthy). |
+| Current blocker | None — all 7 open items are correctly blocked on external input, not stalled |
+| Estimated completion | Engineering-actionable backlog is fully triaged: every Critical/High/Medium/Low item is closed or deferred-with-reasoning, and all 62 files of previously-uncommitted work from earlier sprints are now committed (repository working tree fully clean for the first time this session). Remaining 7 open items each need a named external input (product design, ops/deployment policy, infra access, browser tooling, or a dedicated security-reviewed rollout) — none are unilaterally engineering-actionable. |
 
 \* Backlog expanded from 21 to 31 items this cycle after merging `ISSUE_DATABASE.md`/`TODO_QUEUE.md` findings — see the V16.0 reconciliation entry below. This is real newly-surfaced scope, not re-litigation of closed work.
 
 \* ENG-005/ENG-011/ENG-012 counted as remaining/deferred, though all three deferrals were actively re-confirmed this cycle, not silently carried forward.
 
-## Burndown (recomputed after V20.0's backlog triage — 34 items, all triaged)
+## Burndown (recomputed after V21.0's Production Release Closure sprint — 39 items, all triaged)
 
 | Priority | Total | Closed | Deferred (reasoned) | Open (blocked on external input) |
 |---|---|---|---|---|
 | Critical | 0 | 0 | 0 | 0 |
 | High | 4 | 3 | 0 | 1 (ENG-033 — product/design) |
-| Medium | 8 | 4 | 3 | 1 (ENG-034 — ops/deployment policy) |
-| Low | 14 | 8 | 6 | 0 |
+| Medium | 10 | 5 | 3 | 2 (ENG-034 — ops/deployment policy; ENG-039 — security-reviewed rollout) |
+| Low | 17 | 9 | 6 | 2 (ENG-037, ENG-038 — both low-urgency, need care not haste) |
 | Enhancement | 8 | 4 | 2 (1 justified) | 2 (ENG-017 — infra access; ENG-019 — browser tooling/manual QA) |
-| **Total** | **34** | **19** | **11 (1 justified)** | **4** |
+| **Total** | **39** | **21** | **11 (1 justified)** | **7** |
+
+## V21.0 — Production Release Closure sprint (2026-08-02 to 2026-08-04)
+
+**State recovery**: `git status` at sprint start showed 62 modified/new files — implemented-but-never-committed work spanning multiple earlier sprints (Sprint V6.0 governance fixes, the 2026-07-14 JWKS-outage resilience fix, V10.0-era Viewer/Reading-Intelligence work, dashboard-screen fixes, doc corrections, live-QA evidence). Verified the whole body coherent (full test/lint/build suite passed against it as a unit) before committing it in 8 logically-grouped commits — the repository's working tree is fully clean for the first time this session.
+
+**Targeted re-verification** of the newly-committed authorization-consolidation and Reading-Insights code found and fixed 2 real defects: **ENG-035** (the `show_reading_insights` comparative-insights feature was fully built server-side but had no UI toggle anywhere to actually enable it) and **ENG-036** (the "average page time" comparison query didn't exclude the requesting viewer's own session, making it self-referential for single-reader pages — the fix was proven by a new test asserting an exact numeric value, not just absence of a crash). Surfaced 3 more real findings, documented rather than rushed: **ENG-037** (a "single source of truth" refactor's own claim doesn't match the code — the enforcement path still duplicates the logic), **ENG-038** (a pre-existing TOCTOU race, confirmed via git history not to be a new regression), and **ENG-039** (API keys with zero scopes can manage Organizations/API-Keys/Billing — a real permission gap needing a security-reviewed rollout, previously flagged in an archived report but never actually filed to the backlog until now).
+
+**Documentation consolidation**: archived V18.0's 6 certification deliverables, relocated the still-live security hardening plan into `docs/security/`, corrected every cross-reference, corrected an inflated README claim (unbacked "Supabase SAML integration" — zero SAML code found anywhere in the repo), corrected 3 stale numbers, added a documentation index, and produced ONE consolidated `docs/release/FINAL_RELEASE_CERTIFICATION.md` (superseding every prior scattered `FINAL_*` document) with a companion `KNOWN_LIMITATIONS.md`.
 
 ## V20.0 — Backlog triage sprint (2026-08-01)
 
-Triaged the 4 items still open after V18.0 (ENG-032/033/034 surfaced by V18.0's documentation cleanup, plus the pre-existing ENG-017/018/019/020 Enhancement tier) through the same STEP 1/2/3 re-verification discipline used throughout this session. **ENG-032 corrected**: re-verification found the production-safety guard it described already exists (`backend/app/main.py:27-54`) — both the original finding and this session's own earlier check had only looked in `config.py` and missed it. A redundant fix was attempted, caught by its own regression run, and reverted — net zero code change, closed as "no longer reproducible." **ENG-018 and ENG-020 closed** via genuine integration-level verification against the real local Docker stack (a synthesized 120-page PDF for ENG-018; hand-verified reading-analytics math, including confirming a `700.0` wpm result was a documented physiological-plausibility clamp firing correctly, not a placeholder, for ENG-020). **ENG-019 partially verified** (2 of many toggles confirmed round-trip correctly) and left honestly open rather than overclaiming full closure. **ENG-033/034/017 remain open**, each blocked on a named external input outside pure engineering scope, not stalled.
+Triaged the 4 items still open after V18.0 (ENG-032/033/034 surfaced by V18.0's documentation cleanup, plus the pre-existing ENG-017/018/019/020 Enhancement tier) through the same STEP 1/2/3 re-verification discipline used throughout this session. **ENG-032 corrected**: re-verification found the production-safety guard it described already exists (`backend/app/main.py:27-54`) — both the original finding and this session's own earlier check had only looked in `config.py` and missed it. A redundant fix was attempted, caught by its own regression run, and reverted — net zero code change, closed as "no longer reproducible" (this correction is the model this sprint's own ENG-037/038 corrections followed). **ENG-018 and ENG-020 closed** via genuine integration-level verification against the real local Docker stack (a synthesized 120-page PDF for ENG-018; hand-verified reading-analytics math, including confirming a `700.0` wpm result was a documented physiological-plausibility clamp firing correctly, not a placeholder, for ENG-020). **ENG-019 partially verified** (2 of many toggles confirmed round-trip correctly) and left honestly open rather than overclaiming full closure. **ENG-033/034/017 remain open**, each blocked on a named external input outside pure engineering scope, not stalled.
 
 ## V18.0 — Repository Certification sprint (2026-07-31)
 

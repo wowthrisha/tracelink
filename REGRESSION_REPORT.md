@@ -121,6 +121,18 @@ Every prior "Browser re-check" entry in this table used a real browser driven ma
 
 **Zero regressions.** The one near-miss (ENG-032) was caught and reverted by the mandatory validation step before it could ship — exactly the scenario that step exists to catch.
 
+### V21.0 Production Release Closure (2026-08-02 to 2026-08-04)
+
+| Checkpoint | Backend | Frontend | Notes |
+|---|---|---|---|
+| Before committing the 62-file pre-existing-work batch | **1705 passed**, 1 skipped, 0 failed (full suite, against the complete as-found working tree, before any of it was staged) | **13/13 passed**, lint exit 0, build succeeded | Confirms the body of work was internally coherent as a whole before trusting any of it |
+| After all 8 grouped commits | **1705 passed**, 1 skipped, 0 failed (unchanged) | **13/13 passed** | Docker `api`+`migrate` rebuilt, `/health` all-ok, migration already at head (idempotent, no new migration needed) |
+| After ENG-035/ENG-036 (Reading Insights toggle + self-inclusive-average fix) | **1706 passed** (1705 + 1 new test), 1 skipped, 0 failed | **13/13 passed**, lint exit 0, build 309.1kb | The pre-existing test for this endpoint was asserting the *buggy* self-inclusive behavior as correct — running the fix against it caught the regression immediately (`assert None is not None`), confirming both the bug and the fix in one step |
+| After documentation consolidation (6 files archived, 1 relocated, README corrected) | **1706 passed**, 1 skipped, 0 failed (unchanged, as expected for a docs-only move) | **13/13 passed** | Re-run per Section 14's explicit mandate to test after structural moves |
+| Final state (`d607216`) | **1706 passed**, 1 skipped, 0 failed | **13/13 passed**, lint exit 0, build 309.1kb | Docker `api`+`migrate` rebuilt and healthy; `git status` clean |
+
+**Zero regressions across the V21.0 sprint.** No browser-automation tool available in this environment (checked again this sprint) — all verification above is Test/API/Source-verified, explicitly not claimed as Browser Verified. Full evidence and classification in `docs/release/FINAL_RELEASE_CERTIFICATION.md`.
+
 ### Why a local Docker stack instead of testing against production or trusting source alone
 
 The deployed instance auto-deploys from `origin/main` on push — verifying a fix there would mean shipping unverified code to production first. `docker compose up --build` (Postgres 16 + Redis 7 + the API + worker, all local-only) uses the same Supabase auth project as production but a completely separate local database, so real production data was never at risk, while still giving genuine, real-browser evidence rather than a source-code assumption that a CSS change "should" fix the clipping.

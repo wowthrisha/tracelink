@@ -706,3 +706,37 @@ Method: `ruff` (installed for this session) for AST-verified unused-import/unuse
 **Result**: Remains open. Partial evidence now on record instead of none.
 
 **Files**: None — no code changed.
+
+## Sprint V21.0 — State recovery: 62 files of pre-existing work committed (2026-08-02)
+
+**Issue**: `git status` showed 62 modified/new files with no relation to this session's own commits — implemented-but-never-committed work from multiple earlier sprints, never committed under the "commit only when explicitly requested" policy in effect before this session's mega-prompts started authorizing atomic commits.
+
+**Verification before committing**: full backend suite (1705 passed/1 skipped/0 failed) and frontend suite (13/13) run against the complete as-found working tree to confirm coherence. Live database query confirmed migration 027 (part of the diff) was already applied. ~15 of the 62 files spot-checked against `FIX_LOG.md`'s own existing historical sections, which already documented most of this work when it was originally done.
+
+**Fix**: committed in 8 logically-grouped commits — Sprint V6.0 governance fixes (webhook task registration, scope enforcement, dedup, audit logging, migration 027), JWKS-outage resilience, annotation/session consolidation + Reading Intelligence backend, Viewer/Reading-Intelligence frontend, dashboard-screen fixes, historical CHANGELOG/README/DEVELOPER_GUIDE corrections, live-QA screenshot evidence, and a bundle rebuild.
+
+**Verification**: full suites re-run after the batch — 1705 passed/1 skipped/0 failed, 13/13, lint exit 0, build 309.0kb. Docker `api`+`migrate` rebuilt and healthy.
+
+**Result**: working tree fully clean for the first time this session.
+
+**Files**: 62 files across backend/, frontend/, docs/ — see commits `87d2c7d`, `8e8c6d9`, `b87aae2`, `28bb563`, `93a4ffe`, `912b1b8`, `9492f0e`, `8ccf594`.
+
+## Sprint V21.0 — ENG-035, ENG-036: Reading Insights toggle + self-inclusive average (2026-08-02)
+
+**Issue**: found during targeted re-verification of the just-committed `show_reading_insights` feature. ENG-035: fully built backend, zero UI toggle to enable it. ENG-036: `current_page_avg_ms` didn't exclude the requesting viewer's own session, unlike the sibling `pace_vs_average` calculation.
+
+**Fix**: added the toggle to both of `AccessScreen.jsx`'s permission grids. Added `PageReadingEvent.session_id != session_id` to the average-query's `WHERE` clause, matching the existing exclusion pattern immediately below it.
+
+**Verification**: the pre-existing test for this endpoint was asserting the buggy self-inclusive behavior as correct; running the fix caught the regression immediately (`assert None is not None`). Corrected the test and added a new positive-case test with two sessions of deliberately different active-time values, asserting the returned average exactly equals the *other* session's value. Full backend suite: 1706 passed (1705 + 1 new test)/1 skipped/0 failed. Frontend: lint exit 0, 13/13, build 309.1kb.
+
+**Files**: `frontend/src/screens/AccessScreen.jsx`, `backend/app/services/reading_analytics_service.py`, `backend/tests/integration/test_reading_api.py`.
+
+## Sprint V21.0 — Documentation consolidation + final certification (2026-08-04)
+
+**Issue**: V18.0's 6 certification deliverables were still sitting at root, `SECURITY_HARDENING_PLAN.md` was at root instead of alongside the repo's other security docs, and no single authoritative release certification existed (only scattered `FINAL_*`/certification-style documents across multiple sprints).
+
+**Fix**: archived the 6 V18.0 deliverables to `archive/sprint18-certification/`; relocated `SECURITY_HARDENING_PLAN.md` to `docs/security/`; corrected every cross-reference; corrected 3 stale README numbers and removed an unbacked "Supabase SAML integration" claim (zero SAML code found anywhere in the repo); added a README documentation index; produced ONE `docs/release/FINAL_RELEASE_CERTIFICATION.md` with every claim classified VERIFIED/INFERRED/NOT VERIFIED/BLOCKED, plus a companion `KNOWN_LIMITATIONS.md`.
+
+**Verification**: full regression re-run after the structural moves (mandatory per this sprint's own Section 14) — 1706 passed/1 skipped/0 failed, 13/13, lint exit 0, build 309.1kb, Docker `api`+`migrate` rebuilt and healthy.
+
+**Files**: `README.md`, `docs/release/FINAL_RELEASE_CERTIFICATION.md` (new), `docs/release/KNOWN_LIMITATIONS.md` (new), 6 files moved to `archive/sprint18-certification/`, `SECURITY_HARDENING_PLAN.md` moved to `docs/security/`, `docs/governance/ARCHIVED_FILES.md`, `ENGINEERING_BACKLOG.md`.

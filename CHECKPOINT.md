@@ -2,20 +2,24 @@
 
 Running state snapshot, updated after every closed backlog item. See `PROGRESS.md` for the narrative log and `ENGINEERING_BACKLOG.md` for full issue detail.
 
-**Last updated**: 2026-08-01 13:15, after V20.0's backlog triage.
+**Last updated**: 2026-08-04, after V21.0's Production Release Closure sprint.
 
-## Burndown (34 items, all triaged as of V20.0 — see PROGRESS.md)
+## Burndown (39 items, all triaged as of V21.0 — see PROGRESS.md)
 
 | Priority | Total | Closed | Deferred (reasoned) | Open (blocked on external input) |
 |---|---|---|---|---|
 | Critical | 0 | 0 | 0 | 0 |
 | High | 4 | 3 | 0 | 1 |
-| Medium | 8 | 4 | 3 | 1 |
-| Low | 14 | 8 | 6 | 0 |
+| Medium | 10 | 5 | 3 | 2 |
+| Low | 17 | 9 | 6 | 2 |
 | Enhancement | 8 | 4 | 2 | 2 |
-| **Total** | **34** | **19** | **11** | **4** |
+| **Total** | **39** | **21** | **11** | **7** |
 
-Overall completion: **55.9%** (19/34). **Every Critical/High/Medium/Low item is closed or deferred with fresh, on-record reasoning.** The 4 remaining open items are each blocked on a named external input, not unilaterally engineering-actionable: ENG-033 (new profile screen — needs product/design direction), ENG-034 (CD/deploy job — needs a deployment-target decision), ENG-017 (observability wiring — needs infra/ops access), and ENG-019 (remainder of the dashboard toggle sweep — needs browser-automation tooling or manual QA, 2 of its toggles already confirmed correct at the API level).
+Overall completion: **53.8%** (21/39). **Every Critical/High/Medium/Low item is closed or deferred with fresh, on-record reasoning.** The 7 remaining open items are each blocked on a named external input, not unilaterally engineering-actionable: ENG-033 (new profile screen — product/design direction), ENG-034 (CD/deploy job — deployment-target decision), ENG-039 (API-key scope gap in orgs/api_keys/billing — security-reviewed rollout), ENG-017 (observability wiring — infra/ops access), ENG-019 (remainder of the dashboard toggle sweep — browser-automation tooling or manual QA, 2 of its toggles already confirmed correct at the API level), and ENG-037/ENG-038 (both low-urgency, need a dedicated test cycle rather than a same-sprint drive-by touching the app's highest-stakes access-control functions).
+
+## V21.0 Production Release Closure — complete
+
+Recovered 62 files (~1000 lines) of previously-implemented, never-committed work from earlier sprints and committed it in 8 verified, logically-grouped commits — working tree fully clean for the first time this session. Targeted re-verification of that newly-committed code found and fixed 2 real defects (ENG-035, ENG-036) and surfaced 3 more with honest, documented reasoning for not fixing them same-sprint (ENG-037, ENG-038, ENG-039 — the latter a genuine security gap previously flagged in an archived report but never actually filed). Consolidated documentation: archived V18.0's 6 certification deliverables, corrected an inflated README claim and 3 stale numbers, produced ONE authoritative `docs/release/FINAL_RELEASE_CERTIFICATION.md` superseding every prior scattered `FINAL_*` document. Root `.md` count: 16 → 9. Final regression: backend 1706 passed/1 skipped/0 failed, frontend 13/13, Docker healthy.
 
 ## V18.0 Repository Certification — complete
 
