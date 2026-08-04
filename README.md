@@ -15,7 +15,7 @@ Share documents as controlled links — not attachments. Set expiry dates, view 
 - **Multi-format support** — PDF, DOCX, DOC, TXT, MD, LOG
 - **API access** — full REST API with `sd_` API keys
 - **Webhooks** — outbound events for view, completion, access denial
-- **Organizations & SSO** — multi-org support, Supabase SAML integration
+- **Organizations** — multi-org support, role-based membership (viewer/editor/admin/owner)
 - **Retention policies** — per-document automatic expiry
 - **Audit log** — admin audit trail for all sensitive operations
 
@@ -26,7 +26,7 @@ Browser (Viewer)
     └─▶ Share link  /v/{token}
             └─▶ FastAPI API  :8000
                     ├─▶ Supabase Auth (JWT / SAML)
-                    ├─▶ PostgreSQL    (state, 26 migrations)
+                    ├─▶ PostgreSQL    (state, 27 migrations)
                     ├─▶ Redis         (page cache + Celery broker)
                     ├─▶ Object Storage (S3-compatible)
                     └─▶ Celery Worker (PDF processing pipeline)
@@ -40,7 +40,7 @@ Browser (Viewer)
 | Storage | Supabase Storage (S3-compatible) |
 | Auth | Supabase JWT (ES256 / JWKS) + API keys |
 | Task queue | Celery + Celery Beat |
-| Frontend | React 18, esbuild IIFE bundle (249 KB) |
+| Frontend | React 18, esbuild IIFE bundle (~309 KB) |
 
 For system diagrams and design decisions see [`docs/architecture/`](docs/architecture/).
 
@@ -103,7 +103,7 @@ See [`docs/deployment/DEPLOYMENT.md`](docs/deployment/DEPLOYMENT.md) for the ful
 ```bash
 cd backend
 python -m pytest tests/ -q
-# Expected: 1624+ passed, 0 failed
+# Expected: ~1700 passed, 1 skipped, 0 failed
 ```
 
 ### Build the frontend bundle
@@ -152,6 +152,23 @@ brew install cloudflared
 ## Security
 
 All page bytes are proxied through the API — object storage URLs are never exposed to viewers. HSTS is enabled by default. See [`SECURITY.md`](SECURITY.md) for the full security model, vulnerability reporting, and known limitations.
+
+---
+
+## Documentation Index
+
+| Area | Location |
+|------|----------|
+| Architecture & design decisions | [`docs/architecture/`](docs/architecture/) |
+| API reference | [`docs/api/`](docs/api/) |
+| Deployment (Railway/Fly/VPS, scaling, backups) | [`docs/deployment/DEPLOYMENT.md`](docs/deployment/DEPLOYMENT.md) |
+| Local development setup | [`docs/development/DEVELOPER_GUIDE.md`](docs/development/DEVELOPER_GUIDE.md) |
+| Security model, hardening plans | [`docs/security/`](docs/security/), [`SECURITY.md`](SECURITY.md) |
+| Operations runbooks | [`docs/operations/`](docs/operations/) |
+| Reading Intelligence engine internals | [`docs/reading_analytics/`](docs/reading_analytics/) |
+| Current release certification | [`docs/release/FINAL_RELEASE_CERTIFICATION.md`](docs/release/FINAL_RELEASE_CERTIFICATION.md) |
+| Engineering process (canonical backlog, fix log, action log) | [`ENGINEERING_BACKLOG.md`](ENGINEERING_BACKLOG.md), [`docs/engineering/`](docs/engineering/) |
+| Historical sprint/audit reports | [`archive/`](archive/) — see [`docs/governance/ARCHIVED_FILES.md`](docs/governance/ARCHIVED_FILES.md) for the index |
 
 ---
 
