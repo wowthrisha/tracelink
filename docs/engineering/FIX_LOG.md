@@ -750,3 +750,13 @@ Method: `ruff` (installed for this session) for AST-verified unused-import/unuse
 **Verification**: 28 new tests covering the full required matrix (no/invalid/revoked/expired key, zero/correct/incorrect scope, org role hierarchy, cross-org access, escalation guard, error hygiene) — 12 of 28 confirmed to fail against the pre-fix code (via `git stash`), proving they detect the real bug. Full backend suite 1734 passed (1706 + 28 new)/1 skipped/0 failed. Live-verified against the real local Docker stack: zero-scope key denied with the exact expected message, correctly-scoped key succeeds, escalation guard denied live. Full endpoint matrix and cross-check against 10 other API families in `docs/security/ENG-039_ORG_AUTHORIZATION_TRACE.md`.
 
 **Files**: `backend/app/models/api_key.py`, `backend/app/routers/{orgs,api_keys,billing}.py`, `backend/tests/integration/test_eng039_org_api_key_scopes.py`, `frontend/src/screens/ApiKeysScreen.jsx`, `docs/security/ENG-039_ORG_AUTHORIZATION_TRACE.md`.
+
+## Sprint V22.0 — ENG-041/042/043: authorization consistency review follow-up (2026-08-04)
+
+**Issue**: while building `docs/security/API_AUTHORIZATION_MATRIX.md` (Priority 2's bounded consistency review), found the identical ENG-039 defect shape in 3 more routes: `admin.py`'s audit-log endpoint, `annotations.py`'s 10 uploader-facing document routes, `notifications.py`'s SSE stream.
+
+**Fix**: gated all 3 using the *existing* scope taxonomy — `organizations:read` for the audit log, `documents:{read,write}` for the annotation/feedback routes (matching each route's actual read/write nature), `documents:read` for the notification stream. No new scopes invented.
+
+**Verification**: 8 new tests (`test_priority2_scope_consistency.py`). Full backend suite 1742 passed (1734 + 8)/1 skipped/0 failed. 3 of 4 test classes confirmed to fail against the pre-fix code via `git stash` revert (the 4th, SSE, wasn't revert-tested the same way — hangs on a live stream rather than failing cleanly — but uses the identical proven fix pattern).
+
+**Files**: `backend/app/routers/{admin,annotations,notifications}.py`, `backend/tests/integration/test_priority2_scope_consistency.py`, `docs/security/API_AUTHORIZATION_MATRIX.md`.

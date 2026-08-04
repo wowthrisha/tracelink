@@ -445,6 +445,30 @@ Reading the full canonical-source list per V16.0's instructions surfaced 10 item
 - **Owner**: Engineering (V22.0) — closed
 - **Verification method**: Test Verified (28 new tests in `backend/tests/integration/test_eng039_org_api_key_scopes.py`, covering the full V22.0-mandated matrix — no/invalid/revoked/expired key, zero/correct/incorrect scope, org member/admin/owner, cross-org access, escalation guard, error hygiene; 12 of the 28 confirmed to fail against the reverted pre-fix code, proving they detect the real bug) + Regression Verified (full backend suite 1734 passed [1706 + 28 new]/1 skipped/0 failed) + API Verified (live-tested against the real local Docker stack — zero-scope key denied with the exact expected message, correctly-scoped key succeeds, escalation guard denied live; all disposable test keys deleted after, confirmed 0 remaining) + Source Verified (JWT/browser callers confirmed unaffected — `require_scope` only restricts `auth_method == "api_key"` callers, matching the existing 7-router convention).
 
+### ENG-041 — `admin.py`'s audit-log endpoint had the same zero-scope authorization gap
+- **Source**: found while tracing ENG-039's fix (V22.0 Priority 2, bounded authorization consistency review) — not part of the original ENG-039 finding.
+- **Evidence**: Source-verified — `GET /api/admin/audit-log` used bare `Depends(get_current_user)`, no scope check. A zero-scope API key could read an org's full accountability trail (member changes, deletions, etc.) whenever the key's owning user held admin/owner role in that org, or the caller's own cross-context activity log when no `org_id` given.
+- **Severity**: Medium (sensitive read access, same defect class as ENG-039, narrower blast radius — read-only, not a mutation path)
+- **Status**: **Closed — fixed** (2026-08-04, V22.0) — gated on the existing `organizations:read` scope (no new scope invented)
+- **Owner**: Engineering (V22.0) — closed
+- **Verification method**: Test Verified (`test_priority2_scope_consistency.py::TestAuditLogScope`, 3 tests — zero-scope denied, correctly-scoped allowed, JWT unaffected; the zero-scope-denied test confirmed to fail against the pre-fix code via `git stash` revert) + Regression Verified (full suite 1742 passed/1 skipped/0 failed)
+
+### ENG-042 — `annotations.py`'s 10 uploader-facing document routes had the same gap
+- **Source**: found during the same V22.0 Priority 2 review as ENG-041.
+- **Evidence**: Source-verified — `GET/POST/PATCH /api/documents/{doc_id}/{annotations,feedback}...` (list/export annotations, reply/resolve feedback, list feedback, reviewers, export, export-reviewer-activity, annotations-visual + export — 10 routes total) all used bare `Depends(get_current_user)`. The 7 `/api/viewer/...` annotation routes in the same file are correctly unaffected — they're viewer-session-authenticated, a different auth model entirely, not user/API-key authenticated.
+- **Severity**: Medium (8 read routes + 2 write routes, all document-scoped; `documents:{read,write}` scopes already existed and cover this exact shape of operation)
+- **Status**: **Closed — fixed** (2026-08-04, V22.0) — gated on the existing `documents:read`/`documents:write` scopes matching each route's actual read/write nature (no new scope invented)
+- **Owner**: Engineering (V22.0) — closed
+- **Verification method**: Test Verified (`test_priority2_scope_consistency.py::TestAnnotationsFeedbackScope`, 4 tests, including a read-scope-cannot-write check; 2 confirmed to fail against the pre-fix code via revert) + Regression Verified (full suite 1742 passed/1 skipped/0 failed)
+
+### ENG-043 — `notifications.py`'s SSE stream had the same gap (low severity)
+- **Source**: found during the same V22.0 Priority 2 review as ENG-041/042.
+- **Evidence**: Source-verified — `GET /api/notifications/stream` used bare `Depends(get_current_user)`. Lower severity than ENG-039/041/042: the stream only carries the caller's own per-`user_id` Redis pub/sub channel — no cross-user data exposure — but fixed for consistency with every other endpoint in this review.
+- **Severity**: Low
+- **Status**: **Closed — fixed** (2026-08-04, V22.0) — gated on the existing `documents:read` scope (the stream carries document-activity notifications; no new scope invented)
+- **Owner**: Engineering (V22.0) — closed
+- **Verification method**: Test Verified (`test_priority2_scope_consistency.py::TestNotificationStreamScope`, 1 test — zero-scope denied) + Regression Verified (full suite 1742 passed/1 skipped/0 failed). Not revert-tested the same way as the other 3 (the pre-fix code causes the test to hang consuming a live SSE stream rather than returning a clean failing assertion) — the fix itself is the identical one-line `Depends` swap already proven correct by ENG-039/041/042's revert tests.
+
 ## Explicitly not on this backlog (verified non-issues)
 
 - **Storage screen usage bars** (`FIXES_TODO.md` §5) — investigated and ruled out; the fill-bar computation is correct (`width: 0.0032554%` for a 328-byte file, verified via DOM inline-style inspection). An earlier automated check mismeasured the empty track div. No action needed.
@@ -496,6 +520,9 @@ Reading the full canonical-source list per V16.0's instructions surfaced 10 item
 | ENG-037 | `is_link_active()` not actually used by enforcement path | Low | 37 | Open (low urgency, needs care) |
 | ENG-038 | `ensure_not_last_owner()` TOCTOU race (pre-existing) | Low | 38 | Open |
 | ENG-039 | API keys with zero scopes can manage Orgs/API-Keys/Billing | Medium-High | 39 | **Closed — fixed** |
+| ENG-041 | admin.py audit-log had same zero-scope gap | Medium | 41 | **Closed — fixed** |
+| ENG-042 | annotations.py 10 document routes had same gap | Medium | 42 | **Closed — fixed** |
+| ENG-043 | notifications.py SSE stream had same gap | Low | 43 | **Closed — fixed** |
 
 **Critical: 0. High: 3 (all closed). Medium: 5 (2 closed, 1 deferred, 2 new: 1 deferred, 1 open). Low: 14 (5 closed, 3 deferred, 6 open). Enhancement: 8.**
 

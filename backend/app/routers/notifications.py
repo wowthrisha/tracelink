@@ -6,7 +6,7 @@ from typing import AsyncGenerator
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
-from app.auth import get_current_user
+from app.auth import require_scope
 from app.middleware.rate_limit import limiter
 
 router = APIRouter(prefix="/api/notifications", tags=["notifications"])
@@ -26,7 +26,7 @@ _active_connections: dict[str, int] = {}
 @limiter.limit("10/minute")
 async def notification_stream(
     request: Request,
-    user: dict = Depends(get_current_user),
+    user: dict = Depends(require_scope("documents:read")),
 ):
     """
     Server-Sent Events stream for real-time notifications.

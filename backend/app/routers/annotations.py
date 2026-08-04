@@ -21,7 +21,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth import get_current_user
+from app.auth import require_scope
 from app.database import get_db
 from app.metrics import annotations_total
 from app.middleware.rate_limit import limiter
@@ -292,7 +292,7 @@ async def list_document_annotations(
     annotation_type: Optional[str] = None,
     resolved: Optional[bool] = None,
     db: AsyncSession = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(require_scope("documents:read")),
 ):
     try:
         doc_uuid = doc_id if isinstance(doc_id, uuid.UUID) else uuid.UUID(doc_id)
@@ -310,7 +310,7 @@ async def export_annotations(
     request: Request,
     doc_id: str,
     db: AsyncSession = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(require_scope("documents:read")),
 ):
     try:
         doc_uuid = doc_id if isinstance(doc_id, uuid.UUID) else uuid.UUID(doc_id)
@@ -356,7 +356,7 @@ async def reply_to_feedback(
     annotation_id: str,
     body: AnnotationReplyCreate,
     db: AsyncSession = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(require_scope("documents:write")),
 ):
     """Uploader reply to a viewer's feedback thread.
 
@@ -384,7 +384,7 @@ async def resolve_feedback(
     doc_id: str,
     annotation_id: str,
     db: AsyncSession = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(require_scope("documents:write")),
 ):
     from app.models.annotation import ViewerAnnotation
     from app.models.link import ShareLink
@@ -423,7 +423,7 @@ async def list_document_feedback(
     author_role: Optional[str] = None,
     reviewer: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(require_scope("documents:read")),
 ):
     try:
         doc_uuid = doc_id if isinstance(doc_id, uuid.UUID) else uuid.UUID(doc_id)
@@ -443,7 +443,7 @@ async def list_feedback_reviewers(
     request: Request,
     doc_id: str,
     db: AsyncSession = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(require_scope("documents:read")),
 ):
     try:
         doc_uuid = doc_id if isinstance(doc_id, uuid.UUID) else uuid.UUID(doc_id)
@@ -468,7 +468,7 @@ async def export_feedback(
     author_role: Optional[str] = None,
     reviewer: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(require_scope("documents:read")),
 ):
     try:
         doc_uuid = doc_id if isinstance(doc_id, uuid.UUID) else uuid.UUID(doc_id)
@@ -492,7 +492,7 @@ async def export_reviewer_activity(
     request: Request,
     doc_id: str,
     db: AsyncSession = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(require_scope("documents:read")),
 ):
     try:
         doc_uuid = doc_id if isinstance(doc_id, uuid.UUID) else uuid.UUID(doc_id)
@@ -515,7 +515,7 @@ async def list_visual_annotations(
     doc_id: str,
     annotation_type: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(require_scope("documents:read")),
 ):
     """List only ANNOTATION_TYPES (highlight/draw/rectangle/arrow). Document owner only."""
     try:
@@ -534,7 +534,7 @@ async def export_visual_annotations(
     request: Request,
     doc_id: str,
     db: AsyncSession = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(require_scope("documents:read")),
 ):
     """Export visual annotations (highlight/draw/rectangle/arrow) as CSV. Document owner only."""
     try:

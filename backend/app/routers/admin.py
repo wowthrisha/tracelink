@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth import get_current_user
+from app.auth import require_scope
 from app.database import get_db
 from app.models.audit import AdminAuditLog, AUDIT_EVENT_TYPES
 
@@ -23,13 +23,19 @@ async def get_audit_log(
     date_to: Optional[str] = Query(None, description="ISO date filter end (inclusive), e.g. 2026-06-30"),
     event_type: Optional[str] = Query(None, description="Filter by event type, e.g. document.deleted"),
     db: AsyncSession = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: dict = Depends(require_scope("organizations:read")),
 ):
     """
     Retrieve admin audit log entries.
 
     - With org_id: returns entries for that org; requires admin/owner role
     - Without org_id: returns entries where current user is the actor
+
+    Gated on organizations:read (ENG-039 follow-up, V22.0) rather than a
+    dedicated audit scope — the org-scoped case is the endpoint's primary,
+    most sensitive use (an org's full accountability trail), and gating the
+    personal-activity case at the same level is a conservative, not
+    permissive, simplification.
     """
     user_uuid = uuid.UUID(user["user_id"])
 
