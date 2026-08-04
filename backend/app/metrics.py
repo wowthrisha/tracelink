@@ -136,6 +136,39 @@ active_sessions = Gauge(
     "Number of entries currently in the session validation cache",
 )
 
+# ── Celery / background jobs (ENG-017, V22.0) ─────────────────────────────────
+# Application-level instrumentation only — scraping, dashboards, and alerting
+# are an operations/infrastructure concern outside this codebase's scope.
+# Covers process_document (the primary, highest-volume task) as a bounded
+# first pass; the lower-frequency maintenance tasks (purge_stale_sessions,
+# requeue_orphaned_uploads) and webhook_tasks.deliver_webhook are not yet
+# instrumented — a reasonable, explicitly-scoped boundary, not an oversight.
+#
+# KNOWN LIMITATION (found, not fixed, during this same sprint — see
+# ENGINEERING_BACKLOG.md ENG-044): the worker runs as a separate OS process
+# from the API server. prometheus_client's default registry is per-process,
+# so these samples will NOT appear on the API's /metrics endpoint in the
+# real deployed topology without adding prometheus_client's multiprocess
+# mode (PROMETHEUS_MULTIPROC_DIR + multiprocess.MultiProcessCollector in
+# the /metrics handler). Confirmed by live-testing a real document upload
+# against the local Docker stack: the metric families register (HELP/TYPE
+# lines appear) but no sample lines do. The instrumentation is still
+# correct and unit-tested — it will start working with zero further code
+# change here once the multiprocess registry is wired up.
+
+celery_task_duration_seconds = Histogram(
+    "securedoc_celery_task_duration_seconds",
+    "Celery task execution time by task name and outcome",
+    ["task_name", "outcome"],  # outcome: success | error | retry
+    buckets=[0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0, 120.0, 300.0],
+)
+
+celery_tasks_total = Counter(
+    "securedoc_celery_tasks_total",
+    "Total Celery task executions by task name and outcome",
+    ["task_name", "outcome"],  # outcome: success | error | retry
+)
+
 # ── Path normalization ────────────────────────────────────────────────────────
 
 _UUID_RE = re.compile(

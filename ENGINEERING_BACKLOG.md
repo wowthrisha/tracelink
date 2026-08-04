@@ -231,13 +231,29 @@ Severity scale: **Critical → High → Medium → Low → Enhancement**. Per th
 
 ### ENG-017 — Observability wiring (Prometheus scrape/alerting) unconfirmed
 - **Source reports**: `ARCHITECTURE_CERTIFICATION.md` §7, `RELEASE_BLOCKERS.md` Tier 3 item 4
-- **Evidence**: Source-code verified that metrics are instrumented (`app/metrics.py`). Not enough evidence that they're actually scraped/alerted on in production — this is an infrastructure/operations question, not purely a code question.
-- **Affected files**: None (deployment/ops verification, not a code change)
-- **Estimated effort**: Small (verification only, if access to Railway/monitoring config is available)
-- **Priority**: 17
-- **Status**: Open — likely outside this sprint's code-focused scope; flag to the account owner rather than resolve in-repo
-- **Owner**: Unassigned
-- **Verification method**: Not enough evidence until infrastructure access is confirmed
+- **V22.0 re-investigation (Priority 3)**: re-verified precisely, with the mandated IMPLEMENTED/WIRED/TESTED/DEPLOYED/EXTERNALLY-MONITORED breakdown, rather than leaving this as one vague "unconfirmed":
+
+  | Capability | Status | Evidence |
+  |---|---|---|
+  | Structured (JSON) logs | IMPLEMENTED + WIRED | Source: `middleware/json_logging.py` |
+  | Correlation/request IDs | IMPLEMENTED + WIRED | Source: `middleware/request_id.py`, reads `X-Request-ID`/`X-Correlation-ID`, feeds `json_logging` |
+  | `/health` endpoint | IMPLEMENTED + WIRED + confirmed live | `curl` against the local Docker stack → `{"status":"ok",...}` |
+  | `/ready` endpoint | IMPLEMENTED + WIRED + confirmed live | `curl` → `{"status":"ready"}` |
+  | Prometheus `/metrics` endpoint | IMPLEMENTED + WIRED + TESTED + confirmed live | 18 pre-existing metrics (HTTP, viewer, documents, links, annotations, webhooks, DB, cache, sessions); confirmed IP-allowlist protection correctly returns 403 from outside the allowlist, and returns real accumulated Prometheus exposition data from inside the container (`docker compose exec api curl .../metrics`) — including live counts from this same sprint's own ENG-039 API testing traffic |
+  | HTTP latency metrics | IMPLEMENTED | `http_request_duration_seconds` histogram, source-verified |
+  | Error-rate visibility | IMPLEMENTED | Via `status_code` label on `http_requests_total` — no separate error-rate metric needed |
+  | Celery task metrics | **Was NOT implemented — fixed this sprint** | See below |
+  | Security-event logging | IMPLEMENTED, via `audit_service.py` | Not a separate "security events" stream by name, but functionally serves this role — org/api-key/document mutation logging, extensively verified this session |
+  | Audit logging | IMPLEMENTED + WIRED | `audit_service.py`, verified extensively across this session (org.*, member.*, api_key.*, webhook.*, document.* events) |
+  | DEPLOYED (scrape config, dashboards) | **BLOCKED — insufficient evidence** | Requires infrastructure access this session does not have |
+  | EXTERNALLY MONITORED (Grafana, Alertmanager) | **BLOCKED — insufficient evidence** | Same — genuinely an operations requirement, not an application-code gap |
+
+- **Fix applied**: added `securedoc_celery_task_duration_seconds` (histogram) and `securedoc_celery_tasks_total` (counter), both labeled `task_name`/`outcome` (success/error/retry), wired into `process_document` (the primary, highest-volume Celery task) — the one genuine, demonstrated application-code gap found. Deliberately bounded to this one task; `purge_stale_sessions`/`requeue_orphaned_uploads`/`webhook_tasks.deliver_webhook` are not yet instrumented, an explicit boundary not an oversight.
+- **New finding while verifying the fix, filed separately as ENG-044**: the metrics register correctly (confirmed via unit tests) but do not appear on the API's `/metrics` endpoint when the worker actually processes a real document — because the worker runs as a separate OS process from the API, and `prometheus_client`'s default registry is per-process. Confirmed live: uploaded and processed a real document via the local Docker stack's actual worker, checked `/metrics` immediately after — the metric family HELP/TYPE lines are present but no sample lines are. This is a genuine, correctly-scoped-out architectural gap (needs `PROMETHEUS_MULTIPROC_DIR` + `multiprocess.MultiProcessCollector`), not a code defect in what was just added.
+- **Severity**: Low (the original finding; mostly resolved by this re-investigation's much stronger evidence)
+- **Status**: **Closed — re-classified with full evidence, one genuine gap fixed (bounded), one new gap filed as ENG-044** (2026-08-04, V22.0)
+- **Owner**: Engineering (V22.0) — closed; ENG-044 open, needs ops/infra input for the multiprocess registry
+- **Verification method**: Source Verified (all IMPLEMENTED/WIRED rows) + API Verified (live `/health`, `/ready`, `/metrics` checks against the real local Docker stack, including a real document-processing run) + Test Verified (3 new unit tests for the Celery metrics, `backend/tests/unit/test_celery_metrics.py`) + Blocked (the 2 DEPLOYED/EXTERNALLY-MONITORED rows, correctly classified rather than guessed at)
 
 ### ENG-018 — Large-PDF (100+ page) Viewer stress not freshly re-tested
 - **Source reports**: `UI_EXCELLENCE_SCORECARD.md` (Viewer section), `RELEASE_BLOCKERS.md` Tier 3 item 5
@@ -469,6 +485,14 @@ Reading the full canonical-source list per V16.0's instructions surfaced 10 item
 - **Owner**: Engineering (V22.0) — closed
 - **Verification method**: Test Verified (`test_priority2_scope_consistency.py::TestNotificationStreamScope`, 1 test — zero-scope denied) + Regression Verified (full suite 1742 passed/1 skipped/0 failed). Not revert-tested the same way as the other 3 (the pre-fix code causes the test to hang consuming a live SSE stream rather than returning a clean failing assertion) — the fix itself is the identical one-line `Depends` swap already proven correct by ENG-039/041/042's revert tests.
 
+### ENG-044 — Celery worker metrics invisible to `/metrics` — separate-process registry gap
+- **Source**: found while verifying the ENG-017 Celery-metrics fix, V22.0 Priority 3.
+- **Evidence**: API Verified — uploaded and processed a real document through the actual local Docker Celery worker, checked `/metrics` on the API container immediately after: the `securedoc_celery_task_duration_seconds`/`securedoc_celery_tasks_total` metric families register (HELP/TYPE lines present) but carry zero sample lines. Root cause, source-verified: the worker runs as a separate OS process from the API server (`docker-compose.yml`'s `api` and `worker` services); `prometheus_client`'s default registry is per-process, and this repo has no `PROMETHEUS_MULTIPROC_DIR`/`multiprocess.MultiProcessCollector` setup (confirmed via repo-wide grep — zero matches).
+- **Severity**: Low (the instrumentation code itself is correct and unit-tested; this is a deployment-wiring gap, not a logic bug — metrics recorded in-process during a unit test work correctly, as proven by `test_celery_metrics.py`)
+- **Status**: Open — needs `PROMETHEUS_MULTIPROC_DIR` set in the worker's environment, `multiprocess.MultiProcessCollector` wired into the `/metrics` handler, and a shared writable directory between API and worker containers (a Docker Compose volume change) — genuinely infra/deployment work, not appropriate to bolt onto this sprint's investigation
+- **Owner**: Unassigned — needs ops/deployment input on the shared-volume approach for the target environment (Railway)
+- **Verification method**: API Verified (real upload through the real local Docker worker, `/metrics` checked immediately after) + Source Verified (repo-wide grep confirms no multiprocess registry setup exists)
+
 ## Explicitly not on this backlog (verified non-issues)
 
 - **Storage screen usage bars** (`FIXES_TODO.md` §5) — investigated and ruled out; the fill-bar computation is correct (`width: 0.0032554%` for a 328-byte file, verified via DOM inline-style inspection). An earlier automated check mismeasured the empty track div. No action needed.
@@ -497,7 +521,7 @@ Reading the full canonical-source list per V16.0's instructions surfaced 10 item
 | ENG-014 | No duplicate-code scan run | Enhancement | 14 | **Closed** |
 | ENG-015 | Duplicated permissions dict (AD-7) | Enhancement | 15 | Justified, not changed |
 | ENG-016 | AccessScreen.jsx oversized (M-13) | Enhancement | 16 | Deferred |
-| ENG-017 | Observability wiring unconfirmed | Enhancement | 17 | Open (ops, not code) |
+| ENG-017 | Observability wiring unconfirmed | Enhancement | 17 | **Closed — re-classified, gap fixed** |
 | ENG-018 | Large-PDF stress not retested | Enhancement | 18 | **Closed — verified, no defect** |
 | ENG-019 | Dashboard modals not re-exercised | Enhancement | 19 | Open |
 | ENG-020 | Reading Intelligence hand-verification | Enhancement | 20 | **Closed — verified, matches backend math** |
@@ -523,6 +547,7 @@ Reading the full canonical-source list per V16.0's instructions surfaced 10 item
 | ENG-041 | admin.py audit-log had same zero-scope gap | Medium | 41 | **Closed — fixed** |
 | ENG-042 | annotations.py 10 document routes had same gap | Medium | 42 | **Closed — fixed** |
 | ENG-043 | notifications.py SSE stream had same gap | Low | 43 | **Closed — fixed** |
+| ENG-044 | Celery worker metrics invisible (per-process registry) | Low | 44 | Open (needs ops/infra input) |
 
 **Critical: 0. High: 3 (all closed). Medium: 5 (2 closed, 1 deferred, 2 new: 1 deferred, 1 open). Low: 14 (5 closed, 3 deferred, 6 open). Enhancement: 8.**
 

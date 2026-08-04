@@ -208,14 +208,25 @@ async def _fire_document_processed_event(document_id: str, status: str, error: s
 
 
 async def _process_document_async(task, document_id: str) -> dict:
+    import time
     from app.services.storage import get_storage_service
     from app.services.rasterizer import RasterizerService, RasterizerError
     from app.services.watermark import WatermarkService
+    from app.metrics import celery_task_duration_seconds, celery_tasks_total
 
     session_factory = _get_db_session_factory()
     storage = get_storage_service()
     rasterizer = RasterizerService()
     watermark = WatermarkService()
+    _started = time.monotonic()
+
+    def _record(outcome: str) -> None:
+        celery_task_duration_seconds.labels(
+            task_name="securedoc.process_document", outcome=outcome
+        ).observe(time.monotonic() - _started)
+        celery_tasks_total.labels(
+            task_name="securedoc.process_document", outcome=outcome
+        ).inc()
 
     try:
         async with session_factory() as db:
@@ -223,6 +234,7 @@ async def _process_document_async(task, document_id: str) -> dict:
                 db, document_id, storage, rasterizer, watermark
             )
         await _fire_document_processed_event(document_id, status=result.get("status", "ready"))
+        _record("success")
         return result
 
     except (RasterizerError, ValueError) as exc:
@@ -232,6 +244,7 @@ async def _process_document_async(task, document_id: str) -> dict:
         )
         await _mark_document_error(document_id, str(exc))
         await _fire_document_processed_event(document_id, status="error", error=str(exc))
+        _record("error")
         raise
 
     except Exception as exc:
@@ -250,6 +263,7 @@ async def _process_document_async(task, document_id: str) -> dict:
             await _fire_document_processed_event(
                 document_id, status="error", error="Processing timed out after 600 s"
             )
+            _record("error")
             raise
 
         logger.error(
@@ -257,6 +271,7 @@ async def _process_document_async(task, document_id: str) -> dict:
             document_id, type(exc).__name__, exc,
         )
         await _mark_document_error(document_id, str(exc))
+        _record("retry")
         raise task.retry(exc=exc)
 
 

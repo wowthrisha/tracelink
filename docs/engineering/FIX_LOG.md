@@ -760,3 +760,17 @@ Method: `ruff` (installed for this session) for AST-verified unused-import/unuse
 **Verification**: 8 new tests (`test_priority2_scope_consistency.py`). Full backend suite 1742 passed (1734 + 8)/1 skipped/0 failed. 3 of 4 test classes confirmed to fail against the pre-fix code via `git stash` revert (the 4th, SSE, wasn't revert-tested the same way — hangs on a live stream rather than failing cleanly — but uses the identical proven fix pattern).
 
 **Files**: `backend/app/routers/{admin,annotations,notifications}.py`, `backend/tests/integration/test_priority2_scope_consistency.py`, `docs/security/API_AUTHORIZATION_MATRIX.md`.
+
+## Sprint V22.0 — ENG-017: observability re-classified, Celery metrics gap fixed, ENG-044 found (2026-08-04)
+
+**Issue**: ENG-017 was previously "unconfirmed" — never precisely classified against what actually exists.
+
+**Finding**: structured logs, request/correlation IDs, `/health`, `/ready`, `/metrics` (18 pre-existing metrics), and audit logging are all IMPLEMENTED+WIRED, confirmed live against the local Docker stack. The one genuine gap: zero Celery worker instrumentation.
+
+**Fix**: added 2 metrics (`securedoc_celery_task_duration_seconds`, `securedoc_celery_tasks_total`) wired into `process_document`, the primary Celery task, covering success/error/retry outcomes.
+
+**New finding while verifying**: metrics recorded in the Celery worker process don't appear on the API's `/metrics` endpoint — separate-process Prometheus registries, no multiprocess setup exists. Filed as ENG-044 rather than papered over.
+
+**Verification**: 3 new unit tests. Full backend suite 1745 passed (1742 + 3)/1 skipped/0 failed. Live-verified `/health`/`/ready`/`/metrics` against the real Docker stack, including a real document upload through the real worker to confirm (and precisely diagnose) the ENG-044 gap.
+
+**Files**: `backend/app/metrics.py`, `backend/app/workers/tasks.py`, `backend/tests/unit/test_celery_metrics.py`.
