@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from app.database import get_db
-from app.auth import get_current_user
+from app.auth import require_scope
 from app.config import settings
 from app.models.billing import (
     UserBilling, PLAN_FREE, PLAN_PRO,
@@ -68,7 +68,7 @@ def _require_stripe():
 @router.get("/status")
 async def billing_status(
     db: AsyncSession = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: dict = Depends(require_scope("billing:read")),
 ):
     """Return the current user's plan and Stripe subscription state."""
     user_id = uuid.UUID(user["user_id"])
@@ -79,7 +79,7 @@ async def billing_status(
 @router.post("/checkout")
 async def create_checkout_session(
     db: AsyncSession = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: dict = Depends(require_scope("billing:write")),
 ):
     """Create a Stripe Checkout Session for upgrading to Pro. Returns {url}."""
     stripe = _require_stripe()
@@ -116,7 +116,7 @@ async def create_checkout_session(
 @router.post("/portal")
 async def billing_portal(
     db: AsyncSession = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: dict = Depends(require_scope("billing:write")),
 ):
     """Create a Stripe Customer Portal session. Returns {url}."""
     stripe = _require_stripe()

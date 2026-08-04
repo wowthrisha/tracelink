@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth import get_current_user
+from app.auth import require_scope
 from app.database import get_db
 from app.models.api_key import API_SCOPES, APIKey, generate_api_key, hash_api_key
 
@@ -28,6 +28,24 @@ def _key_response(key: APIKey, full_key: Optional[str] = None) -> dict:
     if full_key is not None:
         d["key"] = full_key
     return d
+
+
+def _reject_scope_escalation(user: dict, requested_scopes: list) -> None:
+    """An API-key caller must never be able to mint/grant a scope it doesn't itself
+    hold (ENG-039) — otherwise a narrowly-scoped key could create or widen a sibling
+    key into one with broader access than its own creator intended it to have.
+    JWT/browser callers are unrestricted here, matching every other owner-level
+    JWT behavior in this codebase (require_scope() itself only restricts
+    auth_method == "api_key" callers)."""
+    if user.get("auth_method") != "api_key":
+        return
+    own_scopes = set(user.get("scopes", []))
+    excess = [s for s in requested_scopes if s not in own_scopes]
+    if excess:
+        raise HTTPException(
+            status_code=403,
+            detail=f"Cannot grant scopes beyond your own API key's scopes: {sorted(excess)}",
+        )
 
 
 async def _get_user_key(key_id: str, user: dict, db: AsyncSession) -> APIKey:
@@ -52,7 +70,7 @@ async def _get_user_key(key_id: str, user: dict, db: AsyncSession) -> APIKey:
 async def create_api_key(
     body: dict,
     db: AsyncSession = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: dict = Depends(require_scope("api_keys:write")),
 ):
     """
     Create an API key.  The full key is returned exactly once in this response.
@@ -73,6 +91,7 @@ async def create_api_key(
             status_code=422,
             detail=f"Invalid scopes: {sorted(invalid)}. Allowed: {sorted(API_SCOPES)}",
         )
+    _reject_scope_escalation(user, scopes)
 
     expires_at = None
     if body.get("expires_at"):
@@ -119,7 +138,7 @@ async def create_api_key(
 @router.get("")
 async def list_api_keys(
     db: AsyncSession = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: dict = Depends(require_scope("api_keys:read")),
 ):
     result = await db.execute(
         select(APIKey)
@@ -133,7 +152,7 @@ async def list_api_keys(
 async def get_api_key(
     key_id: str,
     db: AsyncSession = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: dict = Depends(require_scope("api_keys:read")),
 ):
     key = await _get_user_key(key_id, user, db)
     return _key_response(key)
@@ -144,7 +163,7 @@ async def update_api_key(
     key_id: str,
     body: dict,
     db: AsyncSession = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: dict = Depends(require_scope("api_keys:write")),
 ):
     key = await _get_user_key(key_id, user, db)
 
@@ -161,6 +180,7 @@ async def update_api_key(
         invalid = [s for s in scopes if s not in API_SCOPES]
         if invalid:
             raise HTTPException(status_code=422, detail=f"Invalid scopes: {sorted(invalid)}")
+        _reject_scope_escalation(user, scopes)
         key.scopes_json = json.dumps(scopes)
 
     was_active = key.is_active
@@ -192,7 +212,7 @@ async def update_api_key(
 async def rotate_api_key(
     key_id: str,
     db: AsyncSession = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: dict = Depends(require_scope("api_keys:write")),
 ):
     """
     Rotate an API key: generate a new key value for the same key entry.
@@ -228,7 +248,7 @@ async def rotate_api_key(
 async def delete_api_key(
     key_id: str,
     db: AsyncSession = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: dict = Depends(require_scope("api_keys:write")),
 ):
     key = await _get_user_key(key_id, user, db)
     key_name = key.name

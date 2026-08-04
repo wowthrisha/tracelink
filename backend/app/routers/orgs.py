@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth import get_current_user
+from app.auth import require_scope
 from app.config import settings
 from app.database import get_db
 from app.models.org import ORG_ROLES, OrgMembership, Organization, role_gte
@@ -82,7 +82,7 @@ def _member_response(m: OrgMembership, email: Optional[str] = None) -> dict:
 async def create_org(
     body: dict,
     db: AsyncSession = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: dict = Depends(require_scope("organizations:write")),
 ):
     name = body.get("name", "").strip()
     if not name or len(name) > 200:
@@ -120,7 +120,7 @@ async def create_org(
 @router.get("")
 async def list_orgs(
     db: AsyncSession = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: dict = Depends(require_scope("organizations:read")),
 ):
     user_uuid = uuid.UUID(user["user_id"])
     result = await db.execute(
@@ -151,7 +151,7 @@ async def list_orgs(
 async def get_org(
     org_id: str,
     db: AsyncSession = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: dict = Depends(require_scope("organizations:read")),
 ):
     org, member = await _get_org_and_member(org_id, user, db, minimum_role="viewer")
     count_result = await db.execute(
@@ -168,7 +168,7 @@ async def update_org(
     org_id: str,
     body: dict,
     db: AsyncSession = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: dict = Depends(require_scope("organizations:write")),
 ):
     org, _ = await _get_org_and_member(org_id, user, db, minimum_role="owner")
 
@@ -215,7 +215,7 @@ async def update_org(
 async def delete_org(
     org_id: str,
     db: AsyncSession = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: dict = Depends(require_scope("organizations:write")),
 ):
     org, _ = await _get_org_and_member(org_id, user, db, minimum_role="owner")
     from app.services.audit_service import log_audit_event
@@ -232,7 +232,7 @@ async def delete_org(
 async def list_members(
     org_id: str,
     db: AsyncSession = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: dict = Depends(require_scope("organizations:read")),
 ):
     _, _ = await _get_org_and_member(org_id, user, db, minimum_role="viewer")
     org_uuid = uuid.UUID(org_id)
@@ -275,7 +275,7 @@ async def invite_member_by_email(
     org_id: str,
     body: dict,
     db: AsyncSession = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: dict = Depends(require_scope("organizations:write")),
 ):
     """Invite a user to an organization by email address.
 
@@ -359,7 +359,7 @@ async def add_member(
     org_id: str,
     body: dict,
     db: AsyncSession = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: dict = Depends(require_scope("organizations:write")),
 ):
     org, actor = await _get_org_and_member(org_id, user, db, minimum_role="admin")
     org_uuid = uuid.UUID(org_id)
@@ -409,7 +409,7 @@ async def update_member_role(
     target_user_id: str,
     body: dict,
     db: AsyncSession = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: dict = Depends(require_scope("organizations:write")),
 ):
     org, actor = await _get_org_and_member(org_id, user, db, minimum_role="admin")
     org_uuid = uuid.UUID(org_id)
@@ -467,7 +467,7 @@ async def remove_member(
     org_id: str,
     target_user_id: str,
     db: AsyncSession = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: dict = Depends(require_scope("organizations:write")),
 ):
     # Any org member may call this (self-removal/"leave org" must be reachable at
     # any role); admin-or-higher is enforced explicitly below for removing someone else.
@@ -523,7 +523,7 @@ async def remove_member(
 async def get_domain_verify_token(
     org_id: str,
     db: AsyncSession = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: dict = Depends(require_scope("organizations:read")),
 ):
     """Return the TXT record value the admin must add to verify custom domain ownership."""
     org, _ = await _get_org_and_member(org_id, user, db, minimum_role="admin")
@@ -537,7 +537,7 @@ async def get_domain_verify_token(
 async def verify_custom_domain(
     org_id: str,
     db: AsyncSession = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: dict = Depends(require_scope("organizations:write")),
 ):
     """
     Check that the org's custom_domain has the required DNS TXT record and mark it verified.

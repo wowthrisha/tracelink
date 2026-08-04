@@ -14,6 +14,16 @@ API_SCOPES = frozenset({
     "analytics:read",
     "webhooks:read",
     "webhooks:write",
+    # ENG-039: orgs/api_keys/billing previously had no scope taxonomy at all,
+    # so those routers could only ever use bare authentication (any valid API
+    # key, regardless of granted scopes, had full access) — see
+    # docs/security/API_AUTHORIZATION_MATRIX.md for the full audit.
+    "organizations:read",
+    "organizations:write",
+    "api_keys:read",
+    "api_keys:write",
+    "billing:read",
+    "billing:write",
 })
 
 _KEY_PREFIX = "sd_"

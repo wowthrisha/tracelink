@@ -740,3 +740,13 @@ Method: `ruff` (installed for this session) for AST-verified unused-import/unuse
 **Verification**: full regression re-run after the structural moves (mandatory per this sprint's own Section 14) — 1706 passed/1 skipped/0 failed, 13/13, lint exit 0, build 309.1kb, Docker `api`+`migrate` rebuilt and healthy.
 
 **Files**: `README.md`, `docs/release/FINAL_RELEASE_CERTIFICATION.md` (new), `docs/release/KNOWN_LIMITATIONS.md` (new), 6 files moved to `archive/sprint18-certification/`, `SECURITY_HARDENING_PLAN.md` moved to `docs/security/`, `docs/governance/ARCHIVED_FILES.md`, `ENGINEERING_BACKLOG.md`.
+
+## Sprint V22.0 — ENG-039: API-key zero-scope authorization gap (2026-08-04)
+
+**Issue**: `orgs.py` (12 routes), `api_keys.py` (6 routes), `billing.py` (3 authenticated routes) used bare `Depends(get_current_user)` with no scope enforcement — any authenticated API key, regardless of granted scopes (including zero), had full access to organization management, other API keys, and billing. `API_SCOPES` never included an `organizations:*`/`api_keys:*`/`billing:*` category at all.
+
+**Fix**: added 6 scopes (`organizations:{read,write}`, `api_keys:{read,write}`, `billing:{read,write}`) to `API_SCOPES`; wired `require_scope(...)` onto all 21 previously-bare endpoints; added `_reject_scope_escalation()` so an API key can never mint/widen a sibling key beyond its own scopes; added the 6 new scopes to `ApiKeysScreen.jsx`'s scope selector so the fix is actually reachable, not just enforced. JWT/browser callers unaffected (`require_scope` only restricts `auth_method == "api_key"` callers).
+
+**Verification**: 28 new tests covering the full required matrix (no/invalid/revoked/expired key, zero/correct/incorrect scope, org role hierarchy, cross-org access, escalation guard, error hygiene) — 12 of 28 confirmed to fail against the pre-fix code (via `git stash`), proving they detect the real bug. Full backend suite 1734 passed (1706 + 28 new)/1 skipped/0 failed. Live-verified against the real local Docker stack: zero-scope key denied with the exact expected message, correctly-scoped key succeeds, escalation guard denied live. Full endpoint matrix and cross-check against 10 other API families in `docs/security/ENG-039_ORG_AUTHORIZATION_TRACE.md`.
+
+**Files**: `backend/app/models/api_key.py`, `backend/app/routers/{orgs,api_keys,billing}.py`, `backend/tests/integration/test_eng039_org_api_key_scopes.py`, `frontend/src/screens/ApiKeysScreen.jsx`, `docs/security/ENG-039_ORG_AUTHORIZATION_TRACE.md`.

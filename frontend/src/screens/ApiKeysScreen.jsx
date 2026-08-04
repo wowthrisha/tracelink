@@ -9,6 +9,9 @@ const ALL_SCOPES = [
   'links:read', 'links:write',
   'analytics:read',
   'webhooks:read', 'webhooks:write',
+  'organizations:read', 'organizations:write',
+  'api_keys:read', 'api_keys:write',
+  'billing:read', 'billing:write',
 ];
 
 function fmtRelative(iso) {
