@@ -1,0 +1,35 @@
+# ENG-040 — Uploader-Controlled Viewer Capability Inventory
+
+V22.0 Priority 4. Inventories every uploader-controlled Viewer capability against: is it uploader-configurable, viewer-visible, backend-persisted, API-enforced, Viewer-enforced, does Edit Link reflect a change, do existing sessions reflect a change, is the default safe, is it audit-logged. No new toggles were created — this is a verification pass, per the mandate's "never create decorative toggles... every toggle must correspond to a real capability."
+
+## Source of truth
+
+All 8 capabilities live in one `permissions` JSON object on `ShareLink`, defaulted in `backend/app/services/viewer_session_service.py:101-109` and set via `AccessScreen.jsx`'s create-link/edit-link forms (`frontend/src/screens/AccessScreen.jsx`).
+
+## Change propagation to existing sessions (checked once, applies to all 8 rows below)
+
+Editing a link's permissions (`PATCH /api/links/{id}`) calls `invalidate_link(token, link_id)` (`links.py:325,380`), which evicts the link from `viewer_cache`'s `link_cache` (`LINK_TTL_SEC=10.0`s) immediately rather than waiting for the TTL to lapse naturally. **A viewer's already-open session reflects a permission edit within, at most, a few seconds** — not instantly, but not "never" either. Source-verified via `viewer_cache.py:28,175-183` and the two `invalidate_link` call sites in `links.py`.
+
+## Inventory
+
+| Feature | Uploader configurable | Viewer visible | Backend persisted | API enforced | Viewer (frontend) enforced | Edit Link reflects change | Existing sessions reflect change | Default safe | Audit logged |
+|---|---|---|---|---|---|---|---|---|---|
+| `can_download` | Yes — toggle in create/edit link forms | Yes — download button hidden/shown accordingly | Yes — `ShareLink.permissions` JSON | **Yes** — `viewer.py:540` rejects the download endpoint server-side if false | Yes — button hidden, `Ctrl+S` blocked client-side | Yes | Yes (≤~10s cache TTL) | **Yes — defaults `False`** (deny by default) | Download events logged via analytics; permission change itself logged as `link.updated` context in `org.updated`-style events on the parent link edit (link mutations are not independently itemized beyond the PATCH's own audit trail — see `docs/security/API_AUTHORIZATION_MATRIX.md`'s note on `links.py` audit gaps) |
+| `can_print` | Yes | Yes — indirectly (print blocked, no dedicated UI affordance beyond the DRM block) | Yes | **Client-side only** — no server endpoint to "print," so nothing to enforce server-side; this is correctly documented in `README.md` as a "client-side UX gate," not a security boundary | Yes — `Ctrl+P` blocked, `beforeprint` handler hides page content as a defense-in-depth layer | Yes | Yes | **Yes — defaults `False`** | Print *attempts* are logged (`print_attempt` event) regardless of outcome |
+| `can_copy` | Yes | Yes | Yes | Client-side only (same reasoning as `can_print` — copying rendered pixels has no server-side action to gate) | Yes — `Ctrl+A/C/X/U` blocked | Yes | Yes | **Yes — defaults `False`** | Copy attempts logged (`copy_attempt` event) |
+| `can_right_click` | Yes | Yes | Yes | Client-side only (same reasoning) | Yes — `contextmenu` blocked | Yes | Yes | **Yes — defaults `False`** | Right-click attempts logged (`right_click_attempt` event) |
+| `watermark_enabled` | Yes | Yes — watermark visibly present/absent on rendered pages | Yes | **Yes** — `viewer_session_service.py:146` conditionally sets `watermark_text` to `None` server-side when disabled; watermark pixels are baked server-side into the served page image, not a frontend overlay that could be inspected-element-removed | n/a (server-rendered) | Yes | Yes | **Yes — defaults `True`** (watermark ON by default — safe default, not permissive) | n/a |
+| `can_annotate` | Yes | Yes — annotation toolbar hidden/shown | Yes | **Yes** — `annotation_service.py:126` checks `perms.get("can_annotate", False)` before allowing any annotation-creation call | Yes — toolbar hidden | Yes | Yes | **Yes — defaults `False`** | Annotation creation events are part of the annotation record itself (author, timestamp) |
+| `enable_info` | Yes | Yes — info-panel button hidden/shown | Yes | **No server enforcement — correctly so.** The info panel displays data already present in the validate/session response (document name, page count, etc.) — there is no additional privileged endpoint it calls that isn't already gated by the session's mere existence. Confirmed via `ViewerScreen.jsx:231`, `canInfo={session ? !!session?.permissions?.enable_info : true}` — a pure UI-visibility toggle with no corresponding sensitive backend call | Yes | Yes | Yes | **Yes — defaults `True`**, but this is correctly safe since there's no sensitive data behind it | n/a |
+| `show_reading_insights` | Yes — **fixed this sprint** (ENG-035; the backend enforced this before the UI toggle existed to set it, leaving it permanently unreachable at `False`) | Yes — comparative Reading Intelligence panel (difficulty, page average, pace-vs-average) | Yes | **Yes** — `reading.py`'s `get_viewer_session` nulls the 3 comparative fields server-side unless the flag is set (fixed further this sprint, ENG-036, to also exclude the requesting viewer's own session from the "page average" comparison) | Yes — `ReadingStatusBar.jsx` renders nothing when the 3 fields are `null` | Yes | Yes | **Yes — defaults `False`** | n/a |
+
+## Findings
+
+- **7 of 8 capabilities were already fully correct** — configurable, visible, persisted, appropriately enforced (server-side where a server action exists to gate; client-side-only where correctly documented as a UX gate, not a security boundary), safely defaulted, and propagate to existing sessions within the cache TTL.
+- **1 capability (`show_reading_insights`) was fixed earlier this same sprint** (ENG-035/036) — the exact class of defect this Priority 4 sweep was designed to catch (a real backend capability with no UI path to reach it). No further instance of that pattern was found among the other 7.
+- **No decorative toggles found** — every one of the 8 fields has a real, traceable effect on either server behavior or a genuine (even if client-side-only, DRM-class) UX gate. None was found to be UI-only with zero backend meaning, and none was found to be backend-only with no UI path (beyond the already-fixed `show_reading_insights`).
+- **No new toggles created**, per the mandate's explicit instruction — this is a verification-only pass.
+
+## Verification
+
+All 8 rows' "API enforced"/"Viewer enforced" claims are Source Verified (file:line citations above). The cache-propagation claim is Source Verified against `viewer_cache.py` and `links.py`. No new code was written for this document — it is a pure audit deliverable. `can_download`/`can_annotate`/`watermark_enabled`'s server-side enforcement paths are additionally covered by pre-existing tests in the suite (already passing, unaffected by this sprint's changes — confirmed via the 1745-passed full-suite runs earlier this sprint).

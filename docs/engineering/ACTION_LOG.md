@@ -453,3 +453,14 @@ Format per entry: Timestamp / Module / Screen / Observation / Root Cause / Decis
 - **Verification**: API Verified — real document upload processed by the real local Docker Celery worker; `/metrics` checked before and after from inside the container.
 - **Result**: ENG-017 closed (re-classified with full evidence, one gap fixed). ENG-044 filed, open, needs ops/infra input.
 - **Next Action**: Priority 4 — feature-toggle sweep (Reading Intelligence uploader-controlled capabilities), to be filed as ENG-040 per the sprint's own numbering (reserved, not yet used).
+
+### Entry 36 — Sprint V22.0, Priority 4: ENG-040 feature-toggle sweep (2026-08-04)
+
+- **Timestamp**: 2026-08-04T16:00-16:45
+- **Phase**: Priority 4 (verification-only, no defect assumed)
+- **Observation**: inventoried all 8 uploader-controlled Viewer capabilities (`can_download`, `can_print`, `can_copy`, `can_right_click`, `watermark_enabled`, `can_annotate`, `enable_info`, `show_reading_insights`) against configurability/visibility/persistence/API-enforcement/Viewer-enforcement/edit-propagation/safe-defaults/audit-logging. Full table in `docs/security/ENG-040_VIEWER_TOGGLE_INVENTORY.md`. Also traced permission-edit propagation to already-open viewer sessions once (applies to all 8): `PATCH /api/links/{id}` calls `invalidate_link()`, evicting the link cache immediately rather than waiting out the 10s TTL — existing sessions see a permission change within a few seconds, not "never."
+- **Result**: 7 of 8 capabilities were already fully correct — genuinely configurable, enforced where a server action exists to gate (download, annotate, watermark), correctly documented as client-side-only UX gates where no server action exists to gate (print/copy/right-click, matching `README.md`'s own honest framing), safely defaulted (deny-by-default except `watermark_enabled`/`enable_info`, both of which default to the *safe* direction). The 8th, `show_reading_insights`, was the exact defect class this sweep exists to catch — already found and fixed earlier this same sprint (ENG-035/036) before this formal sweep began, confirming that fix was correctly scoped and no sibling instance of the same pattern exists among the other 7. No new toggles created, no code changed — pure verification deliverable, per the mandate.
+- **Files Modified**: `docs/security/ENG-040_VIEWER_TOGGLE_INVENTORY.md` (new), `ENGINEERING_BACKLOG.md`.
+- **Tests Executed**: none — no code changed. Relies on the already-passing suite (1745/1/0) for the 3 server-enforced capabilities' existing coverage.
+- **Result**: ENG-040 closed — verified, no new defect found. Commit pending.
+- **Next Action**: Priority 5 — ENG-037 (`is_link_active()` duplication).

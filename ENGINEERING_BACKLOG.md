@@ -493,6 +493,14 @@ Reading the full canonical-source list per V16.0's instructions surfaced 10 item
 - **Owner**: Unassigned — needs ops/deployment input on the shared-volume approach for the target environment (Railway)
 - **Verification method**: API Verified (real upload through the real local Docker worker, `/metrics` checked immediately after) + Source Verified (repo-wide grep confirms no multiprocess registry setup exists)
 
+### ENG-040 — Uploader-controlled Viewer capability (feature-toggle) sweep
+- **Source**: V22.0 Priority 4, a verification-only sweep (not a reported defect) — inventoried every uploader-controlled Viewer capability against configurability, visibility, persistence, API/Viewer enforcement, edit-propagation, safe-defaults, and audit logging.
+- **Evidence**: Source-verified, full inventory in `docs/security/ENG-040_VIEWER_TOGGLE_INVENTORY.md`. All 8 capabilities (`can_download`, `can_print`, `can_copy`, `can_right_click`, `watermark_enabled`, `can_annotate`, `enable_info`, `show_reading_insights`) traced end-to-end. 7 of 8 were already fully correct. The 8th (`show_reading_insights`) was the exact defect this sweep was designed to catch — already found and fixed earlier this same sprint as ENG-035/036, before this formal sweep even began, confirming the fix was correctly scoped.
+- **Severity**: n/a — verification pass, no new defect found
+- **Status**: **Closed — verified, no new defect found** (2026-08-04, V22.0)
+- **Owner**: Engineering (V22.0) — closed
+- **Verification method**: Source Verified (every row's API/Viewer-enforcement claim cites file:line) — no new code written, this is a pure audit deliverable
+
 ## Explicitly not on this backlog (verified non-issues)
 
 - **Storage screen usage bars** (`FIXES_TODO.md` §5) — investigated and ruled out; the fill-bar computation is correct (`width: 0.0032554%` for a 328-byte file, verified via DOM inline-style inspection). An earlier automated check mismeasured the empty track div. No action needed.
@@ -544,6 +552,7 @@ Reading the full canonical-source list per V16.0's instructions surfaced 10 item
 | ENG-037 | `is_link_active()` not actually used by enforcement path | Low | 37 | Open (low urgency, needs care) |
 | ENG-038 | `ensure_not_last_owner()` TOCTOU race (pre-existing) | Low | 38 | Open |
 | ENG-039 | API keys with zero scopes can manage Orgs/API-Keys/Billing | Medium-High | 39 | **Closed — fixed** |
+| ENG-040 | Uploader-controlled Viewer toggle sweep | n/a | 40 | **Closed — verified, no defect** |
 | ENG-041 | admin.py audit-log had same zero-scope gap | Medium | 41 | **Closed — fixed** |
 | ENG-042 | annotations.py 10 document routes had same gap | Medium | 42 | **Closed — fixed** |
 | ENG-043 | notifications.py SSE stream had same gap | Low | 43 | **Closed — fixed** |
