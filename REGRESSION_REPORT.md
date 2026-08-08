@@ -165,6 +165,14 @@ Every prior "Browser re-check" entry in this table used a real browser driven ma
 
 **Zero regressions.** `backend/tests`' 206 remaining lint violations are real, pre-existing, zero-runtime-impact debt — tracked as ENG-046's open remainder, not silently dropped or claimed fixed.
 
+### ENG-048 investigation (2026-08-09) — no code changed
+
+| Checkpoint | Backend | Frontend | Notes |
+|---|---|---|---|
+| Reading Intelligence pause/resume investigation | N/A — no code changed | N/A — no code changed | Browser Verified defect confirmed (5+ independent Playwright reproductions against the live Railway app); root cause not pinned despite a full 511-line source read of `useReadingAnalytics.js`. No fix attempted — filed as ENG-048 rather than guess-fixed, per the mandate's discipline against fixing subtle state/timing bugs on intuition. |
+
+No regression risk since no code changed. This is the one open item this sprint that isn't a decision-blocker or quantified low-priority cleanup — it's a genuine, unresolved, High-severity product defect, and the next session should treat it as the first priority.
+
 ### Why a local Docker stack instead of testing against production or trusting source alone
 
 The deployed instance auto-deploys from `origin/main` on push — verifying a fix there would mean shipping unverified code to production first. `docker compose up --build` (Postgres 16 + Redis 7 + the API + worker, all local-only) uses the same Supabase auth project as production but a completely separate local database, so real production data was never at risk, while still giving genuine, real-browser evidence rather than a source-code assumption that a CSS change "should" fix the clipping.

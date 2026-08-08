@@ -10,19 +10,19 @@ Per V24.0's Step 1 mandate, cross-checked every open/closed claim in this file a
 
 This file's older dual-layer table (a stale 44-item V22.0 table left sitting next to a V23.0 prose correction, itself the kind of contradiction this reconciliation pass exists to catch) is replaced below with one single, arithmetically-verified table.
 
-## Burndown (47 items, fully reconciled V24.0 — see `ENGINEERING_BACKLOG.md`'s "Reconciled totals" note for the item-by-item recount)
+## Burndown (48 items, fully reconciled V24.0 — see `ENGINEERING_BACKLOG.md`'s "Reconciled totals" note for the item-by-item recount)
 
-| Priority | Total | Closed | Deferred (reasoned) | Reviewed/Justified | Open (blocked on external input / low-risk) |
+| Priority | Total | Closed | Deferred (reasoned) | Reviewed/Justified | Open (blocked on external input / low-risk / needs live debugging) |
 |---|---|---|---|---|---|
 | Critical | 0 | 0 | 0 | 0 | 0 |
-| High | 4 | 3 | 0 | 0 | 1 |
+| High | 5 | 3 | 0 | 0 | 2 |
 | Medium | 14 | 10 | 3 | 0 | 1 |
 | Low | 20 | 11 | 3 | 3 | 3 |
 | Enhancement | 8 | 6 | 1 | 1 | 0 |
 | Verification-only (no severity) | 1 | 1 | 0 | 0 | 0 |
-| **Total** | **47** | **31** | **7** | **4** | **5** |
+| **Total** | **48** | **31** | **7** | **4** | **6** |
 
-`31 + 7 + 4 + 5 = 47`. Overall completion: **66.0%** (31/47 closed). **Every Critical/High/Medium/Low item is closed, deferred, or classified as a decision item with fresh, on-record reasoning.** The 5 remaining open items are each blocked on a named external input, an evidence-based low-risk classification, or quantified remaining low-risk cleanup: **ENG-033** (new profile screen — product/design direction, decision record in `docs/governance/ENG-033_DECISION.md`), **ENG-034** (CD/deploy job — deployment-target decision, decision record in `docs/governance/ENG-034_DECISION.md`), **ENG-038** (TOCTOU race, reclassified low-risk-inference after 2 clean live reproduction attempts found no race), **ENG-044** (Celery worker metrics invisible cross-process — ops/infra multiprocess-registry decision), **ENG-046** (CI's `ruff check` had no project-level config — `backend/app` fixed and pinned this sprint; `backend/tests`' 206 remaining lint violations are real but zero-runtime-impact debt, quantified and left open rather than blind-fixed). ENG-019/045 (V23.0), ENG-037/039/017/040 (V22.0), and ENG-047 (V24.0) are all closed; AUTH-006 (tracked as ENG-026) remains a documented, unimplemented architectural risk (severity revised Medium-High→Medium after a new CSP mitigation finding) — a deferred item, not an open one, since a full migration plan already exists and is simply pending an approval decision rather than lacking a plan.
+`31 + 7 + 4 + 6 = 48`. Overall completion: **64.6%** (31/48 closed). **Not** claiming zero unresolved High defects this sprint — **ENG-048 is genuinely open, High severity, confirmed real** (see below). The 6 remaining open items: **ENG-033** (new profile screen — product/design direction, decision record in `docs/governance/ENG-033_DECISION.md`), **ENG-034** (CD/deploy job — deployment-target decision, decision record in `docs/governance/ENG-034_DECISION.md`), **ENG-038** (TOCTOU race, reclassified low-risk-inference after 2 clean live reproduction attempts found no race), **ENG-044** (Celery worker metrics invisible cross-process — ops/infra multiprocess-registry decision), **ENG-046** (CI's `ruff check` had no project-level config — `backend/app` fixed and pinned this sprint; `backend/tests`' 206 remaining lint violations are real but zero-runtime-impact debt, quantified and left open rather than blind-fixed), and **ENG-048** (found this sprint during Reading Intelligence re-certification: the Viewer's active-reading-time counter resets to zero instead of pausing on window blur, then restarts from zero on resume — confirmed real via 5+ independent Playwright reproductions ruling out remount/network/timing/interaction-noise explanations, but the exact faulty line in `useReadingAnalytics.js` wasn't pinned despite a full 511-line source read; needs a live DevTools breakpoint session, not more automated reproduction or a guess-fix — **this is the top-priority item for the next session**). ENG-019/045 (V23.0), ENG-037/039/017/040 (V22.0), and ENG-047 (V24.0) are all closed; AUTH-006 (tracked as ENG-026) remains a documented, unimplemented architectural risk (severity revised Medium-High→Medium after a new CSP mitigation finding) — a deferred item, not an open one, since a full migration plan already exists and is simply pending an approval decision rather than lacking a plan.
 
 ## V22.0 Residual Risk Closure — complete
 
