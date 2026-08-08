@@ -35,6 +35,7 @@ export function AppShell() {
 
   const handleViewDoc = doc => { setActiveDoc(doc); setScreen('viewer'); };
   const handleAccessDoc = doc => { setActiveDoc(doc); setScreen('access'); };
+  const handleFeedbackDoc = doc => { setActiveDoc(doc); setScreen('feedback'); };
   const handleFeedbackNav = () => { setFeedbackBadge(null); setScreen('feedback'); };
   const handleLogin = (newToken) => {
     setToken(newToken);
@@ -160,7 +161,7 @@ export function AppShell() {
           {screen === 'upload' && <UploadScreen onViewDoc={handleViewDoc} onAccessDoc={handleAccessDoc} />}
           {screen === 'viewer' && <ViewerErrorBoundary><ViewerScreen doc={activeDoc} onSelectDoc={handleViewDoc} onBack={() => setScreen('upload')} ownerEmail={userEmail} /></ViewerErrorBoundary>}
           {screen === 'access' && <AccessScreen doc={activeDoc} onSelectDoc={handleAccessDoc} />}
-          {screen === 'feedback' && <AccessScreen doc={activeDoc} onSelectDoc={handleAccessDoc} defaultTab="feedback" />}
+          {screen === 'feedback' && <AccessScreen doc={activeDoc} onSelectDoc={handleFeedbackDoc} defaultTab="feedback" />}
           {screen === 'analytics' && <AnalyticsScreen />}
           {screen === 'storage' && <StorageScreen />}
           {screen === 'billing' && <BillingScreen onPlanChange={setPlan} />}
