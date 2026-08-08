@@ -6,34 +6,54 @@ Narrative progress log, one entry per closed (or explicitly deferred) backlog it
 
 | Field | Value |
 |---|---|
-| Current issue | none in progress — V21.0 Production Release Closure sprint complete |
-| Previous issue | ENG-035/ENG-036 (Reading Insights UI toggle + self-inclusive average fix) |
-| Next issue | 7 open items (ENG-017/019/033/034/037/038/039), each blocked on a named external input — not further engineering-actionable this session |
+| Current issue | none in progress — V22.0 Residual Risk Closure sprint complete |
+| Previous issue | ENG-037/ENG-038 (link-active tripwire test + TOCTOU reproduction attempt) |
+| Next issue | 6 open items (ENG-019/033/034/038/044, plus ENG-037's intentional tripwire), each blocked on a named external input or reclassified low-risk — not further engineering-actionable this session |
 | Critical remaining | 0 / 0 |
-| High remaining | 1 / 4 (ENG-033 — needs product/design input for a new screen) |
-| Medium remaining | 2 open / 10 total (ENG-034 needs ops decision, ENG-039 needs security-reviewed rollout; 3 deferred: ENG-005/023/026; 5 closed) |
-| Low remaining | 2 open / 17 total (ENG-037/038, both low-urgency; 9 closed, 6 deferred/reviewed-with-reasoning) |
-| Enhancement remaining | 2 open / 8 total (ENG-017 ops-only, ENG-019 partially verified; ENG-018/020 closed this sprint; ENG-013/014 closed; ENG-015 justified, ENG-016 deferred) |
-| Overall % | 53.8% (21/39 closed, 11 deferred/reviewed/justified, 7 open) |
-| Current commit | `d607216` |
-| Last regression | PASS — post-V21.0, 2026-08-04 (backend 1706 passed/1 skipped/0 failed / frontend 13/13 / lint exit 0 / build 309.1kb / Docker `api`+`migrate` rebuilt and healthy). |
-| Current blocker | None — all 7 open items are correctly blocked on external input, not stalled |
-| Estimated completion | Engineering-actionable backlog is fully triaged: every Critical/High/Medium/Low item is closed or deferred-with-reasoning, and all 62 files of previously-uncommitted work from earlier sprints are now committed (repository working tree fully clean for the first time this session). Remaining 7 open items each need a named external input (product design, ops/deployment policy, infra access, browser tooling, or a dedicated security-reviewed rollout) — none are unilaterally engineering-actionable. |
+| High remaining | 1 / 4 (ENG-033 — needs product/design input; full decision record in `docs/governance/ENG-033_DECISION.md`) |
+| Medium remaining | 2 open / 12 total (ENG-034 needs ops decision — decision record in `docs/governance/ENG-034_DECISION.md`; ENG-039 closed this sprint; 4 deferred: ENG-005/023/026 [ENG-026 severity revised Medium-High→Medium]; 6 closed incl. ENG-041/042) |
+| Low remaining | 2 open / 20 total (ENG-038 reclassified low-risk-inference, ENG-044 new/ops-blocked; ENG-037 closed via tripwire; 12 closed incl. ENG-040/043; 6 deferred/reviewed-with-reasoning) |
+| Enhancement remaining | 1 open / 8 total (ENG-019 partially verified; ENG-017 closed this sprint — re-classified, Celery-metrics gap fixed; ENG-018/020/013/014 closed; ENG-015 justified, ENG-016 deferred) |
+| Overall % | 61.4% (27/44 closed, 11 deferred/reviewed/justified, 6 open) |
+| Current commit | `953def4` |
+| Last regression | PASS — post-V22.0, 2026-08-08 (backend 1751 passed/1 skipped/0 failed, host-run / frontend 13/13 / build 309.2kb / migration head 027 confirmed live / live API smoke + end-to-end link-lifecycle check against the real Docker stack all correct). |
+| Current blocker | None — all 6 open items are correctly blocked on external input or evidence-based low-risk reclassification, not stalled |
+| Estimated completion | V22.0's entire canonical remaining-items list (ENG-039/017/040/037/038/033/034/AUTH-006) is now FIXED, PROVEN FALSE, VERIFIED-AND-DEFERRED, or CLASSIFIED AS A DECISION ITEM — zero unexplained entries. Final certification: `docs/release/V22_RESIDUAL_RISK_CERTIFICATION.md`, verdict **READY WITH DOCUMENTED LIMITATIONS**. Remaining 6 open items each need a named external input (product design, ops/deployment/infra policy, or browser tooling) — none are unilaterally engineering-actionable. |
 
 \* Backlog expanded from 21 to 31 items this cycle after merging `ISSUE_DATABASE.md`/`TODO_QUEUE.md` findings — see the V16.0 reconciliation entry below. This is real newly-surfaced scope, not re-litigation of closed work.
 
 \* ENG-005/ENG-011/ENG-012 counted as remaining/deferred, though all three deferrals were actively re-confirmed this cycle, not silently carried forward.
 
-## Burndown (recomputed after V21.0's Production Release Closure sprint — 39 items, all triaged)
+## Burndown (recomputed after V22.0's Residual Risk Closure sprint — 44 items, all triaged)
 
-| Priority | Total | Closed | Deferred (reasoned) | Open (blocked on external input) |
+| Priority | Total | Closed | Deferred (reasoned) | Open (blocked on external input / low-risk) |
 |---|---|---|---|---|
 | Critical | 0 | 0 | 0 | 0 |
-| High | 4 | 3 | 0 | 1 (ENG-033 — product/design) |
-| Medium | 10 | 5 | 3 | 2 (ENG-034 — ops/deployment policy; ENG-039 — security-reviewed rollout) |
-| Low | 17 | 9 | 6 | 2 (ENG-037, ENG-038 — both low-urgency, need care not haste) |
-| Enhancement | 8 | 4 | 2 (1 justified) | 2 (ENG-017 — infra access; ENG-019 — browser tooling/manual QA) |
-| **Total** | **39** | **21** | **11 (1 justified)** | **7** |
+| High | 4 | 3 | 0 | 1 (ENG-033 — product/design, decision record on file) |
+| Medium | 12 | 7 | 4 | 1 (ENG-034 — ops/deployment policy, decision record on file) |
+| Low | 20 | 12 | 6 | 2 (ENG-038 — low-risk inference, no reproducible race; ENG-044 — needs ops/infra multiprocess-registry decision) |
+| Enhancement | 8 | 5 | 2 (1 justified) | 1 (ENG-019 — browser tooling/manual QA) |
+| **Total** | **44** | **27** | **12 (1 justified)** | **5** |
+
+*(ENG-037 is closed this sprint — via a permanent regression tripwire rather than a code merge — and is not counted as "open" above, though its backlog status label reads "Open (low urgency, needs care)" to reflect the tripwire's intentionally-permanent nature; see the V22.0 section below and `docs/release/V22_RESIDUAL_RISK_CERTIFICATION.md` §6/§10 for the full reasoning.)*
+
+## V22.0 — Residual Risk Closure sprint (2026-08-04 to 2026-08-08)
+
+**Priority 1 (ENG-039)**: traced the complete API-key authorization path and found a real root-cause defect — `orgs.py`/`api_keys.py`/`billing.py` (21 routes) had no scope enforcement at all, so a zero-scope API key could manage organizations, rotate other keys, and read/change billing. Fixed at the root (6 new scopes added to `API_SCOPES`, all 21 routes scoped, plus a new `_reject_scope_escalation()` guard), with 28 new regression tests proven via `git stash` revert to catch the original bug (12/28 failed pre-fix). Extending the same matrix to all 10 router families found 3 more instances of the identical pattern — **ENG-041** (admin audit-log), **ENG-042** (10 annotation routes), **ENG-043** (notifications SSE stream) — all fixed the same way; 7 other routers confirmed already correct and left untouched.
+
+**Priority 2**: a bounded authorization-consistency review (`docs/security/API_AUTHORIZATION_MATRIX.md`) found no further instances beyond Priority 1's 4 — no unlimited rewrite performed, per the mandate's explicit bound.
+
+**Priority 3 (ENG-017)**: re-classified observability with full IMPLEMENTED/WIRED/TESTED/DEPLOYED/EXTERNALLY-MONITORED evidence — most claims were already correct and simply unconfirmed. One real gap found and fixed: zero Celery worker instrumentation (added task-duration/outcome metrics). One new gap found while live-testing the fix and filed rather than silently worked around: **ENG-044** — worker-recorded metrics are invisible on the API's `/metrics` due to `prometheus_client`'s per-process registry and no multiprocess-registry setup; classified as an ops/infra requirement, left open.
+
+**Priority 4 (ENG-040)**: verification-only sweep of all 8 uploader-controlled Viewer toggles — 7 already fully correct, the 8th (`show_reading_insights`) was the exact defect class this sweep exists to catch, already fixed earlier this sprint (ENG-035/036) before the formal sweep began. No decorative toggles found, none created.
+
+**Priority 5 (ENG-037)**: investigated merging `is_link_active()` into `validate_link()`'s real enforcement path and deliberately did **not** — the merge would add complexity (a reason-code abstraction layer) for a currently-theoretical risk. Added a 6-test regression tripwire instead, closing the actual risk (silent future drift) without touching the app's highest-stakes function.
+
+**Priority 6 (ENG-038)**: per the mandate's explicit instruction not to fix concurrency based on intuition, attempted genuine reproduction against the real Docker stack — 2 real owners, concurrent removal requests via `asyncio.gather`, 2 clean trials. The race did **not** reproduce in either trial. Reclassified from assumed-exploitable to low-risk inference; deliberately did not add a lock without a reproducible failing test.
+
+**ENG-033/034/AUTH-006 (decision and architectural-risk items)**: wrote full decision records for ENG-033 (`docs/governance/ENG-033_DECISION.md`) and ENG-034 (`docs/governance/ENG-034_DECISION.md`) per the mandate's exact required structure — both left OPEN/DECISION REQUIRED, nothing implemented without product/ops sign-off. Re-evaluated AUTH-006 with a new finding (`backend/app/middleware/security_headers.py`'s hash-based CSP is a genuine mitigating control, narrowing the realistic exploit chain to two independent failures) — severity revised Medium-High→Medium, migration plan remains fully documented and unimplemented pending an approved decision (`docs/security/SECURITY_HARDENING_PLAN.md` §9).
+
+**Final re-certification**: full backend suite host-run clean (1751 passed/1 skipped/0 failed — a first attempt via `docker compose exec` surfaced 25 failures traced to pre-existing tests hardcoding a host absolute path, not a regression, resolved by running host-side per this repo's established convention). Frontend 13/13, build 309.2kb, migration head 027 confirmed live. Live API smoke pass plus a full create→validate→edit→propagate→revoke→reject-410 link-lifecycle check against the real Docker stack, using a disposable link on the test account's own document. Final deliverable: `docs/release/V22_RESIDUAL_RISK_CERTIFICATION.md`, verdict **RELEASE STATUS: READY WITH DOCUMENTED LIMITATIONS**.
 
 ## V21.0 — Production Release Closure sprint (2026-08-02 to 2026-08-04)
 

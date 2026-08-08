@@ -2,20 +2,24 @@
 
 Running state snapshot, updated after every closed backlog item. See `PROGRESS.md` for the narrative log and `ENGINEERING_BACKLOG.md` for full issue detail.
 
-**Last updated**: 2026-08-04, after V21.0's Production Release Closure sprint.
+**Last updated**: 2026-08-08, after V22.0's Residual Risk Closure sprint.
 
-## Burndown (39 items, all triaged as of V21.0 — see PROGRESS.md)
+## Burndown (44 items, all triaged as of V22.0 — see PROGRESS.md)
 
-| Priority | Total | Closed | Deferred (reasoned) | Open (blocked on external input) |
+| Priority | Total | Closed | Deferred (reasoned) | Open (blocked on external input / low-risk) |
 |---|---|---|---|---|
 | Critical | 0 | 0 | 0 | 0 |
 | High | 4 | 3 | 0 | 1 |
-| Medium | 10 | 5 | 3 | 2 |
-| Low | 17 | 9 | 6 | 2 |
-| Enhancement | 8 | 4 | 2 | 2 |
-| **Total** | **39** | **21** | **11** | **7** |
+| Medium | 12 | 7 | 4 | 1 |
+| Low | 20 | 12 | 6 | 2 |
+| Enhancement | 8 | 5 | 2 | 1 |
+| **Total** | **44** | **27** | **12** | **5** |
 
-Overall completion: **53.8%** (21/39). **Every Critical/High/Medium/Low item is closed or deferred with fresh, on-record reasoning.** The 7 remaining open items are each blocked on a named external input, not unilaterally engineering-actionable: ENG-033 (new profile screen — product/design direction), ENG-034 (CD/deploy job — deployment-target decision), ENG-039 (API-key scope gap in orgs/api_keys/billing — security-reviewed rollout), ENG-017 (observability wiring — infra/ops access), ENG-019 (remainder of the dashboard toggle sweep — browser-automation tooling or manual QA, 2 of its toggles already confirmed correct at the API level), and ENG-037/ENG-038 (both low-urgency, need a dedicated test cycle rather than a same-sprint drive-by touching the app's highest-stakes access-control functions).
+Overall completion: **61.4%** (27/44). **Every Critical/High/Medium/Low item is closed, deferred, or classified as a decision item with fresh, on-record reasoning.** The 5 remaining open items are each blocked on a named external input or an evidence-based low-risk classification, not unilaterally engineering-actionable: ENG-033 (new profile screen — product/design direction, decision record in `docs/governance/ENG-033_DECISION.md`), ENG-034 (CD/deploy job — deployment-target decision, decision record in `docs/governance/ENG-034_DECISION.md`), ENG-044 (Celery worker metrics invisible cross-process — ops/infra multiprocess-registry decision, found this sprint), ENG-019 (remainder of the dashboard toggle sweep — browser-automation tooling or manual QA), and ENG-038 (TOCTOU race, reclassified low-risk-inference after 2 clean live reproduction attempts found no race). ENG-039/017/040/037 were all closed this sprint (see below); AUTH-006 remains a documented, unimplemented architectural risk (severity revised Medium-High→Medium after a new CSP mitigation finding).
+
+## V22.0 Residual Risk Closure — complete
+
+Closed the entire canonical remaining-items list from the V22.0 mandate. **ENG-039**: root-caused and fixed a real API-key zero-scope-means-unlimited-access defect across `orgs.py`/`api_keys.py`/`billing.py` (21 routes, 6 new scopes, scope-escalation guard, 28 new regression tests proven via stash-revert). Extending the same matrix found 3 more instances — **ENG-041/042/043** — fixed identically; 7 other routers confirmed already correct. **ENG-017**: re-classified observability with full evidence (most already correct), fixed one real gap (Celery worker metrics), found and filed one new gap (**ENG-044**, cross-process registry visibility, ops/infra-blocked). **ENG-040**: verification-only Viewer-toggle sweep, 7/8 already correct, 8th already fixed pre-sweep. **ENG-037**: investigated a code merge, deliberately didn't do it (would add complexity for a theoretical risk), added a 6-test tripwire instead. **ENG-038**: genuine concurrent-request reproduction attempts against the real stack found no race — reclassified from assumed-exploitable to low-risk inference, no fix applied without evidence. **ENG-033/034**: full decision records written (`docs/governance/`), both left open pending product/ops input. **AUTH-006**: re-evaluated with a new CSP-mitigation finding, severity revised down, migration plan preserved unimplemented pending an approved decision. Final regression: backend 1751 passed/1 skipped/0 failed (host-run), frontend 13/13, migration head 027 confirmed live, live API smoke + full link-lifecycle check against the real Docker stack. Final certification: `docs/release/V22_RESIDUAL_RISK_CERTIFICATION.md` — **RELEASE STATUS: READY WITH DOCUMENTED LIMITATIONS**.
 
 ## V21.0 Production Release Closure — complete
 
@@ -61,7 +65,7 @@ Read `ISSUE_DATABASE.md`/`TODO_QUEUE.md` per V16.0's canonical-sources instructi
 
 ## Immediate next step
 
-Backlog triage is **complete** (V20.0). Every remaining open item (ENG-017, 019, 033, 034) is blocked on a named external input this session cannot unilaterally supply — product/design direction, an ops/deployment-policy decision, infra access, or browser-automation tooling. No further engineering-actionable backlog work remains pending. Per V20.0's mandate, the next step is producing the FINAL deliverable set (`FINAL_RELEASE_CERTIFICATION.md`, `FINAL_ENGINEERING_REPORT.md`, etc.), synthesizing this session's full body of verification work honestly — including being explicit about what a genuine browser-driven "every button, every modal" pass would still require versus what has actually been confirmed via source review and API-level integration testing against the real local stack.
+V22.0's Residual Risk Closure sprint is **complete**. Every remaining open item (ENG-019, 033, 034, 038, 044) is blocked on a named external input this session cannot unilaterally supply — product/design direction, an ops/deployment-policy decision, infra/multiprocess-registry access, or browser-automation tooling — or is an evidence-based low-risk classification (ENG-038). No further engineering-actionable backlog work remains pending. Final deliverable produced: `docs/release/V22_RESIDUAL_RISK_CERTIFICATION.md`. Remaining standing-practice items: sync tracking docs to `~/Downloads/chk/` (in progress).
 
 ## Environment note — browser automation unavailable this session
 
