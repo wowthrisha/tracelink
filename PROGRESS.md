@@ -203,4 +203,20 @@ Per V17.0's STEP 1/2/3 process: re-verified the original finding was still repro
 
 ---
 
+## V23.0 — ENG-019 browser sweep completion + ENG-045 (2026-08-08)
+
+Per the V23.0 baseline commit, the browser-automation blocker that had kept ENG-019 partially open since V20.0 is resolved (Playwright+Chromium found working in the host miniconda3 environment, confirmed against both the live Railway deployment and the local Docker stack). Completed the full remaining sweep genuinely Browser Verified rather than re-deriving it from memory or re-stating the old partial-verification note.
+
+**Access Control link toggles**: created a disposable link on the live app, toggled Download at creation and Print via the Edit modal, then forced a hard full-page reload before re-opening the Edit modal — both toggles read back correctly, confirming genuine backend persistence rather than client-side state. Confirmed `role="switch"`/`aria-checked` semantics (real accessibility affordance, not styled divs), a success toast on create, and explicit confirmation dialogs on both Revoke and hard Delete. Disposable link fully cleaned up; its full create/update/revoke/delete lifecycle showed up correctly and promptly in the Audit Log. A legacy test link literally named `<img src=x onerror=alert(1)>` rendered as inert text everywhere it appeared, reconfirming ENG-009.
+
+**Organizations role/settings toggles**: found the Members modal's role dropdown and Remove button aren't disabled based on the caller's own role — but verified via source (`orgs.py:414`, `minimum_role="admin"`) and a live self-targeted test that the backend correctly rejects with `403` and the frontend shows an accurate "Requires admin role or higher" toast with a clean dropdown revert. Judged this a minor proactive-affordance polish item, not a defect (documented under ENG-019/ENG-045 rather than filed as new backlog scope for a control that already fails safely). Deliberately did not attempt a live role mutation against the real org's actual owner (the account holder's own org membership) — that would risk altering real production state for no additional evidence the source read + self-targeted 403 test didn't already provide.
+
+**Remaining ~8 screens**: full sweep, zero console errors anywhere, empty states and real data all render correctly.
+
+**ENG-045 (new, found and closed same sprint)**: the sweep surfaced a real, reproducible defect — the sidebar's "Feedback" shortcut is supposed to jump straight to a document's Feedback tab (`AppShell.jsx` renders `<AccessScreen defaultTab="feedback">` for that entry), but selecting a document from that entry point silently switched to the plain Access Control screen instead (landing on "Create Link", sidebar highlight flipping to "Access Control"). Root cause: both the Feedback and Access Control entry points shared the same `onSelectDoc` handler, which unconditionally forced `screen` to `'access'`. Fixed with a dedicated handler for the Feedback entry point (3-line diff, `AppShell.jsx` only). Verified pre-fix on the live app, then rebuilt and verified post-fix on the local Docker stack — both the fixed Feedback flow and the untouched Access Control flow behave correctly. Regression-verified: backend 1751 passed/1 skipped/0 failed (unaffected, frontend-only change), frontend 13/13, `eslint` clean, build succeeded (309.2kb), isolated diff confirmed exactly 3 lines changed in exactly one file.
+
+Both ENG-019 and ENG-045 closed this sprint. Remaining open items (ENG-033, 034, 037, 038, 044) are unchanged from V22.0 — each still blocked on a named external input (product/design/ops decision, or already downgraded to a low-risk inference) rather than being engineering-actionable this session.
+
+---
+
 *(This file is appended to after every closed or explicitly-deferred backlog item — see `ENGINEERING_BACKLOG.md` for the full remaining queue.)*

@@ -2,9 +2,15 @@
 
 Running state snapshot, updated after every closed backlog item. See `PROGRESS.md` for the narrative log and `ENGINEERING_BACKLOG.md` for full issue detail.
 
-**Last updated**: 2026-08-08, after V22.0's Residual Risk Closure sprint.
+**Last updated**: 2026-08-08 (V23.0 — ENG-019 browser sweep completion + ENG-045 fix).
 
-## Burndown (44 items, all triaged as of V22.0 — see PROGRESS.md)
+## V23.0 update — ENG-019 closed, ENG-045 opened and closed same sprint
+
+The browser-automation blocker that kept ENG-019 partially open since V20.0 is resolved (Playwright+Chromium confirmed working via the host miniconda3 environment, against both the live Railway app and the local Docker stack). Completed the full remaining sweep — Access Control link toggles (create + edit, with a hard-reload persistence check), Organizations role/settings toggles (RBAC boundary source- and live-verified), and all remaining ~8 dashboard screens — genuinely Browser Verified. **ENG-019 closed.** The sweep surfaced one real, reproducible defect (the "Feedback" sidebar shortcut silently landed on the wrong tab after picking a document) — root-caused, fixed with a 3-line diff, and regression-verified (backend 1751/1/0 unchanged, frontend 13/13, isolated diff, browser-verified both the fixed and unaffected code paths on the local Docker stack). **Filed and closed same-sprint as ENG-045.** Full detail in `ENGINEERING_BACKLOG.md` and `PROGRESS.md`'s V23.0 section.
+
+Net effect: **45 items total, 29 closed** (27 from V22.0 + ENG-019 + ENG-045). The 5 still-open items are unchanged from V22.0 and remain correctly not engineering-actionable this session — see the V22.0 summary immediately below, which still applies to all of them.
+
+## Burndown (44 items, all triaged as of V22.0 — see PROGRESS.md; V23.0 closed ENG-019 and opened+closed ENG-045, see above)
 
 | Priority | Total | Closed | Deferred (reasoned) | Open (blocked on external input / low-risk) |
 |---|---|---|---|---|
@@ -15,7 +21,7 @@ Running state snapshot, updated after every closed backlog item. See `PROGRESS.m
 | Enhancement | 8 | 5 | 2 | 1 |
 | **Total** | **44** | **27** | **12** | **5** |
 
-Overall completion: **61.4%** (27/44). **Every Critical/High/Medium/Low item is closed, deferred, or classified as a decision item with fresh, on-record reasoning.** The 5 remaining open items are each blocked on a named external input or an evidence-based low-risk classification, not unilaterally engineering-actionable: ENG-033 (new profile screen — product/design direction, decision record in `docs/governance/ENG-033_DECISION.md`), ENG-034 (CD/deploy job — deployment-target decision, decision record in `docs/governance/ENG-034_DECISION.md`), ENG-044 (Celery worker metrics invisible cross-process — ops/infra multiprocess-registry decision, found this sprint), ENG-019 (remainder of the dashboard toggle sweep — browser-automation tooling or manual QA), and ENG-038 (TOCTOU race, reclassified low-risk-inference after 2 clean live reproduction attempts found no race). ENG-039/017/040/037 were all closed this sprint (see below); AUTH-006 remains a documented, unimplemented architectural risk (severity revised Medium-High→Medium after a new CSP mitigation finding).
+Overall completion: **61.4%** (27/44) as of V22.0; **29/45 (64.4%)** as of V23.0. **Every Critical/High/Medium/Low item is closed, deferred, or classified as a decision item with fresh, on-record reasoning.** The 5 remaining open items are each blocked on a named external input or an evidence-based low-risk classification, not unilaterally engineering-actionable: ENG-033 (new profile screen — product/design direction, decision record in `docs/governance/ENG-033_DECISION.md`), ENG-034 (CD/deploy job — deployment-target decision, decision record in `docs/governance/ENG-034_DECISION.md`), ENG-044 (Celery worker metrics invisible cross-process — ops/infra multiprocess-registry decision, found this sprint), ~~ENG-019 (remainder of the dashboard toggle sweep — browser-automation tooling or manual QA)~~ **closed V23.0**, and ENG-038 (TOCTOU race, reclassified low-risk-inference after 2 clean live reproduction attempts found no race). ENG-039/017/040/037 were all closed in V22.0 (see below); AUTH-006 remains a documented, unimplemented architectural risk (severity revised Medium-High→Medium after a new CSP mitigation finding).
 
 ## V22.0 Residual Risk Closure — complete
 
@@ -65,11 +71,11 @@ Read `ISSUE_DATABASE.md`/`TODO_QUEUE.md` per V16.0's canonical-sources instructi
 
 ## Immediate next step
 
-V22.0's Residual Risk Closure sprint is **complete**. Every remaining open item (ENG-019, 033, 034, 038, 044) is blocked on a named external input this session cannot unilaterally supply — product/design direction, an ops/deployment-policy decision, infra/multiprocess-registry access, or browser-automation tooling — or is an evidence-based low-risk classification (ENG-038). No further engineering-actionable backlog work remains pending. Final deliverable produced: `docs/release/V22_RESIDUAL_RISK_CERTIFICATION.md`. Remaining standing-practice items: sync tracking docs to `~/Downloads/chk/` (in progress).
+V23.0's ENG-019 browser sweep + ENG-045 fix is **complete**. Every remaining open item (ENG-033, 034, 038, 044) is blocked on a named external input this session cannot unilaterally supply — product/design direction, an ops/deployment-policy decision, infra/multiprocess-registry access — or is an evidence-based low-risk classification (ENG-038). No further engineering-actionable backlog work remains pending. The fix (ENG-045) is committed locally on `main`, one commit ahead of `origin/main` per this repo's standing policy (never push without explicit confirmation — `origin/main` auto-deploys to the live Railway production instance the credentials in this session's task target). **The live Railway app has NOT yet received this fix** — it still runs the pre-fix behavior until a push+deploy happens; only the local Docker stack currently serves the corrected build.
 
-## Environment note — browser automation unavailable this session
+## Environment note — browser automation now available (V23.0 correction)
 
-No Playwright/chromium-cli or other browser-automation tool is installed in this environment (checked via `ToolSearch` and `which`). ENG-030 and ENG-031 were verified via source trace + isolated diff + lint/test/build, and for ENG-031 additionally via direct integration testing against the real `/api/viewer/validate` endpoint on the local Docker stack with a genuine Supabase-authenticated session (confirmed the `watermark_text` field changes exactly as the fix intends). Neither is claimed as "Browser-verified" — classified honestly per the Evidence Policy as Source-verified (+ Integration/API-verified for ENG-031). If a full visual browser regression sweep is required to satisfy V17.0's "every 5 closed issues" rule, that step needs either a browser-automation tool made available or manual/user-driven verification.
+Prior sprints' claim ("no browser-automation tool installed") only ever checked for Claude-Code-native browser tools (`claude-in-chrome`, which is not connected in this environment) and never checked the host's own Python environment. **A working Playwright+Chromium install exists in the host's miniconda3 environment** (`playwright==1.58.0`, confirmed via `python3 -c "import playwright"` and a real headless launch). V23.0 used it directly via Python scripts (not pytest-playwright) against both the live Railway app and the local Docker stack — this unblocks genuine Browser Verified evidence for future UI/workflow verification steps that previously had to be down-classified to Source or API Verified. ENG-030/ENG-031 (closed in earlier sprints as Source/API-verified only) remain correctly classified as-is — not retroactively reclassified, since re-verifying already-closed items isn't this sprint's mandate — but any *future* sprint citing "no browser tool available" should check for this first.
 
 ## Disposable/dev environment state
 

@@ -269,14 +269,19 @@ Severity scale: **Critical → High → Medium → Low → Enhancement**. Per th
 ### ENG-019 — Dashboard screens' individual modals/toggles not re-exercised element-by-element this specific sprint
 - **Source reports**: `UI_EXCELLENCE_SCORECARD.md` (Dashboard screens section)
 - **V20.0 partial verification**: No browser-automation tool is available in this environment, so a true "browser-verified, screen by screen" pass over all ~10 dashboard screens' modals/toggles is not achievable this sprint — stating this honestly rather than claiming full closure. What WAS verified at the API/integration level: created a disposable API key and a disposable webhook via the real backend, toggled each `is_active` off via `PATCH`, and confirmed the change persisted on a fresh re-fetch (not just the mutating response) for both `ApiKeysScreen`'s and `WebhooksScreen`'s active/inactive toggle. Both round-tripped correctly: backend accepted the PATCH, database persisted it, and a subsequent GET reflected the new state. Both disposable resources were deleted after verification (204 responses confirmed).
-- **Remaining gap**: this covers 2 of the screen's several toggles/modals (Access Control's link toggles, Organizations' role/settings toggles, and every screen's actual rendered UI feedback — loading/success/error states, modal open/close, focus handling — remain unverified this sprint, since those require an actual rendered page, not just an API round-trip). **Not claiming this item closed** — narrowing scope honestly rather than overclaiming.
-- **Category**: Integration/API Verified for the 2 toggles tested; Insufficient Evidence for the remainder of the screen's modals/toggles and all screens not touched
-- **Affected files**: None — no defect found in what was tested
-- **Estimated effort**: Medium (unchanged — the untested remainder is the bulk of the original estimate)
+- **Remaining gap (as of V20.0)**: this covers 2 of the screen's several toggles/modals (Access Control's link toggles, Organizations' role/settings toggles, and every screen's actual rendered UI feedback — loading/success/error states, modal open/close, focus handling — remain unverified this sprint, since those require an actual rendered page, not just an API round-trip). **Not claiming this item closed** — narrowing scope honestly rather than overclaiming.
+- **V23.0 completion**: The blocker (no browser-automation tool in this environment) is resolved — a working Playwright+Chromium install was found in the host's miniconda3 environment (confirmed working against both the live Railway deployment and the real local Docker stack). Completed the full remaining sweep genuinely Browser Verified:
+  - **Access Control link toggles**: exercised the Create Link form's 8 permission toggles (`role="switch"`/`aria-checked` — confirmed genuine accessibility semantics, not styled divs) and the separate Edit Link modal's 8 toggles against a disposable test link (`ENG019_toggle_persist_test`) created on the live app. Toggled `Download` on at creation, toggled `Print` on via Edit + Save, then did a **hard full-page reload** and re-opened the Edit modal: both toggles read back `aria-checked="true"` — genuine backend persistence, not client-side state. Success toast on create, confirmation dialogs on both Revoke and hard Delete (with explicit "cannot be undone" copy), all correctly gated. Disposable link fully cleaned up (revoked + hard-deleted, confirmed 0 remaining), and its full lifecycle (`link.created`/`link.updated`/`link.revoked`/`link.deleted`) shows up correctly in the Audit Log with correct actor/timestamp. Zero console errors throughout. A legacy test link literally named `<img src=x onerror=alert(1)>` rendered as inert text in both the list and the Edit modal's title — reconfirms ENG-009 (no live XSS) is still true.
+  - **Organizations role/settings toggles**: opened the Members modal for the account's one real org. Found the role `<select>` and "Remove" button are **not disabled** based on the caller's own role (test account holds `editor`, below the `admin` minimum `orgs.py:414` requires for `update_member_role`) — worth noting as a minor UX gap (see ENG-045 finding below, judged not worth fixing). Live-tested the actual boundary: attempting a role change as `editor` correctly hit the backend's `minimum_role="admin"` gate, returned `403`, and the frontend showed a precise "Requires admin role or higher" toast while cleanly reverting the dropdown to its prior value — clean failure surfacing, not a silent failure. Did not attempt a live mutation against the org's actual owner (the account holder's real org membership) — verified the authorization boundary via source (`backend/app/routers/orgs.py:407-436`) instead, since a live test could only ever be a self-targeted 403 rehearsal anyway. Rename modal renders correctly pre-filled with the current name (not submitted, to avoid mutating the real org).
+  - **Remaining ~8 screens** (Upload, Viewer, Feedback, Analytics, Storage, API Keys, Webhooks, Audit Log, Notifications, Billing): full sweep, zero console errors on any screen, empty states render correctly (API Keys/Webhooks show the rich icon+heading+CTA pattern per ENG-025's precedent), Storage/Analytics/Billing/Audit Log all show real, correctly-formatted data.
+  - **Found and fixed one real defect during this sweep** — see **ENG-045**.
+- **Category**: Browser Verified (Access Control + Organizations + full 10-screen sweep, live Railway app) + Source Verified (Organizations RBAC boundary) + Regression Verified (ENG-045's fix)
+- **Affected files**: None for ENG-019 itself — see ENG-045 for the fix this sweep produced
+- **Estimated effort**: n/a — closed
 - **Priority**: 19
-- **Status**: **Partially verified, remains open** — 2 toggles (API Keys, Webhooks active-state) confirmed correct; full per-screen browser pass needs either a browser-automation tool or manual/user verification to close
-- **Owner**: Engineering (V20.0, partial) — needs browser tooling or manual QA to finish
-- **Verification method**: Integration/API-verified (2 toggles); remainder Insufficient Evidence
+- **Status**: **Closed — full sweep complete** (2026-08-08, V23.0). Every gap V20.0 left open is now genuinely browser-verified; the one real defect the sweep surfaced is tracked and fixed as ENG-045.
+- **Owner**: Engineering (V23.0) — closed
+- **Verification method**: Browser Verified (Playwright against the live Railway app for the full sweep, plus the local Docker stack for ENG-045's fix verification) + Source Verified (Organizations RBAC) + Regression Verified (backend 1751 passed/1 skipped/0 failed, frontend 13/13, both unchanged except ENG-045's isolated fix)
 
 ### ENG-020 — Reading Intelligence metrics not independently hand-verified against backend math this sprint
 - **Source reports**: `UI_EXCELLENCE_SCORECARD.md` (Viewer section)
@@ -508,6 +513,23 @@ Reading the full canonical-source list per V16.0's instructions surfaced 10 item
 - **Owner**: Engineering (V22.0) — closed
 - **Verification method**: Source Verified (every row's API/Viewer-enforcement claim cites file:line) — no new code written, this is a pure audit deliverable
 
+### ENG-045 — "Feedback" sidebar nav item silently lands on the wrong tab after picking a document
+- **Source**: found live during V23.0's ENG-019 browser sweep of the live Railway app — not present in any prior report.
+- **Evidence**: Browser Verified, reproduced from a clean session on both the live Railway app and the local Docker stack. Clicking the sidebar's **Feedback** entry (a shortcut meant to jump straight to a document's Feedback thread — `frontend/src/screens/AppShell.jsx:164` renders `<AccessScreen defaultTab="feedback" />`) correctly shows the document picker with "Feedback" highlighted as the active nav item. But selecting any document from that picker silently lands on the **Create Link** tab instead of **Feedback**, and the sidebar's active highlight flips to **Access Control**.
+- **Root cause**: `AppShell.jsx:163` (pre-fix) passed the same `onSelectDoc={handleAccessDoc}` handler to both the `screen === 'access'` instance (line 162, correct) and the `screen === 'feedback'` instance (line 163). `handleAccessDoc` unconditionally calls `setScreen('access')` — so picking a document while on the Feedback entry point overwrites `screen` from `'feedback'` to `'access'`, unmounting the `defaultTab="feedback"`-initialized `AccessScreen` and mounting a fresh one with no `defaultTab`, which defaults to `'policy'` (`AccessScreen.jsx:19`, `useState(defaultTab || 'policy')`; `'policy'` is the internal id for the "Create Link" tab, `AccessScreen.jsx:182`). The entire point of the Feedback shortcut — jump straight to a document's feedback thread — was defeated for every document selected through it.
+- **Severity**: Medium (a real, fully reproducible broken user flow on a shipped, linked-from-the-sidebar feature; not a security or data-integrity issue, and the underlying Feedback tab itself works correctly once manually clicked from within Access Control)
+- **Fix**: Added a dedicated `handleFeedbackDoc` handler (`doc => { setActiveDoc(doc); setScreen('feedback'); }`) and wired it as the `feedback`-screen instance's `onSelectDoc`, leaving `handleAccessDoc`/the `access`-screen instance untouched. 3-line diff, `frontend/src/screens/AppShell.jsx` only.
+- **Affected files**: `frontend/src/screens/AppShell.jsx`
+- **Estimated effort**: Small (realized: 1 new one-line handler + 1 changed prop)
+- **Regression risk**: Low — isolated to the `feedback` screen branch; confirmed via isolated diff (`git diff --stat`: 3 insertions/2 deletions in exactly this file) that the `access` branch (line 162) is untouched, and browser-verified both paths independently post-fix on the local Docker stack (Feedback nav → pick doc → lands on Feedback tab, sidebar shows Feedback active; Access Control nav → pick doc → still lands on Create Link tab, sidebar shows Access Control active).
+- **Dependencies**: None
+- **Priority**: 45
+- **Status**: **Closed — fixed** (2026-08-08, V23.0)
+- **Owner**: Engineering (V23.0) — closed
+- **Verification method**: Browser Verified (reproduced pre-fix on the live Railway app; fix verified post-rebuild on the local Docker stack, both the fixed Feedback flow and the unaffected Access Control flow) + Regression Verified (`eslint` clean, frontend suite 13/13, production build succeeded [309.2kb], backend suite 1751 passed/1 skipped/0 failed — unaffected, frontend-only change)
+
+**Also noted, not fixed this sprint**: the Organizations Members modal's role `<select>`/"Remove" controls aren't disabled based on the caller's own role (an `editor`-role account sees the same interactive controls an `admin`/`owner` would). Backend authorization is correct and verified (`orgs.py:414`'s `minimum_role="admin"` gate rejects the actual mutation with a clean `403` + accurate toast + correct dropdown revert — confirmed live). This is a pure proactive-affordance polish item (disable/hide controls the caller structurally cannot use, instead of attempt-and-fail), Low severity, not a security gap. Not filed as a separate backlog item — recorded here as part of ENG-019's closing evidence rather than invented as new scope for a control that already fails safely.
+
 ## Explicitly not on this backlog (verified non-issues)
 
 - **Storage screen usage bars** (`FIXES_TODO.md` §5) — investigated and ruled out; the fill-bar computation is correct (`width: 0.0032554%` for a 328-byte file, verified via DOM inline-style inspection). An earlier automated check mismeasured the empty track div. No action needed.
@@ -538,7 +560,7 @@ Reading the full canonical-source list per V16.0's instructions surfaced 10 item
 | ENG-016 | AccessScreen.jsx oversized (M-13) | Enhancement | 16 | Deferred |
 | ENG-017 | Observability wiring unconfirmed | Enhancement | 17 | **Closed — re-classified, gap fixed** |
 | ENG-018 | Large-PDF stress not retested | Enhancement | 18 | **Closed — verified, no defect** |
-| ENG-019 | Dashboard modals not re-exercised | Enhancement | 19 | Open |
+| ENG-019 | Dashboard modals not re-exercised | Enhancement | 19 | **Closed — full browser sweep complete (V23.0)** |
 | ENG-020 | Reading Intelligence hand-verification | Enhancement | 20 | **Closed — verified, matches backend math** |
 | ENG-021 | Links return 403 not 404 cross-account (new finding) | Low | 21 | **Closed** |
 | ENG-022 | links.py DELETE 200 vs 204 inconsistency (M-6) | Low | 22 | Deferred |
@@ -564,6 +586,7 @@ Reading the full canonical-source list per V16.0's instructions surfaced 10 item
 | ENG-042 | annotations.py 10 document routes had same gap | Medium | 42 | **Closed — fixed** |
 | ENG-043 | notifications.py SSE stream had same gap | Low | 43 | **Closed — fixed** |
 | ENG-044 | Celery worker metrics invisible (per-process registry) | Low | 44 | Open (needs ops/infra input) |
+| ENG-045 | "Feedback" nav lands on wrong tab after picking a document | Medium | 45 | **Closed — fixed (V23.0)** |
 
 **V22.0 final totals (2026-08-08, recounted directly from the table above — 44 items, ENG-001 through ENG-044):**
 - **Closed: 27** — ENG-001,002,003,004,006,007,008,009,010,013,014,017,018,020,021,024,029,030,031,032,035,036,039,040,041,042,043
@@ -571,5 +594,11 @@ Reading the full canonical-source list per V16.0's instructions surfaced 10 item
 - **Reviewed, not implemented (cosmetic/needs design input): 3** — ENG-025,027,028
 - **Justified, not changed: 1** — ENG-015
 - **Open (needs product/ops/design decision, or verified-but-unresolved): 6** — ENG-019,033,034,037,038,044
+
+**V23.0 update (2026-08-08 evening, same day) — 45 items, ENG-001 through ENG-045:**
+- **ENG-019 closed**: the browser-automation blocker cited above is resolved (Playwright found in the host miniconda3 environment); completed the full remaining sweep, genuinely Browser Verified.
+- **ENG-045 opened and closed same-sprint**: a real, reproducible "Feedback" nav routing defect found during that sweep, root-caused, fixed (3-line diff), and regression-verified (backend 1751/1/0, frontend 13/13, isolated diff confirmed).
+- **Open (needs product/ops/design decision, or verified-but-unresolved): 5** — ENG-033,034,037,038,044 — unchanged from V22.0, none engineering-actionable this session (each blocked on a named external input, per the V22.0 reasoning already on record).
+- **Closed: 29** (27 from V22.0 + ENG-019 + ENG-045)
 
 Zero unexplained entries: every item above is FIXED (closed), PROVEN FALSE (closed — no defect found / no longer reproducible), VERIFIED AND DEFERRED WITH A SPECIFIC REASON (deferred / reviewed-not-implemented / justified-not-changed), or CLASSIFIED AS A PRODUCT/INFRASTRUCTURE DECISION (open, with a decision record for ENG-033/034 in `docs/governance/`).

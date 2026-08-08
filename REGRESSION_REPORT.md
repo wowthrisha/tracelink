@@ -147,6 +147,15 @@ Every prior "Browser re-check" entry in this table used a real browser driven ma
 
 **Zero regressions across the V22.0 sprint.** One environment-selection artifact encountered and resolved: running the backend suite via `docker compose exec api pytest` (rather than host-side) surfaces 25 failures, all traced to pre-existing tests that hardcode the host absolute path `/Users/thrisha/traceview/securedoc/...` (not present inside the container's `/app` filesystem) — not a regression, and not present when run via this repository's established host-side invocation. No browser-automation tool available in this environment (checked again this sprint) — all verification above is Test/API/Source-verified, explicitly not claimed as Browser Verified. Full evidence and classification in `docs/release/V22_RESIDUAL_RISK_CERTIFICATION.md`.
 
+### V23.0 ENG-019 browser sweep + ENG-045 fix (2026-08-08)
+
+| Checkpoint | Backend | Frontend | Notes |
+|---|---|---|---|
+| ENG-019 sweep (Access Control + Organizations + 8 screens, no code changed until ENG-045) | N/A — no code changed | N/A | Browser Verified via Playwright against the live Railway app; disposable link created/toggled/reloaded/verified/revoked/deleted, cleanup confirmed (0 remaining); zero console errors across all screens visited |
+| After ENG-045 fix (`AppShell.jsx`, Feedback nav routing) | **1751 passed**, 1 skipped, 0 failed (host-run, unchanged — frontend-only change) | **13/13 passed**, `eslint` clean, build succeeded (309.2kb, unchanged from V22.0's 309.2kb) | Isolated diff confirmed exactly 3 lines changed in exactly one file (`git diff --stat`); Docker `api` rebuilt from the fixed source and browser-verified on the local stack: Feedback nav → pick doc → lands on Feedback tab (fixed); Access Control nav → pick doc → still lands on Create Link tab (unaffected, confirming the fix didn't touch that path) |
+
+**Zero regressions.** This is the first sprint since V17.0 with genuine Browser Verified evidence — see `CHECKPOINT.md`'s "Environment note — browser automation now available" for why prior sprints incorrectly reported no browser tool as available.
+
 ### Why a local Docker stack instead of testing against production or trusting source alone
 
 The deployed instance auto-deploys from `origin/main` on push — verifying a fix there would mean shipping unverified code to production first. `docker compose up --build` (Postgres 16 + Redis 7 + the API + worker, all local-only) uses the same Supabase auth project as production but a completely separate local database, so real production data was never at risk, while still giving genuine, real-browser evidence rather than a source-code assumption that a CSS change "should" fix the clipping.
