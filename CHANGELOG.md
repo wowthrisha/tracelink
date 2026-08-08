@@ -3,6 +3,8 @@
 All notable changes to SecureDoc are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+**Note (added V24.0, 2026-08-09):** this file's per-sprint entries stop at V10.0 — sprints V11.0 through the current V24.0 were never backfilled here. For everything since V10.0, `ENGINEERING_BACKLOG.md` (canonical open/closed issue tracker), `PROGRESS.md` (narrative sprint log), and `CHECKPOINT.md` (current-state snapshot) are the authoritative, actively-maintained sources — not this file. Not backfilling the gap retroactively here rather than risk reconstructing 14 sprints of detail from summary rather than original evidence; see `ENGINEERING_BACKLOG.md` ENG-047 for the tracked gap.
+
 ---
 
 ## [Unreleased] — Sprint V10.0: Autonomous Product Excellence

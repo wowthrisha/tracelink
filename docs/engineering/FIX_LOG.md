@@ -786,3 +786,17 @@ Method: `ruff` (installed for this session) for AST-verified unused-import/unuse
 **Verification**: reproduced pre-fix on both the live Railway app and (after rebuilding) the local Docker stack; verified post-fix on the local stack that the Feedback flow now lands on the Feedback tab with the correct sidebar highlight, and separately that the unrelated Access Control flow is untouched (still lands on Create Link, as designed). `eslint` clean, frontend suite 13/13 passed, production build succeeded (309.2kb). Backend suite unaffected (frontend-only change): 1751 passed/1 skipped/0 failed. Isolated diff confirmed via `git diff --stat`: exactly 3 lines changed in exactly one file.
 
 **Files**: `frontend/src/screens/AppShell.jsx`. Commit `e85c072`.
+
+## Sprint V24.0 — ENG-046: CI's `ruff check` unconfigured, `backend/app` cleaned and pinned (2026-08-09)
+
+**Issue**: found during V24.0's Step 4 repository re-sweep. `.github/workflows/ci.yml`'s lint job runs `ruff check backend/app backend/tests` with an unpinned `pip install ruff` and zero project-level ruff config anywhere in the repo. Under the currently-available `ruff==0.16.0`, the resulting zero-config default resolves to 415 rule variants (1361 hits); even ruff's own conservative baseline (`E4,E7,E9,F`) produces 229 hits. Several prior sprints' "ruff clean" claims were true only against narrower, manually-scoped checks, not the literal CI command.
+
+**Investigation before fixing**: individually reviewed all 23 `backend/app/` hits under the conservative baseline (per this project's ENG-013 precedent against blind `--fix`). 7 were ruff false positives (6 SQLAlchemy `Mapped[List["ClassName"]]` string-forward-refs resolved by `Base.registry`, already carrying `# type: ignore[name-defined]` for mypy but no ruff-equivalent suppression; 1 a legitimate Python closure ruff's flow analysis mis-flagged). 14 were accidental import-ordering (confirmed no circular-import risk before moving anything). 2 were genuine, safe style nits (an ambiguous single-letter loop variable, a lambda-assigned-to-a-name).
+
+**Fix**: added `backend/ruff.toml` pinning `select = ["E4", "E7", "E9", "F"]`. Suppressed the 7 false positives with specific, individually-justified `# noqa` comments (not a blanket disable). Fixed the 14 import-ordering issues by relocation (zero behavior change, verified no circular-import risk first). Fixed the 2 style nits directly (renamed `l` → `link`; rewrote a `lambda` as a `def`).
+
+**Not fixed**: `backend/tests/` still has 206 real violations under the pinned ruleset (mostly F401/F841 debt accumulated across many files over many sprints, zero runtime impact) — explicitly quantified and left open (ENG-046) rather than blind-`--fix`'d across many files without individual review.
+
+**Verification**: `ruff check backend/app` → "All checks passed!" post-fix (was 23 errors). Full backend suite re-run: 1751 passed/1 skipped/0 failed, unchanged. `ruff check backend/app backend/tests` (the literal CI command) now shows exactly 206 errors (down from 229 pre-fix — exactly the 23 `backend/app` fixes accounted for, confirming nothing in `backend/tests` was touched).
+
+**Files**: `backend/ruff.toml` (new), `backend/app/routers/{documents,viewer,links}.py`, `backend/app/services/reading_analytics_service.py`, `backend/app/models/{document,event,group,link}.py`.

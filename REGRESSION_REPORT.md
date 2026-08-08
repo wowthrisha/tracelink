@@ -156,6 +156,15 @@ Every prior "Browser re-check" entry in this table used a real browser driven ma
 
 **Zero regressions.** This is the first sprint since V17.0 with genuine Browser Verified evidence — see `CHECKPOINT.md`'s "Environment note — browser automation now available" for why prior sprints incorrectly reported no browser tool as available.
 
+### V24.0 tracking reconciliation + ENG-046 lint fixes (2026-08-09)
+
+| Checkpoint | Backend | Frontend | Notes |
+|---|---|---|---|
+| Step 1 reconciliation (docs-only, no code changed) | N/A — no code changed | N/A | Fixed a real pre-existing contradiction: ENG-037's detail entry said "Closed" since V22.0 but every summary table said "Open." Recomputed all backlog totals programmatically (not by hand) and verified the arithmetic closes exactly. |
+| After ENG-046 fixes (`backend/ruff.toml` + 7 files) | **1751 passed**, 1 skipped, 0 failed (host-run, unchanged) | N/A (backend-only) | `ruff check backend/app` → "All checks passed!" post-fix (was 23 errors under the newly-pinned `E4,E7,E9,F` ruleset). Every fix individually reviewed before applying — 7 confirmed ruff false positives (6 SQLAlchemy string-forward-refs, 1 legitimate closure) suppressed with specific `# noqa` comments, not blanket-disabled; 14 import-ordering fixes verified circular-import-safe before moving; 2 direct style fixes. `ruff check backend/app backend/tests` (the literal CI command) now shows exactly 206 errors, down from 229 — confirming the fix touched only what it claimed to and `backend/tests`' pre-existing debt (explicitly quantified, not fixed this pass) is untouched. |
+
+**Zero regressions.** `backend/tests`' 206 remaining lint violations are real, pre-existing, zero-runtime-impact debt — tracked as ENG-046's open remainder, not silently dropped or claimed fixed.
+
 ### Why a local Docker stack instead of testing against production or trusting source alone
 
 The deployed instance auto-deploys from `origin/main` on push — verifying a fix there would mean shipping unverified code to production first. `docker compose up --build` (Postgres 16 + Redis 7 + the API + worker, all local-only) uses the same Supabase auth project as production but a completely separate local database, so real production data was never at risk, while still giving genuine, real-browser evidence rather than a source-code assumption that a CSS change "should" fix the clipping.
