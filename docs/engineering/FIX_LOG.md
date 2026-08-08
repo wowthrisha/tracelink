@@ -774,3 +774,15 @@ Method: `ruff` (installed for this session) for AST-verified unused-import/unuse
 **Verification**: 3 new unit tests. Full backend suite 1745 passed (1742 + 3)/1 skipped/0 failed. Live-verified `/health`/`/ready`/`/metrics` against the real Docker stack, including a real document upload through the real worker to confirm (and precisely diagnose) the ENG-044 gap.
 
 **Files**: `backend/app/metrics.py`, `backend/app/workers/tasks.py`, `backend/tests/unit/test_celery_metrics.py`.
+
+## Sprint V23.0 — ENG-045: "Feedback" sidebar nav silently landed on the wrong tab (2026-08-08)
+
+**Issue**: found live during V23.0's ENG-019 browser sweep against the deployed Railway app. The sidebar's "Feedback" shortcut is meant to jump straight to a document's Feedback tab (`AppShell.jsx` renders `<AccessScreen defaultTab="feedback">` for that nav entry), but picking any document from that entry point landed on the "Create Link" tab instead, with the sidebar's active highlight flipping to "Access Control".
+
+**Root cause**: `AppShell.jsx`'s `screen === 'feedback'` branch reused `handleAccessDoc` (the same `onSelectDoc` handler as the `screen === 'access'` branch) as its own `onSelectDoc`. `handleAccessDoc` unconditionally sets `screen` to `'access'`, so picking a document while on the Feedback entry point overwrote `screen` from `'feedback'` to `'access'` — unmounting the `defaultTab="feedback"`-initialized `AccessScreen` and mounting a fresh one that defaults to `'policy'` (`AccessScreen.jsx`'s `useState(defaultTab || 'policy')`, `'policy'` being the internal id for "Create Link").
+
+**Fix**: added a dedicated `handleFeedbackDoc` handler (`doc => { setActiveDoc(doc); setScreen('feedback'); }`) and wired it as the `feedback`-screen instance's `onSelectDoc` only, leaving `handleAccessDoc`/the `access`-screen instance untouched. 3-line diff, `frontend/src/screens/AppShell.jsx` only.
+
+**Verification**: reproduced pre-fix on both the live Railway app and (after rebuilding) the local Docker stack; verified post-fix on the local stack that the Feedback flow now lands on the Feedback tab with the correct sidebar highlight, and separately that the unrelated Access Control flow is untouched (still lands on Create Link, as designed). `eslint` clean, frontend suite 13/13 passed, production build succeeded (309.2kb). Backend suite unaffected (frontend-only change): 1751 passed/1 skipped/0 failed. Isolated diff confirmed via `git diff --stat`: exactly 3 lines changed in exactly one file.
+
+**Files**: `frontend/src/screens/AppShell.jsx`. Commit `e85c072`.
