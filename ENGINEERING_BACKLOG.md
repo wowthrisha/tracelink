@@ -346,8 +346,9 @@ Reading the full canonical-source list per V16.0's instructions surfaced 10 item
 ### ENG-026 — AUTH-006: session token stored in `localStorage`, real XSS-exposure vector
 - **Source**: `ISSUE_DATABASE.md` M-14 (V4.0/Sprint7.0)
 - **Evidence**: Source-verified — `frontend/api.js`'s `authHeaders()` reads the bearer token from `localStorage`. A successful XSS on this origin could exfiltrate the token (session hijack), though `SECURITY_CERTIFICATION.md`'s live XSS testing this sprint (ENG-009) found no injectable field.
-- **Severity**: Medium-High in isolation (token-theft-via-XSS is a real class of risk) — **but** the actual exploit path requires a successful XSS first, and none has been found live or in source (zero `dangerouslySetInnerHTML` anywhere, JSX escaping confirmed working on every field tested).
-- **Status**: **Deferred, re-confirmed** — a full migration plan already exists (`docs/security/SECURITY_HARDENING_PLAN.md`, referenced in `ISSUE_DATABASE.md`), and per this repo's own established policy, architecture migrations of this kind ("localStorage token → httpOnly cookie" is a real auth-model change touching CORS, CSRF posture, and every API client) are documented and planned, not partially patched mid-sprint. Re-confirming this deferral rather than silently carrying it: the risk is real but requires a *second* vulnerability (XSS) to be exploitable, and this sprint's XSS testing (ENG-009) found none live.
+- **V22.0 re-evaluation (2026-08-07)**: Re-read per the mandate's "do not casually migrate authentication" instruction — full write-up in `docs/security/SECURITY_HARDENING_PLAN.md` §9. New evidence this pass: `backend/app/middleware/security_headers.py` sets a hash-based CSP (`script-src 'self' <exact SHA-384 hashes for React/ReactDOM>`, no `unsafe-inline`/`unsafe-eval`) — a genuine mitigating control that makes the realistic exploit chain require *two* independent failures (a working XSS injection AND defeating the hash-allowlisted CSP), not one. No live or source XSS still found (zero `dangerouslySetInnerHTML`, ENG-009 unchanged). Migration blast radius, CSRF implications of httpOnly cookies, frontend/backend changes, deployment/rollback plan are all already fully documented in the existing plan (§§2-8) and remain accurate — nothing new to add there. **Severity revised from Medium-High to Medium** given the CSP finding. The repository still contains no approved migration decision (no merged PR/ADR/accepted-backlog-item), so per the mandate this is **not implemented** — preserved as a documented architectural risk, ready to execute if/when a migration decision is made.
+- **Severity**: Medium (revised down from Medium-High in V22.0 — see re-evaluation above; token-theft-via-XSS remains a real risk class, but the confirmed hash-based CSP substantially narrows the realistic exploitation surface)
+- **Status**: **Deferred, re-confirmed (V22.0)** — a full migration plan already exists (`docs/security/SECURITY_HARDENING_PLAN.md`, §9 adds the V22.0 CSP-informed re-assessment), and per this repo's own established policy, architecture migrations of this kind ("localStorage token → httpOnly cookie" is a real auth-model change touching CORS, CSRF posture, and every API client) are documented and planned, not partially patched mid-sprint or implemented without an approved decision record.
 - **Owner**: Unassigned (architecture decision + migration plan owner)
 
 ### ENG-027 — Modal-entrance-animation duration drifts (.15s/.18s/.22s/.25s)
@@ -408,15 +409,17 @@ Reading the full canonical-source list per V16.0's instructions surfaced 10 item
 ### ENG-033 — PROF-001: no profile/account-settings screen exists
 - **Source**: `PRODUCT_PROPOSAL.md` (2026-07-17), surfaced during V18.0's documentation-cleanup gap analysis — never carried into the backlog.
 - **Evidence**: Source-verified, re-confirmed live during V18.0 — `find frontend/src -iname "*profile*"` returns nothing, and `frontend/src/components/atoms.jsx`'s Sidebar nav config has no Profile/Settings entry. A signed-in user has no in-app way to change their password or manage their account.
+- **V22.0 decision documentation (2026-08-07)**: Full decision record — decision required, available options, trade-offs, recommended default, what blocks implementation — written to `docs/governance/ENG-033_DECISION.md`, per the mandate's "document, do not invent product requirements" instruction. Summary: 3 options (do nothing / minimal profile screen with password-change reuse of the existing Supabase reset flow / full account-settings with session management + deletion); recommended default is the minimal option as a first increment; blocked on product sign-off for scope and a data-retention policy decision for account deletion, plus a sequencing question against the AUTH-006 cookie-migration work if that proceeds first.
 - **Severity**: High (real, user-facing capability gap — not a bug in existing code, a missing screen)
-- **Status**: Open — this is new-feature work (a new screen + at least one new backend endpoint), out of scope for a fix-only backlog item; needs a proposal/design pass before implementation. Full proposal detail preserved in `archive/sprint7-18/root-reports/PRODUCT_PROPOSAL.md`.
+- **Status**: **Open / DECISION REQUIRED (re-confirmed V22.0)** — this is new-feature work (a new screen + at least one new backend endpoint), out of scope for a fix-only backlog item; needs a product/design decision before implementation. Full proposal detail preserved in `archive/sprint7-18/root-reports/PRODUCT_PROPOSAL.md`; decision options in `docs/governance/ENG-033_DECISION.md`.
 - **Owner**: Unassigned (product/design input needed before engineering scoping)
 
 ### ENG-034 — No CD/deploy job; `docker-compose up --build` is the only deployment path
 - **Source**: `PUBLIC_RELEASE_READINESS.md` (V7.0), surfaced during V18.0's documentation-cleanup gap analysis — never carried into the backlog.
 - **Evidence**: Source-verified, re-confirmed live during V18.0 — `.github/workflows/ci.yml` has a real, solid CI (lint, full test matrix against live Postgres+Redis, migration smoke test, frontend build, `pip-audit`/`npm audit`, Bandit scan, Docker build check) but the Docker build step runs with `push: false` — no image is ever pushed, no deploy/release job exists anywhere in the workflow. `docs/release/`'s files are one-time point-in-time "RC-1" reports, not a repeatable release process.
+- **V22.0 decision documentation (2026-08-07)**: Full decision record written to `docs/governance/ENG-034_DECISION.md`, per the mandate's "do not choose infrastructure merely to close a backlog item" instruction. Summary: 3 options (status quo / CI-gated branch protection on `main` so Railway's auto-deploy only ever fires on a green build / a full explicit CD job with registry push + deploy + rollback); recommended default is CI-gated branch protection as a low-risk first increment requiring no new infrastructure decision; the full CD job remains blocked on an ops decision (deploy target, registry/credentials, rollback procedure) this engineering pass has no authority to make.
 - **Severity**: Medium (operationally, Railway's own auto-deploy-from-`origin/main` is the actual live deployment mechanism per this session's established practice — so the repo isn't undeployed, but the CI pipeline itself has no automated release/rollback story, and `docker-compose up --build` as the only *documented* path is a real gap for anyone deploying outside Railway)
-- **Status**: Open — a CD job is infrastructure/deployment-policy work (what to push to, what triggers a release, rollback strategy) requiring an ops decision, not a pure code fix
+- **Status**: **Open / DECISION REQUIRED (re-confirmed V22.0)** — a CD job is infrastructure/deployment-policy work (what to push to, what triggers a release, rollback strategy) requiring an ops decision, not a pure code fix; decision options in `docs/governance/ENG-034_DECISION.md`
 - **Owner**: Unassigned (needs deployment-target decision before implementation)
 
 ### ENG-035 — Reading Insights link permission has no UI toggle; feature unreachable from the product
@@ -542,7 +545,7 @@ Reading the full canonical-source list per V16.0's instructions surfaced 10 item
 | ENG-023 | 14 endpoints use raw dict not typed schemas (M-8) | Medium | 23 | Deferred |
 | ENG-024 | "Created at" rendered 3 different ways (M-10) | Low | 24 | **Closed** |
 | ENG-025 | Empty states inconsistent (M-11) | Low | 25 | Reviewed, not implemented |
-| ENG-026 | AUTH-006: session token in localStorage (M-14) | Medium-High | 26 | Deferred, re-confirmed |
+| ENG-026 | AUTH-006: session token in localStorage (M-14) | Medium (revised V22.0) | 26 | Deferred, re-confirmed (V22.0, CSP-informed) |
 | ENG-027 | Modal animation duration drift (L-1) | Low | 27 | Reviewed, not implemented |
 | ENG-028 | Icon language mixing (L-2) | Low | 28 | Reviewed, not implemented (needs design input) |
 | ENG-029 | Architecture docs contradict each other (L-3) | Medium | 29 | **Closed** |
@@ -562,6 +565,11 @@ Reading the full canonical-source list per V16.0's instructions surfaced 10 item
 | ENG-043 | notifications.py SSE stream had same gap | Low | 43 | **Closed — fixed** |
 | ENG-044 | Celery worker metrics invisible (per-process registry) | Low | 44 | Open (needs ops/infra input) |
 
-**Critical: 0. High: 3 (all closed). Medium: 5 (2 closed, 1 deferred, 2 new: 1 deferred, 1 open). Low: 14 (5 closed, 3 deferred, 6 open). Enhancement: 8.**
+**V22.0 final totals (2026-08-08, recounted directly from the table above — 44 items, ENG-001 through ENG-044):**
+- **Closed: 27** — ENG-001,002,003,004,006,007,008,009,010,013,014,017,018,020,021,024,029,030,031,032,035,036,039,040,041,042,043
+- **Deferred (with re-confirmed reasoning): 7** — ENG-005,011,012,016,022,023,026
+- **Reviewed, not implemented (cosmetic/needs design input): 3** — ENG-025,027,028
+- **Justified, not changed: 1** — ENG-015
+- **Open (needs product/ops/design decision, or verified-but-unresolved): 6** — ENG-019,033,034,037,038,044
 
-Updated totals after merge: **31 tracked issues, 10 closed, 5 deferred-with-reconfirmed-reasoning, 16 open.**
+Zero unexplained entries: every item above is FIXED (closed), PROVEN FALSE (closed — no defect found / no longer reproducible), VERIFIED AND DEFERRED WITH A SPECIFIC REASON (deferred / reviewed-not-implemented / justified-not-changed), or CLASSIFIED AS A PRODUCT/INFRASTRUCTURE DECISION (open, with a decision record for ENG-033/034 in `docs/governance/`).

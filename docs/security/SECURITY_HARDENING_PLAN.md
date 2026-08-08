@@ -1,8 +1,8 @@
 # Security Hardening Plan — AUTH-006: Session Token Storage
 
-**Status**: Planned, not implemented this sprint (see §7 for why)
+**Status**: Planned, not implemented — re-evaluated V22.0 (2026-08-07), still no approved migration decision in the repository; preserved as a documented architectural risk (see §9)
 **Owner**: TBD
-**Related**: `ENGINEERING_TRIAGE.md` (AUTH-006), `VERIFIED_ISSUES.md`
+**Related**: `ENGINEERING_TRIAGE.md` (AUTH-006), `VERIFIED_ISSUES.md`, `ENGINEERING_BACKLOG.md` ENG-026
 
 ---
 
@@ -116,5 +116,25 @@ A single-PR flip of all 60+72 call sites is exactly the kind of change the remed
 | 1 — Frontend cutover + CSRF + logout endpoint | Large, cross-cutting (60 call sites, all auth screens) | 2–4 days incl. regression pass and flagged rollout monitoring |
 | 2 — Header-path deprecation | Small | 0.5 day, gated on a full clean production cycle after Phase 1 |
 | 3 — Refresh tokens (optional/stretch) | Medium | 1–2 days, separate initiative |
+
+---
+
+## 9. V22.0 Re-evaluation (2026-08-07)
+
+Re-evaluated per the "do not casually migrate authentication" mandate — this section re-assesses the risk with current evidence rather than re-deriving the plan above, which remains accurate and unchanged (§§1-8).
+
+**Actual threat.** Token-theft-via-XSS: any script running in-origin can read `localStorage` synchronously and exfiltrate the session token with no further exploitation step, since the token has no `httpOnly` equivalent protection today. This is a real *architectural* exposure — it exists whether or not a live XSS is currently present — because it removes a defense-in-depth layer that a browser could otherwise provide for free.
+
+**Existing CSP protections (new evidence this sprint).** `backend/app/middleware/security_headers.py` sets `script-src 'self' '<SHA-384 hash for React 18.3.1>' '<SHA-384 hash for ReactDOM>'` — no `unsafe-inline`, no `unsafe-eval`. This is a genuinely strong mitigating control: a hypothetical injected `<script>` tag or inline event handler cannot execute, because its content would have to byte-for-byte match one of the two whitelisted hashes, which is cryptographically infeasible for an attacker-controlled payload. The same file also sets HSTS, COOP, and `X-Permitted-Cross-Domain-Policies` hardening headers. This CSP does not eliminate the localStorage exposure — it substantially narrows the exploitation surface that would have to exist first for the exposure to matter.
+
+**XSS exposure.** No live or source-verified XSS exists on this origin. ENG-009 (this session's live XSS testing, prior sprint) found no injectable field; a repo-wide search for `dangerouslySetInnerHTML` returns zero matches. JSX's default escaping is confirmed working on every field tested. Combined with the CSP above, the realistic exploit chain requires *two* independent failures (a working XSS injection AND a way to defeat or bypass the hash-based CSP) rather than one.
+
+**Migration blast radius.** Unchanged from §2/§4: 60 frontend `api.js` call sites, 72 backend `Depends(get_current_user)`/`Depends(require_scope(...))` sites across 13 routers, CORS config (dev wildcard origin must go), every backend test fixture that constructs `Authorization` headers directly, plus new CSRF-token plumbing on all mutating requests. This is a real cross-cutting auth-model change, not a local patch.
+
+**CSRF implications of httpOnly cookies.** Moving to cookies reintroduces a threat class (CSRF) that Bearer-header auth was implicitly immune to, requiring new protection (double-submit `sd_csrf` token + `X-CSRF-Token` header, §3) that doesn't exist today and would need its own regression coverage (§7's checklist already includes both a "CSRF blocks a forged request" and "CSRF allows a legitimate request" test).
+
+**Frontend/backend changes, deployment implications, rollback requirements.** Fully detailed in §3 (target architecture), §4 (phased rollout — Phase 0 dark/dual-read, Phase 1 flagged cutover, Phase 2 header-path removal), §5 (compatibility — API keys unaffected, existing `localStorage` sessions keep working through Phase 0-1, Cloudflare tunnel cookie-forwarding needs a staging check), and §6 (rollout plan — flag stays wired for at least one release cycle specifically so Phase 1 can be reverted instantly if 401/CSRF spikes appear in production).
+
+**Conclusion.** The repository contains no approved decision to execute this migration — `SECURITY_HARDENING_PLAN.md` is a plan, not a merged decision record, and no PR, ADR, or backlog entry marks it accepted. Per the mandate ("only implement if the repository already contains an approved migration decision; otherwise preserve it as a documented architectural risk"), **this is not implemented in V22.0.** The severity assessment is revised from the original "Medium-High in isolation" to **Medium** given the newly-confirmed CSP layer materially reduces the realistic exploitation likelihood (two independent failures required, not one) — the plan itself, its phased rollout, and its rollback strategy remain ready to execute whenever a migration decision is made.
 
 **Why this isn't done in this sprint**: it fails the brief's own "smallest correct fix" and "don't change APIs unnecessarily" tests — this is an authentication-mechanism change (adds CSRF handling, changes CORS credential semantics, changes what every one of 72 backend routes and 60 frontend call sites relies on for identity) that needs a dedicated review and a flagged, monitored rollout, not a same-session mechanical patch alongside seven unrelated UI fixes. Recommend scheduling Phase 0–1 as its own tracked piece of work.
