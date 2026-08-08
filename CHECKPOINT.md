@@ -2,26 +2,27 @@
 
 Running state snapshot, updated after every closed backlog item. See `PROGRESS.md` for the narrative log and `ENGINEERING_BACKLOG.md` for full issue detail.
 
-**Last updated**: 2026-08-08 (V23.0 — ENG-019 browser sweep completion + ENG-045 fix).
+**Last updated**: 2026-08-08 (V24.0 — full backlog reconciliation; see below).
 
-## V23.0 update — ENG-019 closed, ENG-045 opened and closed same sprint
+## V24.0 reconciliation (2026-08-08)
 
-The browser-automation blocker that kept ENG-019 partially open since V20.0 is resolved (Playwright+Chromium confirmed working via the host miniconda3 environment, against both the live Railway app and the local Docker stack). Completed the full remaining sweep — Access Control link toggles (create + edit, with a hard-reload persistence check), Organizations role/settings toggles (RBAC boundary source- and live-verified), and all remaining ~8 dashboard screens — genuinely Browser Verified. **ENG-019 closed.** The sweep surfaced one real, reproducible defect (the "Feedback" sidebar shortcut silently landed on the wrong tab after picking a document) — root-caused, fixed with a 3-line diff, and regression-verified (backend 1751/1/0 unchanged, frontend 13/13, isolated diff, browser-verified both the fixed and unaffected code paths on the local Docker stack). **Filed and closed same-sprint as ENG-045.** Full detail in `ENGINEERING_BACKLOG.md` and `PROGRESS.md`'s V23.0 section.
+Per V24.0's Step 1 mandate, cross-checked every open/closed claim in this file against `ENGINEERING_BACKLOG.md`'s own per-item detail entries (the canonical source) rather than trusting prior summaries. Found and fixed one real, pre-existing contradiction that had survived V22.0 and V23.0 unnoticed: **ENG-037's detail entry has said "Closed" since 2026-08-05 (V22.0)**, but its backlog summary-table row and every rollup table in this file and `PROGRESS.md` kept labeling it "Open" — `PROGRESS.md` even had a footnote explicitly acknowledging the mismatch as deliberate ("its backlog status label reads 'Open'... to reflect the tripwire's intentionally-permanent nature") rather than resolving it. V24.0 resolves it unambiguously: the canonical detail status (Closed) wins, and every summary table now says so.
 
-Net effect: **45 items total, 29 closed** (27 from V22.0 + ENG-019 + ENG-045). The 5 still-open items are unchanged from V22.0 and remain correctly not engineering-actionable this session — see the V22.0 summary immediately below, which still applies to all of them.
+This file's older dual-layer table (a stale 44-item V22.0 table left sitting next to a V23.0 prose correction, itself the kind of contradiction this reconciliation pass exists to catch) is replaced below with one single, arithmetically-verified table.
 
-## Burndown (44 items, all triaged as of V22.0 — see PROGRESS.md; V23.0 closed ENG-019 and opened+closed ENG-045, see above)
+## Burndown (45 items, fully reconciled V24.0 — see `ENGINEERING_BACKLOG.md`'s "Reconciled totals" note for the item-by-item recount)
 
-| Priority | Total | Closed | Deferred (reasoned) | Open (blocked on external input / low-risk) |
-|---|---|---|---|---|
-| Critical | 0 | 0 | 0 | 0 |
-| High | 4 | 3 | 0 | 1 |
-| Medium | 12 | 7 | 4 | 1 |
-| Low | 20 | 12 | 6 | 2 |
-| Enhancement | 8 | 5 | 2 | 1 |
-| **Total** | **44** | **27** | **12** | **5** |
+| Priority | Total | Closed | Deferred (reasoned) | Reviewed/Justified | Open (blocked on external input / low-risk) |
+|---|---|---|---|---|---|
+| Critical | 0 | 0 | 0 | 0 | 0 |
+| High | 4 | 3 | 0 | 0 | 1 |
+| Medium | 14 | 10 | 3 | 0 | 1 |
+| Low | 18 | 10 | 3 | 3 | 2 |
+| Enhancement | 8 | 6 | 1 | 1 | 0 |
+| Verification-only (no severity) | 1 | 1 | 0 | 0 | 0 |
+| **Total** | **45** | **30** | **7** | **4** | **4** |
 
-Overall completion: **61.4%** (27/44) as of V22.0; **29/45 (64.4%)** as of V23.0. **Every Critical/High/Medium/Low item is closed, deferred, or classified as a decision item with fresh, on-record reasoning.** The 5 remaining open items are each blocked on a named external input or an evidence-based low-risk classification, not unilaterally engineering-actionable: ENG-033 (new profile screen — product/design direction, decision record in `docs/governance/ENG-033_DECISION.md`), ENG-034 (CD/deploy job — deployment-target decision, decision record in `docs/governance/ENG-034_DECISION.md`), ENG-044 (Celery worker metrics invisible cross-process — ops/infra multiprocess-registry decision, found this sprint), ~~ENG-019 (remainder of the dashboard toggle sweep — browser-automation tooling or manual QA)~~ **closed V23.0**, and ENG-038 (TOCTOU race, reclassified low-risk-inference after 2 clean live reproduction attempts found no race). ENG-039/017/040/037 were all closed in V22.0 (see below); AUTH-006 remains a documented, unimplemented architectural risk (severity revised Medium-High→Medium after a new CSP mitigation finding).
+`30 + 7 + 4 + 4 = 45`. Overall completion: **66.7%** (30/45 closed). **Every Critical/High/Medium/Low item is closed, deferred, or classified as a decision item with fresh, on-record reasoning.** The 4 remaining open items are each blocked on a named external input or an evidence-based low-risk classification, not unilaterally engineering-actionable: **ENG-033** (new profile screen — product/design direction, decision record in `docs/governance/ENG-033_DECISION.md`), **ENG-034** (CD/deploy job — deployment-target decision, decision record in `docs/governance/ENG-034_DECISION.md`), **ENG-038** (TOCTOU race, reclassified low-risk-inference after 2 clean live reproduction attempts found no race), **ENG-044** (Celery worker metrics invisible cross-process — ops/infra multiprocess-registry decision). ENG-019 (V23.0), ENG-037/039/017/040 (V22.0), and ENG-045 (V23.0) are all closed; AUTH-006 (tracked as ENG-026) remains a documented, unimplemented architectural risk (severity revised Medium-High→Medium after a new CSP mitigation finding) — a deferred item, not an open one, since a full migration plan already exists and is simply pending an approval decision rather than lacking a plan.
 
 ## V22.0 Residual Risk Closure — complete
 

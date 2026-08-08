@@ -6,7 +6,9 @@ Every issue's evidence is classified as exactly one of **Browser verified / Sour
 
 Severity scale: **Critical → High → Medium → Low → Enhancement**. Per the V13.0 Tier-0 finding, restated here rather than re-derived: **zero Critical issues exist** — nothing found across all six reports is a confirmed, live-observed defect in core functionality, data isolation, or security enforcement.
 
-**Status as of 2026-07-27 09:30**: High and Medium tiers closed and re-verified. **Low tier fully actioned** (ENG-007/008/009/010/021 fixed or verified with no defect, ENG-011/012 deferrals re-confirmed) and re-verified in a dedicated post-tier regression pass (10 screens zero errors, both key fixes re-confirmed with fresh logins). Every "Not enough evidence" gap from the original security review is now live-confirmed. Zero regressions across both test suites at every checkpoint. Proceeding to Enhancement tier.
+**Status as of 2026-07-27 09:30** (historical, first-tier-completion snapshot, preserved as written): High and Medium tiers closed and re-verified. **Low tier fully actioned** (ENG-007/008/009/010/021 fixed or verified with no defect, ENG-011/012 deferrals re-confirmed) and re-verified in a dedicated post-tier regression pass (10 screens zero errors, both key fixes re-confirmed with fresh logins). Every "Not enough evidence" gap from the original security review is now live-confirmed. Zero regressions across both test suites at every checkpoint. Proceeding to Enhancement tier.
+
+**Current status (2026-08-08, V24.0 — the authoritative, up-to-date figure; see "Reconciled totals" below for the full item-by-item recount)**: 45 items total — **30 closed**, 7 deferred (reasoned), 3 reviewed-not-implemented, 1 justified-not-changed, **4 open** (ENG-033, ENG-034, ENG-038, ENG-044 — each blocked on a named external decision, not engineering-actionable). Zero Critical or unresolved High defects. Zero contradictory statuses as of this reconciliation pass.
 
 ---
 
@@ -578,7 +580,7 @@ Reading the full canonical-source list per V16.0's instructions surfaced 10 item
 | ENG-034 | No CD/deploy job in CI pipeline | Medium | 34 | Open (needs ops decision) |
 | ENG-035 | Reading Insights permission has no UI toggle | Medium | 35 | **Closed** |
 | ENG-036 | Reading Insights "average page time" self-inclusive | Low-Medium | 36 | **Closed** |
-| ENG-037 | `is_link_active()` not actually used by enforcement path | Low | 37 | Open (low urgency, needs care) |
+| ENG-037 | `is_link_active()` not actually used by enforcement path | Low | 37 | **Closed — documented decision, regression tripwire added (V22.0)** |
 | ENG-038 | `ensure_not_last_owner()` TOCTOU race (pre-existing) | Low | 38 | Open |
 | ENG-039 | API keys with zero scopes can manage Orgs/API-Keys/Billing | Medium-High | 39 | **Closed — fixed** |
 | ENG-040 | Uploader-controlled Viewer toggle sweep | n/a | 40 | **Closed — verified, no defect** |
@@ -588,17 +590,13 @@ Reading the full canonical-source list per V16.0's instructions surfaced 10 item
 | ENG-044 | Celery worker metrics invisible (per-process registry) | Low | 44 | Open (needs ops/infra input) |
 | ENG-045 | "Feedback" nav lands on wrong tab after picking a document | Medium | 45 | **Closed — fixed (V23.0)** |
 
-**V22.0 final totals (2026-08-08, recounted directly from the table above — 44 items, ENG-001 through ENG-044):**
-- **Closed: 27** — ENG-001,002,003,004,006,007,008,009,010,013,014,017,018,020,021,024,029,030,031,032,035,036,039,040,041,042,043
+**Reconciled totals (2026-08-08, V24.0 — recounted directly from the table above, one item at a time, superseding all prior totals paragraphs below).** V24.0's Step 1 reconciliation found and fixed a real pre-existing bug in this section: **ENG-037's own detail entry has read "Closed" since V22.0 (2026-08-05), but this summary table's row and every totals paragraph below it kept saying "Open"** — carried forward unverified from V22.0 through V23.0. Corrected the table row above; the counts below reflect the fix.
+
+- **Total: 45 items** (ENG-001 through ENG-045; ENG-040 is a verification-only audit deliverable with no severity rating, counted once)
+- **Closed: 30** — ENG-001,002,003,004,006,007,008,009,010,013,014,017,018,019,020,021,024,029,030,031,032,035,036,037,039,040,041,042,043,045
 - **Deferred (with re-confirmed reasoning): 7** — ENG-005,011,012,016,022,023,026
 - **Reviewed, not implemented (cosmetic/needs design input): 3** — ENG-025,027,028
 - **Justified, not changed: 1** — ENG-015
-- **Open (needs product/ops/design decision, or verified-but-unresolved): 6** — ENG-019,033,034,037,038,044
+- **Open (needs product/ops/design decision, or a still-unresolved external blocker): 4** — ENG-033, ENG-034, ENG-038, ENG-044
 
-**V23.0 update (2026-08-08 evening, same day) — 45 items, ENG-001 through ENG-045:**
-- **ENG-019 closed**: the browser-automation blocker cited above is resolved (Playwright found in the host miniconda3 environment); completed the full remaining sweep, genuinely Browser Verified.
-- **ENG-045 opened and closed same-sprint**: a real, reproducible "Feedback" nav routing defect found during that sweep, root-caused, fixed (3-line diff), and regression-verified (backend 1751/1/0, frontend 13/13, isolated diff confirmed).
-- **Open (needs product/ops/design decision, or verified-but-unresolved): 5** — ENG-033,034,037,038,044 — unchanged from V22.0, none engineering-actionable this session (each blocked on a named external input, per the V22.0 reasoning already on record).
-- **Closed: 29** (27 from V22.0 + ENG-019 + ENG-045)
-
-Zero unexplained entries: every item above is FIXED (closed), PROVEN FALSE (closed — no defect found / no longer reproducible), VERIFIED AND DEFERRED WITH A SPECIFIC REASON (deferred / reviewed-not-implemented / justified-not-changed), or CLASSIFIED AS A PRODUCT/INFRASTRUCTURE DECISION (open, with a decision record for ENG-033/034 in `docs/governance/`).
+`30 + 7 + 3 + 1 + 4 = 45`. Zero unexplained entries: every item above is FIXED (closed), PROVEN FALSE (closed — no defect found / no longer reproducible), VERIFIED AND DEFERRED WITH A SPECIFIC REASON (deferred / reviewed-not-implemented / justified-not-changed), or CLASSIFIED AS A PRODUCT/INFRASTRUCTURE DECISION (open, with a decision record for ENG-033/034 in `docs/governance/`). No issue is untracked; no duplicate IDs exist; no closed issue appears open and no open issue appears closed anywhere else in this file as of this reconciliation.

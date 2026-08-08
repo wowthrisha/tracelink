@@ -4,38 +4,41 @@ Narrative progress log, one entry per closed (or explicitly deferred) backlog it
 
 ## Dashboard
 
+**Reconciled 2026-08-08 (V24.0)** — this table predated V23.0 (ENG-019/ENG-045) and carried a stale "ENG-037 open" label the item's own canonical entry has contradicted since V22.0 (2026-08-05); both are corrected below. See `ENGINEERING_BACKLOG.md`'s "Reconciled totals" note for the full reconciliation record.
+
 | Field | Value |
 |---|---|
-| Current issue | none in progress — V22.0 Residual Risk Closure sprint complete |
-| Previous issue | ENG-037/ENG-038 (link-active tripwire test + TOCTOU reproduction attempt) |
-| Next issue | 6 open items (ENG-019/033/034/038/044, plus ENG-037's intentional tripwire), each blocked on a named external input or reclassified low-risk — not further engineering-actionable this session |
+| Current issue | none in progress — V23.0's ENG-019 sweep + ENG-045 fix complete; V24.0 reconciliation pass in progress |
+| Previous issue | ENG-045 (Feedback nav routing fix, V23.0) |
+| Next issue | 4 open items (ENG-033/034/038/044), each blocked on a named external input or reclassified low-risk — not engineering-actionable this session |
 | Critical remaining | 0 / 0 |
 | High remaining | 1 / 4 (ENG-033 — needs product/design input; full decision record in `docs/governance/ENG-033_DECISION.md`) |
-| Medium remaining | 2 open / 12 total (ENG-034 needs ops decision — decision record in `docs/governance/ENG-034_DECISION.md`; ENG-039 closed this sprint; 4 deferred: ENG-005/023/026 [ENG-026 severity revised Medium-High→Medium]; 6 closed incl. ENG-041/042) |
-| Low remaining | 2 open / 20 total (ENG-038 reclassified low-risk-inference, ENG-044 new/ops-blocked; ENG-037 closed via tripwire; 12 closed incl. ENG-040/043; 6 deferred/reviewed-with-reasoning) |
-| Enhancement remaining | 1 open / 8 total (ENG-019 partially verified; ENG-017 closed this sprint — re-classified, Celery-metrics gap fixed; ENG-018/020/013/014 closed; ENG-015 justified, ENG-016 deferred) |
-| Overall % | 61.4% (27/44 closed, 11 deferred/reviewed/justified, 6 open) |
-| Current commit | `953def4` |
-| Last regression | PASS — post-V22.0, 2026-08-08 (backend 1751 passed/1 skipped/0 failed, host-run / frontend 13/13 / build 309.2kb / migration head 027 confirmed live / live API smoke + end-to-end link-lifecycle check against the real Docker stack all correct). |
-| Current blocker | None — all 6 open items are correctly blocked on external input or evidence-based low-risk reclassification, not stalled |
-| Estimated completion | V22.0's entire canonical remaining-items list (ENG-039/017/040/037/038/033/034/AUTH-006) is now FIXED, PROVEN FALSE, VERIFIED-AND-DEFERRED, or CLASSIFIED AS A DECISION ITEM — zero unexplained entries. Final certification: `docs/release/V22_RESIDUAL_RISK_CERTIFICATION.md`, verdict **READY WITH DOCUMENTED LIMITATIONS**. Remaining 6 open items each need a named external input (product design, ops/deployment/infra policy, or browser tooling) — none are unilaterally engineering-actionable. |
+| Medium remaining | 1 open / 14 total (ENG-034 needs ops decision — decision record in `docs/governance/ENG-034_DECISION.md`; 10 closed incl. ENG-039/041/042/045; 3 deferred: ENG-005/023/026 [ENG-026 severity revised Medium-High→Medium]) |
+| Low remaining | 2 open / 18 total (ENG-038 reclassified low-risk-inference, ENG-044 needs ops/infra input; ENG-037 closed via tripwire — corrected V24.0, was mislabeled "open"; 10 closed incl. ENG-040/043; 3 deferred, 3 reviewed-not-implemented) |
+| Enhancement remaining | 0 open / 8 total (ENG-019 closed V23.0 — full browser sweep; ENG-017/018/020/013/014 closed; ENG-015 justified, ENG-016 deferred) |
+| Overall % | 66.7% (30/45 closed, 11 deferred/reviewed/justified, 4 open) |
+| Current commit | `a05b1fe` (V23.0 close-out; V24.0 reconciliation commits follow) |
+| Last regression | PASS — post-V23.0/ENG-045, 2026-08-08 (backend 1751 passed/1 skipped/0 failed, host-run / frontend 13/13 / build 309.2kb — unchanged, frontend-only change / isolated diff confirmed). |
+| Current blocker | None — all 4 open items are correctly blocked on external input or evidence-based low-risk reclassification, not stalled |
+| Estimated completion | Every item ENG-001 through ENG-045 is now FIXED, PROVEN FALSE, VERIFIED-AND-DEFERRED, or CLASSIFIED AS A DECISION ITEM — zero unexplained entries, zero contradictory statuses (V24.0 reconciliation). Remaining 4 open items each need a named external input (product design or ops/deployment/infra policy) — none are unilaterally engineering-actionable. |
 
 \* Backlog expanded from 21 to 31 items this cycle after merging `ISSUE_DATABASE.md`/`TODO_QUEUE.md` findings — see the V16.0 reconciliation entry below. This is real newly-surfaced scope, not re-litigation of closed work.
 
 \* ENG-005/ENG-011/ENG-012 counted as remaining/deferred, though all three deferrals were actively re-confirmed this cycle, not silently carried forward.
 
-## Burndown (recomputed after V22.0's Residual Risk Closure sprint — 44 items, all triaged)
+## Burndown (recomputed V24.0, 2026-08-08 — 45 items, all triaged, ENG-037 mislabel corrected)
 
-| Priority | Total | Closed | Deferred (reasoned) | Open (blocked on external input / low-risk) |
-|---|---|---|---|---|
-| Critical | 0 | 0 | 0 | 0 |
-| High | 4 | 3 | 0 | 1 (ENG-033 — product/design, decision record on file) |
-| Medium | 12 | 7 | 4 | 1 (ENG-034 — ops/deployment policy, decision record on file) |
-| Low | 20 | 12 | 6 | 2 (ENG-038 — low-risk inference, no reproducible race; ENG-044 — needs ops/infra multiprocess-registry decision) |
-| Enhancement | 8 | 5 | 2 (1 justified) | 1 (ENG-019 — browser tooling/manual QA) |
-| **Total** | **44** | **27** | **12 (1 justified)** | **5** |
+| Priority | Total | Closed | Deferred (reasoned) | Reviewed/Justified | Open (blocked on external input / low-risk) |
+|---|---|---|---|---|---|
+| Critical | 0 | 0 | 0 | 0 | 0 |
+| High | 4 | 3 | 0 | 0 | 1 (ENG-033 — product/design, decision record on file) |
+| Medium | 14 | 10 | 3 | 0 | 1 (ENG-034 — ops/deployment policy, decision record on file) |
+| Low | 18 | 10 | 3 | 3 | 2 (ENG-038 — low-risk inference, no reproducible race; ENG-044 — needs ops/infra multiprocess-registry decision) |
+| Enhancement | 8 | 6 | 1 | 1 (justified) | 0 |
+| Verification-only (no severity) | 1 | 1 | 0 | 0 | 0 |
+| **Total** | **45** | **30** | **7** | **4** | **4** |
 
-*(ENG-037 is closed this sprint — via a permanent regression tripwire rather than a code merge — and is not counted as "open" above, though its backlog status label reads "Open (low urgency, needs care)" to reflect the tripwire's intentionally-permanent nature; see the V22.0 section below and `docs/release/V22_RESIDUAL_RISK_CERTIFICATION.md` §6/§10 for the full reasoning.)*
+`30 + 7 + 4 + 4 = 45`. ENG-037 is closed (via a permanent regression tripwire rather than a code merge) and is correctly counted as Closed above — its backlog summary-table label incorrectly read "Open (low urgency, needs care)" from V22.0 through V23.0 despite its own detail entry saying "Closed" since 2026-08-05; V24.0 corrected the label to match the entry. See `docs/release/V22_RESIDUAL_RISK_CERTIFICATION.md` §6/§10 for the original decision reasoning (unchanged) and `ENGINEERING_BACKLOG.md`'s reconciliation note for the correction record.
 
 ## V22.0 — Residual Risk Closure sprint (2026-08-04 to 2026-08-08)
 
