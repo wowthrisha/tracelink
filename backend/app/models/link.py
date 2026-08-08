@@ -45,9 +45,9 @@ class ShareLink(Base):
         DateTime(timezone=True), default=func.now(), onupdate=func.now(), nullable=False
     )
 
-    document: Mapped["Document"] = relationship(  # type: ignore[name-defined]
+    document: Mapped["Document"] = relationship(  # type: ignore[name-defined]  # noqa: F821 — SQLAlchemy string forward-ref, resolved via Base.registry at mapper-configuration time
         "Document", back_populates="share_links"
     )
-    events: Mapped[List["AccessEvent"]] = relationship(  # type: ignore[name-defined]
+    events: Mapped[List["AccessEvent"]] = relationship(  # type: ignore[name-defined]  # noqa: F821 — same as above
         "AccessEvent", back_populates="link", cascade="all, delete-orphan"
     )

@@ -505,7 +505,8 @@ def aggregate_session_from_pages(
         session.drop_off_page = sorted_by_page[-1].page_number
 
     # Confusion page: page with highest time AND revisit_count (anomaly detection)
-    anomaly_score = lambda e: (e.active_time_ms / max(1, session.avg_ms_per_page or 1)) * (1 + e.revisit_count)
+    def anomaly_score(e):
+        return (e.active_time_ms / max(1, session.avg_ms_per_page or 1)) * (1 + e.revisit_count)
     candidates = [e for e in page_events if e.active_time_ms > 5000]
     if candidates:
         confusion = max(candidates, key=anomaly_score)

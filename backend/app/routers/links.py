@@ -203,7 +203,7 @@ async def list_links(
     )
     links = result.scalars().all()
     base_url = await _get_base_url_for_doc(doc, db)
-    return {"links": [_link_to_summary(l, base_url) for l in links]}
+    return {"links": [_link_to_summary(link, base_url) for link in links]}
 
 
 @router.delete("/{link_id}", response_model=RevokeResponse)

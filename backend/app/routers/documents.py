@@ -8,8 +8,6 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, R
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 
-logger = logging.getLogger(__name__)
-
 from app.database import get_db
 from app.models.document import Document, DocumentPage
 from app.models.group import DocumentGroup
@@ -28,6 +26,9 @@ from app.metrics import upload_duration_seconds, document_uploads_total
 from app.middleware.rate_limit import limiter
 from app.auth import require_scope
 from app.models.billing import UserBilling, PLAN_PRO
+from app.services.adapters import allowed_content_types as _adapter_content_types
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/documents", tags=["documents"])
 
@@ -35,7 +36,6 @@ router = APIRouter(prefix="/api/documents", tags=["documents"])
 # Extension-based detection (in detect_file_type) is the primary signal.
 # The set is derived from registered adapters; application/octet-stream is
 # added as a browser pass-through for files with ambiguous content types.
-from app.services.adapters import allowed_content_types as _adapter_content_types
 ALLOWED_CONTENT_TYPES = _adapter_content_types() | {"application/octet-stream"}
 
 

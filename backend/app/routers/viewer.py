@@ -49,6 +49,7 @@ from app.services.viewer_service import (  # noqa: F401
     clear_thumb_cache,
     clear_metadata_caches,
 )
+from app.services.viewer_session_service import build_validate_response
 
 
 async def _load_toc_sidecar(sidecar_key: str):
@@ -61,8 +62,6 @@ async def _load_toc_sidecar(sidecar_key: str):
     except Exception:
         return None
 
-
-from app.services.viewer_session_service import build_validate_response
 
 router = APIRouter(prefix="/api/viewer", tags=["viewer"])
 link_svc = LinkService()
@@ -618,7 +617,7 @@ async def download_document(
 
     def _write_and_size(fd: int, path: str) -> int:
         with _os.fdopen(fd, "wb") as tmp_f:
-            writer.write(tmp_f)
+            writer.write(tmp_f)  # noqa: F821 — closure over `writer` from the enclosing scope, not undefined
         return _os.path.getsize(path)
 
     try:

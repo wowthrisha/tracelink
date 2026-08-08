@@ -1,0 +1,13 @@
+# Pins the ruleset CI's `ruff check backend/app backend/tests` enforces.
+#
+# Before this file existed, the repo had no ruff configuration at all, so
+# `ruff check` fell back to whatever default ruleset the installed ruff
+# version resolved to. Under ruff 0.16.0 that default is very broad (415
+# rule variants, ~1361 hits across backend/app + backend/tests) — nothing
+# to do with any single change, just the accumulated effect of never having
+# pinned a ruleset while `pip install ruff` (unpinned) picks up newer
+# releases over time. Found and fixed for `backend/app` under V24.0 (see
+# ENGINEERING_BACKLOG.md ENG-046); `backend/tests` still has pre-existing
+# debt under even this conservative selection, tracked in the same item.
+[lint]
+select = ["E4", "E7", "E9", "F"]

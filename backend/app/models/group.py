@@ -24,6 +24,6 @@ class DocumentGroup(Base):
         DateTime(timezone=True), default=func.now(), onupdate=func.now(), nullable=False
     )
 
-    documents: Mapped[List["Document"]] = relationship(  # type: ignore[name-defined]
+    documents: Mapped[List["Document"]] = relationship(  # type: ignore[name-defined]  # noqa: F821 — SQLAlchemy string forward-ref, resolved via Base.registry at mapper-configuration time
         "Document", back_populates="group"
     )

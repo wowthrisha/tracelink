@@ -85,10 +85,10 @@ class Document(Base):
     pages: Mapped[List["DocumentPage"]] = relationship(
         "DocumentPage", back_populates="document", cascade="all, delete-orphan"
     )
-    share_links: Mapped[List["ShareLink"]] = relationship(  # type: ignore[name-defined]
+    share_links: Mapped[List["ShareLink"]] = relationship(  # type: ignore[name-defined]  # noqa: F821 — SQLAlchemy string forward-ref, resolved via Base.registry at mapper-configuration time
         "ShareLink", back_populates="document", cascade="all, delete-orphan"
     )
-    group: Mapped[Optional["DocumentGroup"]] = relationship(  # type: ignore[name-defined]
+    group: Mapped[Optional["DocumentGroup"]] = relationship(  # type: ignore[name-defined]  # noqa: F821 — same as above
         "DocumentGroup", back_populates="documents"
     )
 

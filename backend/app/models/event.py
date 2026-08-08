@@ -70,6 +70,6 @@ class AccessEvent(Base):
         DateTime(timezone=True), default=func.now(), nullable=False
     )
 
-    link: Mapped["ShareLink"] = relationship(  # type: ignore[name-defined]
+    link: Mapped["ShareLink"] = relationship(  # type: ignore[name-defined]  # noqa: F821 — SQLAlchemy string forward-ref, resolved via Base.registry at mapper-configuration time
         "ShareLink", back_populates="events"
     )
