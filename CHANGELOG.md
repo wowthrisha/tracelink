@@ -138,7 +138,7 @@ Triaged all 49 issues from the `TraceLink_Product_Audit` artifacts against the c
 
 ### Certification
 
-1624 passed / 1 skipped / 0 failures. See [`docs/release/RC1_CERTIFICATION.md`](docs/release/RC1_CERTIFICATION.md).
+1624 passed / 1 skipped / 0 failures. See [`archive/release-rc1-early-reports/RC1_CERTIFICATION.md`](archive/release-rc1-early-reports/RC1_CERTIFICATION.md) (moved to archive/ during V24.0's documentation cleanup — see that file's own note).
 
 ---
 

@@ -18,6 +18,7 @@ All files were moved (not deleted) via `git mv` where the source was tracked, pr
 | `sprint3-4-reports/` | Sprint 3–4 implementation and review reports | Sprint 3–4 |
 | `sprint5-6/` | Root-level and `frontend/docs/` reports superseded by Sprint 6.3's RC1 certification (`root-reports/`, `root-reports2/`, `frontend-docs/`) | Sprint 5–6 |
 | `sprint7-18/` | Root-level sprint/certification reports superseded by the canonical `ENGINEERING_BACKLOG.md`/`docs/engineering/ISSUE_DATABASE.md` (`root-reports/`) | Sprint 7–18 |
+| `release-rc1-early-reports/` | 14 `docs/release/` reports (RC1-era certifications/reports plus a handful of early scorecards) superseded by `docs/release/FINAL_RELEASE_CERTIFICATION.md`, which had explicitly flagged them as deferred cleanup since V21.0 (2026-08-04) — folded in during V24.0 | Pre-V21.0 |
 
 ## Authoritative Current Documentation
 

@@ -145,3 +145,28 @@ V18.0's 6 certification deliverables had, by this sprint, served their purpose: 
 | `SECURITY_HARDENING_PLAN.md` | Not archived — still an actively-cited live plan (`ENGINEERING_BACKLOG.md` ENG-026), but relocated out of root into `docs/security/` alongside the repo's other current security documentation, since it's a living reference doc, not a certification snapshot. `ENGINEERING_BACKLOG.md`'s citation updated to the new path. |
 
 **Root `.md` count after this sprint's consolidation**: 9 (down from V18.0's 16) — `README.md`, `CHANGELOG.md`, `CODE_OF_CONDUCT.md`, `CONTRIBUTING.md`, `SECURITY.md`, `ENGINEERING_BACKLOG.md`, `PROGRESS.md`, `CHECKPOINT.md`, `REGRESSION_REPORT.md`. The last four are deliberately kept at root rather than moved under `docs/engineering/` alongside their siblings (`ACTION_LOG.md`, `FIX_LOG.md`, `ISSUE_DATABASE.md`, `RELEASE_STATE.md`) — they are this session's actively-referenced, frequently-updated canonical tracking docs, and moving them carries real risk (this session's own Downloads-sync habit and every prior sprint's instructions reference them by root path) for no clear discoverability benefit over the risk of broken references. This is a deliberate, reasoned deviation from V21.0's suggested minimal-root template, not an oversight.
+
+## V24.0 (2026-08-09) — `docs/release/`'s deferred RC1-era cleanup, executed
+
+`docs/release/FINAL_RELEASE_CERTIFICATION.md` (V21.0, 2026-08-04) explicitly flagged 13 pre-existing historical reports in `docs/release/` as deferred cleanup ("out of scope for this sprint's effort budget... for a future documentation pass to fold into `archive/`"). That pass happened this sprint.
+
+### From `docs/release/` → `archive/release-rc1-early-reports/`
+
+| File | Reason |
+|------|--------|
+| `RC1_CERTIFICATION.md` | RC1-era certification; superseded by `FINAL_RELEASE_CERTIFICATION.md` |
+| `RC1_DEPLOYMENT_REPORT.md` | RC1-era report; superseded |
+| `RC1_REGRESSION_REPORT.md` | RC1-era report; superseded by the root `REGRESSION_REPORT.md`'s ongoing log |
+| `RC1_RELEASE_REPORT.md` | RC1-era report; superseded |
+| `RC1_RUNTIME_REPORT.md` | RC1-era report; superseded |
+| `ZERO_DEFECT_CERTIFICATION.md` | RC1-era certification; superseded |
+| `ENTERPRISE_READINESS_CERTIFICATION.md` | Point-in-time certification; superseded |
+| `FINAL_RELEASE_NOTES.md` | Superseded by `FINAL_RELEASE_CERTIFICATION.md` (the actual current authoritative document despite the similar name) |
+| `CHANGELOG_SPRINT61_62.md` | Superseded by the root `CHANGELOG.md` |
+| `MASTER_ACTION_LOG.md` | Superseded by `docs/engineering/ACTION_LOG.md`, the actively-maintained canonical action log |
+| `DEPENDENCY_AUDIT.md` | Point-in-time dependency audit; a separate `DEPENDENCY_AUDIT.md` already exists archived under `sprint18-certification/` from a later audit — this was the earlier of the two |
+| `OBSERVABILITY_REPORT.md` | Point-in-time observability audit; superseded by ENG-017's re-classification (V22.0, see `ENGINEERING_BACKLOG.md`) |
+| `OPERATIONAL_EXCELLENCE_REPORT.md` | Point-in-time report; superseded |
+| `PERFORMANCE_BENCHMARK.md` | Point-in-time benchmark; no live performance-monitoring claim depends on it |
+
+One reference updated to avoid a broken link: `CHANGELOG.md`'s historical Sprint-era mention of `docs/release/RC1_CERTIFICATION.md` now points to `archive/release-rc1-early-reports/RC1_CERTIFICATION.md`. `docs/release/` now contains exactly 4 files: `FINAL_RELEASE_CERTIFICATION.md`, `KNOWN_LIMITATIONS.md`, `V22_RESIDUAL_RISK_CERTIFICATION.md`, `V23_RELEASE_CANDIDATE_BASELINE.md` — all current, none superseded.
