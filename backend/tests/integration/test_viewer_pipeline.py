@@ -9,11 +9,9 @@ Covers gaps not addressed by test_viewer.py:
 """
 import uuid
 import pytest
-import pytest_asyncio
-from unittest.mock import patch, AsyncMock, call
+from unittest.mock import patch, AsyncMock
 
 from app.models.document import Document, DocumentPage
-from app.models.link import ShareLink
 from app.routers.viewer import clear_page_cache, clear_thumb_cache
 from app.services.link_service import LinkService
 from tests.conftest import TEST_USER_ID
@@ -130,7 +128,7 @@ class TestPageEndpointSecurity:
         assert r_no_sid.status_code == 400
 
         # Page number as sole path segment (the old buggy URL pattern) → 404
-        r_bad = await client.get(f"/api/viewer/page/1", headers={"X-Session-ID": session_id})
+        r_bad = await client.get("/api/viewer/page/1", headers={"X-Session-ID": session_id})
         assert r_bad.status_code == 404
 
 

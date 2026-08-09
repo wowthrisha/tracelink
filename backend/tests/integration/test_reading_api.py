@@ -13,15 +13,12 @@ Edge cases:
   - Oversized payloads, page-number out of range, active_time never decreases
 """
 import uuid
-from datetime import datetime, timezone
 from unittest.mock import AsyncMock, patch
 
 import pytest
-import pytest_asyncio
 from sqlalchemy import select
 
 from app.models.reading_analytics import PageReadingEvent, ReadingSession
-from tests.conftest import TEST_USER_ID
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────

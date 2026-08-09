@@ -13,20 +13,16 @@ import time
 import uuid
 import pytest
 from datetime import datetime, timedelta, timezone
-from unittest.mock import patch, AsyncMock, MagicMock
 
 from app.models.document import Document, DocumentPage
-from app.models.link import ShareLink
 from app.routers.viewer import clear_page_cache, clear_thumb_cache, clear_metadata_caches
 from app.services.link_service import LinkService
 from app.services.viewer_cache import (
     _TTLCache, link_cache, doc_cache, page_cache,
     LinkSnapshot, DocSnapshot, PageSnapshot,
-    invalidate_link, clear_all_caches,
-    LINK_TTL_SEC, DOC_TTL_SEC, PAGE_TTL_SEC,
+    invalidate_link, LINK_TTL_SEC, DOC_TTL_SEC, PAGE_TTL_SEC,
 )
-from tests.conftest import TEST_USER_ID, _make_webp_bytes
-from sqlalchemy import select
+from tests.conftest import TEST_USER_ID
 
 
 # ── fixture helpers ────────────────────────────────────────────────────────────

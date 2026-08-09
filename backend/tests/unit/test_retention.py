@@ -12,10 +12,9 @@ Coverage targets:
   - PATCH /api/documents/{id}/retention — policy update, expires_at recomputed
   - upload retention_policy form field  — stored and propagated to expires_at
 """
-import asyncio
 import uuid
 from datetime import datetime, timedelta, timezone
-from unittest.mock import AsyncMock, MagicMock, patch, call
+from unittest.mock import AsyncMock
 
 import pytest
 import pytest_asyncio
@@ -25,7 +24,6 @@ from app.database import Base
 from app.models.document import Document, RETENTION_POLICIES, RETENTION_DAYS
 from app.models.link import ShareLink
 from app.models.event import AccessEvent
-from app.models.storage_snapshot import StorageSnapshot
 from app.services.retention import (
     compute_expires_at,
     delete_document_storage,
@@ -402,7 +400,8 @@ class TestSyncDocumentAccessTimes:
     async def test_updates_last_viewed_at(self, db):
         doc = _make_doc()
         link = ShareLink(id=uuid.uuid4(), document_id=doc.id, token="tok1", view_count=0)
-        db.add(doc); db.add(link)
+        db.add(doc)
+        db.add(link)
         await db.flush()
         viewed_at = datetime(2026, 6, 10, 12, 0, 0, tzinfo=timezone.utc)
         db.add(AccessEvent(id=uuid.uuid4(), link_id=link.id, event_type="page_viewed", created_at=viewed_at))
@@ -418,7 +417,8 @@ class TestSyncDocumentAccessTimes:
     async def test_updates_last_accessed_at(self, db):
         doc = _make_doc()
         link = ShareLink(id=uuid.uuid4(), document_id=doc.id, token="tok2", view_count=0)
-        db.add(doc); db.add(link)
+        db.add(doc)
+        db.add(link)
         await db.flush()
         accessed_at = datetime(2026, 6, 11, 8, 0, 0, tzinfo=timezone.utc)
         db.add(AccessEvent(id=uuid.uuid4(), link_id=link.id, event_type="opened", created_at=accessed_at))
@@ -444,7 +444,8 @@ class TestSyncDocumentAccessTimes:
         doc.last_viewed_at = existing_ts
         doc.last_accessed_at = existing_ts  # also set so the older event can't update it
         link = ShareLink(id=uuid.uuid4(), document_id=doc.id, token="tok3", view_count=0)
-        db.add(doc); db.add(link)
+        db.add(doc)
+        db.add(link)
         await db.flush()
         db.add(AccessEvent(
             id=uuid.uuid4(), link_id=link.id, event_type="page_viewed",

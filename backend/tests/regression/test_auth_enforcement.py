@@ -17,7 +17,6 @@ from PIL import Image
 import io
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from app.auth import get_current_user
 from app.database import get_db
 from app.main import app
 from app.models.document import Document

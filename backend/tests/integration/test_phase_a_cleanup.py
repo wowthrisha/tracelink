@@ -10,12 +10,9 @@ Coverage:
   F. No prototype code (TweaksPanel) in production bundle
   G. Thumbnail endpoint enforces IP allowlist (security regression)
 """
-import json
 import uuid
 
 import pytest
-import pytest_asyncio
-from httpx import AsyncClient
 from unittest.mock import AsyncMock, MagicMock, patch
 
 TEST_USER_ID = "550e8400-e29b-41d4-a716-446655440000"
@@ -355,7 +352,7 @@ class TestWorkerPipelineModules:
                    new_callable=AsyncMock) as mock_fn:
             mock_fn.return_value = {"status": "ready", "page_count": 3}
             mock_storage = AsyncMock()
-            result = await process_document_with_session(
+            await process_document_with_session(
                 db_session, str(doc.id), mock_storage, MagicMock(), MagicMock()
             )
         mock_fn.assert_called_once()
@@ -418,8 +415,6 @@ class TestTocCacheWiring:
         token = r.json()["token"]
 
         # Force doc to ready state
-        from app.models.document import Document
-        from sqlalchemy import select
 
         # Can't directly mutate here without DB access — just verify endpoint exists
         r_gate = await client.get(f"/api/viewer/gate/{token}")

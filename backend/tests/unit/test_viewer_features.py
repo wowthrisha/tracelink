@@ -7,10 +7,8 @@ Unit tests for viewer feature additions:
   - Viewer link/word endpoint auth model (mocked)
 """
 import json
-import io
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
-from unittest.mock import call
 
 
 # ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -74,7 +72,7 @@ class TestLinkSidecarExtraction:
         pages = payload["pages"]
         assert len(pages) == 1
         assert pages[0]["page"] == 1
-        annotation_links = [l for l in pages[0]["links"] if l.get("type") == "annotation"]
+        annotation_links = [link for link in pages[0]["links"] if link.get("type") == "annotation"]
         assert len(annotation_links) >= 1
         link = annotation_links[0]
         assert link["url"] == "https://example.com"
@@ -139,7 +137,7 @@ class TestLinkSidecarExtraction:
             await extract_and_store_links_sidecar("doc-id-4", b"%PDF", storage)
 
         payload = json.loads(storage.upload_file.call_args[0][0].decode("utf-8"))
-        annotation_links = [l for l in payload["pages"][0]["links"] if l.get("type") == "annotation"]
+        annotation_links = [link for link in payload["pages"][0]["links"] if link.get("type") == "annotation"]
         link = annotation_links[0]
         assert link["x"] == 0.0
         assert link["y"] == 0.0  # top of page (PDF y1 = page height → ny = 1 - 1 = 0)
@@ -646,8 +644,10 @@ class TestInsightsModal:
     def test_insights_modal_bar_heat_colors(self):
         """Bar color thresholds: >15% pct → orange, >8% → yellow, else teal."""
         def heat_color(pct):
-            if pct > 15: return 'orange'
-            if pct > 8: return 'yellow'
+            if pct > 15:
+                return 'orange'
+            if pct > 8:
+                return 'yellow'
             return 'teal'
         assert heat_color(20) == 'orange'
         assert heat_color(10) == 'yellow'

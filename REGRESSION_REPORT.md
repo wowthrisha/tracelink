@@ -184,6 +184,17 @@ No regression risk since no code changed. This is the one open item this sprint 
 
 **Zero regressions.** This closes ENG-048 — the first (and, as of this reconciliation, only) High-severity defect V24.0 found, with a complete root-cause → fix → regression-test → browser-verify chain, not a partial or assumed closure.
 
+### ENG-046 fully closed — `backend/tests` remainder (2026-08-09, V24.0 continuation)
+
+| Checkpoint | Backend | Frontend | Notes |
+|---|---|---|---|
+| Bulk mechanical auto-fix (`ruff --fix` on F401/F841/F811/E401/E701/E702/F541) | N/A — no test run yet, fix-only step | N/A | 168 of 206 violations auto-fixed. Every non-mechanical category (F811, E741, F541, E401, E701/E702) individually sampled and read in context *before* running this, confirming the pattern was safe first. |
+| Individual review + fix of the remaining 29 (16 F841 needing judgment, 13 E701/E702 needing manual splits) + 5 E741 (hand-fixed first, not auto-fixable) | N/A | N/A | Every F841 read in its full test-method context; 14 fixed by removing only the unused binding (keeping the call), 1 kept as a bare statement to preserve a Pydantic validation side effect, 2 fully-inert blocks removed entirely, 2 surfaced ENG-049 (recorded separately, not silently fixed). |
+| Diligence check on `test_worker_tasks.py` (imports removed had a comment claiming a real side-effect dependency) | Ran the specific affected test directly rather than trusting the static fix | N/A | Passed — confirms empirically the imports were genuinely safe to remove (SQLite's lack of FK enforcement in this test setup meant the referenced tables' registration was never actually required). |
+| Final full regression | **1751 passed**, 1 skipped, 0 failed (unchanged throughout every stage of this fix) | **15/15 passed**, unaffected | `ruff check backend/app backend/tests` (the literal CI command) → **"All checks passed!"**. Migration head `027` confirmed live. 50 files touched, net -120 lines (73 insertions, 193 deletions) — expected for a dead-code/lint cleanup. |
+
+**Zero regressions.** ENG-046 is now fully closed — zero partially-fixed items remain anywhere in the backlog.
+
 ### Why a local Docker stack instead of testing against production or trusting source alone
 
 The deployed instance auto-deploys from `origin/main` on push — verifying a fix there would mean shipping unverified code to production first. `docker compose up --build` (Postgres 16 + Redis 7 + the API + worker, all local-only) uses the same Supabase auth project as production but a completely separate local database, so real production data was never at risk, while still giving genuine, real-browser evidence rather than a source-code assumption that a CSS change "should" fix the clipping.

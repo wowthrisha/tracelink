@@ -14,12 +14,11 @@ Verifies that:
 import json
 import uuid
 from dataclasses import dataclass
-from unittest.mock import AsyncMock, MagicMock, patch, call
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-import pytest_asyncio
 
-from app.models.document import Document, DocumentPage
+from app.models.document import Document
 from app.services.adapters import get_adapter
 from app.workers.tasks import process_document_with_session
 from tests.conftest import TEST_USER_ID, _make_webp_bytes
@@ -475,8 +474,6 @@ class TestConversionFailures:
     @pytest.mark.asyncio
     async def test_conversion_failure_document_marked_error_by_worker(self, db_session):
         """Worker marks the document as error when DOCX processing raises ValueError."""
-        from app.workers.tasks import _mark_document_error
-        from app.services.libreoffice_converter import LibreOfficeConversionError
 
         doc = await _make_doc(db_session, file_type="docx")
         storage = _mock_storage()
@@ -486,7 +483,7 @@ class TestConversionFailures:
             side_effect=ValueError("DOCX conversion failed for document X: not installed"),
         ), patch(
             "app.workers.tasks._mark_document_error", new_callable=AsyncMock
-        ) as mock_mark_error:
+        ):
             with pytest.raises(ValueError):
                 await process_document_with_session(
                     db_session, str(doc.id),
@@ -793,7 +790,8 @@ class TestDocxTocPageMapping:
                      anchor="sec_0002", source="heading_style", confidence=0.92),
         ]
 
-        bm1 = MagicMock(); bm1.title = "Chapter 1"
+        bm1 = MagicMock()
+        bm1.title = "Chapter 1"
         mock_reader = MagicMock()
         mock_reader.outline = [bm1]  # "Appendix A" has no bookmark
         mock_reader.get_destination_page_number.return_value = 0  # page 1
@@ -882,8 +880,10 @@ class TestDocxTocPageMapping:
                      anchor="sec_0002", source="heading_style", confidence=0.92),
         ]
 
-        ch1 = MagicMock(); ch1.title = "Chapter 1"
-        sec1 = MagicMock(); sec1.title = "Section 1.1"
+        ch1 = MagicMock()
+        ch1.title = "Chapter 1"
+        sec1 = MagicMock()
+        sec1.title = "Section 1.1"
 
         mock_reader = MagicMock()
         mock_reader.outline = [ch1, [sec1]]  # nested list for sub-sections

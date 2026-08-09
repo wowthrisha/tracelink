@@ -1,7 +1,6 @@
 import hashlib
 import io
 
-import pytest
 from PIL import Image
 
 from app.services.watermark import WatermarkService

@@ -7,7 +7,6 @@ from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sess
 
 from app.database import Base
 from app.models.document import Document, DocumentPage  # noqa
-from app.models.link import ShareLink
 from app.models.event import AccessEvent  # noqa
 from app.services.link_service import LinkService
 

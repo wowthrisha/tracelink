@@ -8,7 +8,6 @@ Verifies:
 - Separate CSV exports have the right columns
 """
 import json
-import io
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 from pydantic import ValidationError
@@ -182,7 +181,6 @@ class TestTypeClassification:
 def _make_starlette_request(headers=None):
     """Return a minimal real starlette.requests.Request so slowapi doesn't reject it."""
     from starlette.requests import Request as StarletteRequest
-    from starlette.datastructures import Headers
     scope = {
         "type": "http",
         "method": "POST",
@@ -242,7 +240,6 @@ class TestReplyEnforcement:
     async def test_reply_on_feedback_type_allowed(self):
         """create_annotation must allow parent_id when parent is a feedback type."""
         import uuid
-        from app.routers.annotations import create_annotation
         from app.routers.annotations import AnnotationCreate
 
         parent_id = str(uuid.uuid4())
@@ -294,7 +291,9 @@ class TestReplyEnforcement:
         db.commit = AsyncMock()
         db.refresh = AsyncMock(side_effect=lambda x: None)
 
-        body = AnnotationCreate(
+        # Constructing this validates the reply payload shape via Pydantic —
+        # the actual assertion below is on the parent-type check, not this object.
+        AnnotationCreate(
             page_number=1,
             annotation_type="comment",
             coords={"x": 0.5, "y": 0.5},

@@ -12,10 +12,8 @@ import asyncio
 import hashlib
 import json
 import logging
-import time
-import uuid
 import pytest
-from unittest.mock import patch, AsyncMock, MagicMock
+from unittest.mock import patch
 
 from app.config import Settings
 from app.middleware.security_headers import SecurityHeadersMiddleware
@@ -23,11 +21,10 @@ from app.services.link_service import LinkService
 from app.services.viewer_cache import (
     session_cache,
     clear_all_caches,
-    invalidate_link,
 )
 from app.services.watermark import WatermarkService
 from app.middleware.json_logging import JSONLogFormatter
-from tests.conftest import TEST_USER_ID, _make_webp_bytes
+from tests.conftest import _make_webp_bytes
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -272,8 +269,6 @@ class TestViewerForensicStamp:
 
     def test_session_id_not_burned_directly_into_stamp(self):
         """Raw session_id must not appear as plaintext in the output EXIF."""
-        from PIL import Image
-        import io
 
         svc = WatermarkService()
         webp = _make_webp_bytes()
@@ -455,7 +450,6 @@ class TestJSONStructuredLogging:
     def test_http_access_log_emits_json_with_method_path_status(
         self, client, active_link
     ):
-        from app.middleware.json_logging import configure_json_logging
         import io
 
         log_stream = io.StringIO()
@@ -476,7 +470,7 @@ class TestJSONStructuredLogging:
         if not output:
             pytest.skip("no access log output captured (may depend on middleware order)")
 
-        lines = [l for l in output.split("\n") if l.strip()]
+        lines = [line for line in output.split("\n") if line.strip()]
         assert lines, "access logger must have emitted at least one line"
         parsed = json.loads(lines[-1])
         assert "method" in parsed or "path" in parsed or "status_code" in parsed

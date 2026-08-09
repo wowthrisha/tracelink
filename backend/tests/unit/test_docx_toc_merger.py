@@ -4,10 +4,8 @@ Unit tests for DOCX TOC page-number resolution (Phase D2.7).
 Tests _normalize_title, _extract_bookmark_pages, and resolve_toc_page_numbers
 in isolation — no DB, no storage, no HTTP.
 """
-import io
 from unittest.mock import MagicMock, patch
 
-import pytest
 
 from app.services.toc.docx_extractor import (
     _normalize_title,

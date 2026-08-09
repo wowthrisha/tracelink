@@ -26,14 +26,12 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sess
 from app.database import Base, get_db
 from app.main import app
 from app.models.document import Document
-from app.models.link import ShareLink
 from app.services.link_service import LinkService
 from app.services.text_processor import (
     detect_file_type,
     decode_text_safe,
     chunk_text,
     count_chunks,
-    _reject_if_binary,
     SUPPORTED_TEXT_EXTENSIONS,
 )
 from app.auth import get_current_user
@@ -792,7 +790,7 @@ class TestTextAccessControl:
     @pytest.mark.asyncio
     async def test_invalid_link_token_returns_404(self, client, db_session):
         c, _ = client
-        r = await c.get(f"/api/viewer/text/nonexistent-token-xyz/1", headers={"X-Session-ID": 'a' * 32})
+        r = await c.get("/api/viewer/text/nonexistent-token-xyz/1", headers={"X-Session-ID": 'a' * 32})
         assert r.status_code == 404
 
     @pytest.mark.asyncio
@@ -976,7 +974,7 @@ class TestPDFRegression:
     @pytest.mark.asyncio
     async def test_pdf_worker_path_unchanged(self):
         """PDF pipeline still calls rasterizer + watermark services."""
-        from unittest.mock import AsyncMock, MagicMock, patch
+        from unittest.mock import AsyncMock, MagicMock
         import uuid as _uuid
         from app.workers.tasks import process_document_with_session
 

@@ -337,7 +337,6 @@ class TestCeleryTaskTimeLimits:
 
         task = MagicMock()
         storage = _make_mock_storage()
-        rasterizer = _make_mock_rasterizer(page_count=1)
 
         with patch("app.workers.tasks.process_document_with_session",
                    side_effect=SoftTimeLimitExceeded()), \
@@ -422,7 +421,6 @@ class TestLibreOfficeTimeout:
         """CONVERSION_TIMEOUT_SEC is respected when running the subprocess."""
         from app.services.libreoffice_converter import LibreOfficeConverter
         import shutil
-        import subprocess
 
         if not shutil.which("libreoffice"):
             pytest.skip("libreoffice not available")

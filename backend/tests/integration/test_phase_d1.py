@@ -14,13 +14,11 @@ Coverage:
 """
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-import pytest_asyncio
 
-from app.models.document import Document, DocumentPage
+from app.models.document import Document
 from app.workers.tasks import process_document_with_session
 from app.services.adapters import get_adapter, allowed_content_types
 from tests.conftest import TEST_USER_ID, _make_webp_bytes
@@ -123,7 +121,7 @@ class TestWorkerDispatch:
             mock_pipeline.return_value = {
                 "document_id": str(doc.id), "page_count": 1, "status": "ready"
             }
-            result = await process_document_with_session(
+            await process_document_with_session(
                 db_session, str(doc.id), storage, None, None
             )
         mock_pipeline.assert_called_once()
@@ -137,7 +135,7 @@ class TestWorkerDispatch:
             mock_pipeline.return_value = {
                 "document_id": str(doc.id), "page_count": 1, "status": "ready"
             }
-            result = await process_document_with_session(
+            await process_document_with_session(
                 db_session, str(doc.id), storage, None, None
             )
         mock_pipeline.assert_called_once()
@@ -263,7 +261,6 @@ class TestViewerAdapterDispatch:
     @pytest.mark.asyncio
     async def test_text_chunk_endpoint_rejects_pdf(self, client, db_session):
         """GET /api/viewer/text/{token}/{chunk} must return 400 for PDF docs."""
-        from app.models.link import ShareLink
 
         doc = await _insert_doc(db_session, file_type="pdf", status="ready")
         doc.page_count = 3
@@ -291,7 +288,6 @@ class TestViewerAdapterDispatch:
     @pytest.mark.asyncio
     async def test_text_chunk_endpoint_accepts_txt(self, client, db_session):
         """GET /api/viewer/text/{token}/{chunk} must succeed for TXT docs."""
-        from app.models.link import ShareLink
         from app.services.viewer_cache import clear_all_caches
 
         clear_all_caches()

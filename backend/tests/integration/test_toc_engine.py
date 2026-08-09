@@ -16,13 +16,10 @@ Coverage:
 """
 import io
 import json
-import struct
 import uuid
-from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-import pytest_asyncio
 
 from tests.conftest import TEST_USER_ID
 
@@ -258,8 +255,10 @@ class TestPdfExtractor:
     def test_nested_pdf_bookmarks(self):
         from app.services.toc.pdf_extractor import extract_pdf_toc
 
-        ch1 = MagicMock(); ch1.title = "Chapter 1"
-        sec1 = MagicMock(); sec1.title = "Section 1.1"
+        ch1 = MagicMock()
+        ch1.title = "Chapter 1"
+        sec1 = MagicMock()
+        sec1.title = "Section 1.1"
 
         mock_reader = MagicMock()
         mock_reader.outline = [ch1, [sec1]]
@@ -292,7 +291,9 @@ class TestPdfExtractor:
         from app.services.toc.pdf_extractor import extract_pdf_toc
 
         def make_dest(title):
-            d = MagicMock(); d.title = title; return d
+            d = MagicMock()
+            d.title = title
+            return d
 
         mock_reader = MagicMock()
         mock_reader.outline = [make_dest(f"Section {i}") for i in range(300)]
@@ -306,7 +307,8 @@ class TestPdfExtractor:
     def test_bookmark_with_no_page_gets_sec_anchor(self):
         from app.services.toc.pdf_extractor import extract_pdf_toc
 
-        mock_dest = MagicMock(); mock_dest.title = "Intro"
+        mock_dest = MagicMock()
+        mock_dest.title = "Intro"
         mock_reader = MagicMock()
         mock_reader.outline = [mock_dest]
         mock_reader.get_destination_page_number.side_effect = Exception("no page")
@@ -552,7 +554,6 @@ class TestTocEndpoint:
 
     @pytest.mark.asyncio
     async def test_toc_pdf_no_sidecar_returns_empty(self, client, db_session, ready_document):
-        from app.models.link import ShareLink
         from app.services.link_service import LinkService
         from app.services.viewer_cache import clear_all_caches
 
@@ -710,7 +711,6 @@ class TestDocxDocUpload:
 
     @pytest.mark.asyncio
     async def test_docx_upload_accepted(self, client, db_session):
-        import io
         from app.services.viewer_cache import clear_all_caches
         clear_all_caches()
 
@@ -725,7 +725,6 @@ class TestDocxDocUpload:
 
     @pytest.mark.asyncio
     async def test_doc_upload_accepted(self, client, db_session):
-        import io
         from app.services.viewer_cache import clear_all_caches
         clear_all_caches()
 
@@ -737,7 +736,6 @@ class TestDocxDocUpload:
 
     @pytest.mark.asyncio
     async def test_docx_wrong_magic_rejected(self, client, db_session):
-        import io
         # Send bytes that look like .docx content-type but are not actually ZIP
         bad_bytes = b"\x00\x01\x02\x03" * 20
         files = {"file": ("bad.docx", io.BytesIO(bad_bytes),
@@ -747,7 +745,6 @@ class TestDocxDocUpload:
 
     @pytest.mark.asyncio
     async def test_doc_wrong_magic_rejected(self, client, db_session):
-        import io
         bad_bytes = b"this is not a doc file at all"
         files = {"file": ("bad.doc", io.BytesIO(bad_bytes), "application/msword")}
         r = await client.post("/api/documents/upload", files=files)
@@ -779,7 +776,7 @@ class TestWorkerDocxDoc:
 
         with patch("app.workers.pipeline.docx_pdf.process_docx_as_pdf") as mock_process:
             mock_process.return_value = {"status": "ready", "page_count": 3}
-            result = await process_document_with_session(
+            await process_document_with_session(
                 db_session, str(doc.id), mock_storage,
                 MagicMock(), MagicMock(),
             )

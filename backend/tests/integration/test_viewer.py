@@ -1,7 +1,6 @@
 import asyncio
 import pytest
 from datetime import datetime, timedelta, timezone
-from unittest.mock import patch, AsyncMock
 
 from app.services.link_service import LinkService
 

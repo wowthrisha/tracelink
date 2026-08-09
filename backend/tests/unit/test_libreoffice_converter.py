@@ -7,7 +7,7 @@ being installed in the test environment.
 import os
 import subprocess
 import tempfile
-from unittest.mock import MagicMock, patch, mock_open
+from unittest.mock import MagicMock, patch
 
 import pytest
 

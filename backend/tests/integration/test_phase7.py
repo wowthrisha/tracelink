@@ -12,14 +12,12 @@ Coverage:
   H. Session isolation
   I. Rate-limit config regression
 """
-import hashlib
 import json
 import logging
 import uuid
 
 import pytest
 import pytest_asyncio
-from sqlalchemy.ext.asyncio import AsyncSession
 
 
 # ── A. JSON log formatter ──────────────────────────────────────────────────────
@@ -423,7 +421,7 @@ class TestTokenSecurity:
     @pytest.mark.asyncio
     async def test_page_bogus_session_rejected_or_404(self, client, db_session):
         """Bogus session_id must not return page bytes."""
-        from app.models.document import Document, DocumentPage
+        from app.models.document import Document
         from app.models.link import ShareLink
         import secrets
         doc = Document(
@@ -532,7 +530,6 @@ class TestRateLimitRegression:
             )
             responses.append(r.status_code)
         # At least one 429 should appear (rate-limited) OR we got 404s (not 500s)
-        has_429 = any(s == 429 for s in responses)
         has_500 = any(s == 500 for s in responses)
         assert not has_500, "validate endpoint must never return 500 for invalid tokens"
 

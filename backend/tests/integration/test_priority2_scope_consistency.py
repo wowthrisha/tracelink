@@ -24,7 +24,6 @@ from httpx import AsyncClient, ASGITransport
 
 from app.auth import get_current_user
 from app.main import app
-from app.models.org import Organization, OrgMembership
 from tests.conftest import TEST_USER_ID
 
 _TEST_KEY = "sd_" + "b" * 48

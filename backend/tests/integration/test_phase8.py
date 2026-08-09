@@ -735,17 +735,10 @@ class TestStorageAbstraction:
 
     def test_demo_storage_has_file_exists(self, tmp_path, monkeypatch):
         """DemoStorageService must also implement file_exists()."""
-        import sys
         # Patch STORE_DIR and settings before importing demo patch
         monkeypatch.setenv("APP_ENV", "development")
-        # Import the class directly without triggering the module-level monkey-patch
-        import importlib.util, os
-        demo_path = os.path.join(
-            os.path.dirname(__file__), "../../demo_storage_patch.py"
-        )
-        spec = importlib.util.spec_from_file_location("demo_storage_patch_test", demo_path)
-        # Can't safely re-import, test method existence via attribute check on the instance
-        from app.services.storage import _storage_service
+        # Can't safely re-import the module-level monkey-patch here — test method
+        # existence via attribute check on the instance instead.
         # The storage service in tests is the mock; just check the interface exists
         from app.services.storage import StorageBackend
         assert "file_exists" in dir(StorageBackend)
@@ -767,7 +760,6 @@ class TestStorageAbstraction:
 
                 async def run():
                     # Patch the executor call to raise ClientError 404
-                    from botocore.exceptions import ClientError
                     svc._client.head_object.side_effect = None
                     svc._client.head_object.return_value = {}
                     result = await svc.file_exists("some/key.pdf")

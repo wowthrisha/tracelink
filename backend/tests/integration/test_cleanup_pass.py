@@ -11,8 +11,6 @@ Covers every change made in the final audit remediation pass:
   G. clear_doc_bytes_cache wrapper removed from viewer module
   H. Billing webhook handlers use correct status constants
 """
-import importlib
-import sys
 import inspect
 
 
@@ -58,7 +56,6 @@ class TestViewerImportsClean:
 class TestBillingConstants:
     def test_no_hardcoded_canceled_string(self):
         """billing.py must not contain the hardcoded string 'canceled' for status."""
-        import inspect
         import app.routers.billing as billing_mod
         src = inspect.getsource(billing_mod)
         # The string "canceled" must not appear as a raw string literal assignment
@@ -73,7 +70,6 @@ class TestBillingConstants:
 
     def test_no_hardcoded_inactive_string(self):
         """billing.py must not contain the hardcoded string 'inactive' as default fallback."""
-        import inspect
         import app.routers.billing as billing_mod
         src = inspect.getsource(billing_mod)
         import re
@@ -100,7 +96,6 @@ class TestBillingConstants:
 
     def test_handle_subscription_deleted_uses_canceled_constant(self):
         """_handle_subscription_deleted must set status to STATUS_CANCELED, not literal."""
-        import inspect
         import app.routers.billing as billing_mod
         src = inspect.getsource(billing_mod._handle_subscription_deleted)
         assert "STATUS_CANCELED" in src, (
@@ -181,7 +176,6 @@ class TestDeadSchemaDeleted:
 class TestLifespanMigration:
     def test_main_has_lifespan_not_on_event(self):
         """main.py should use the lifespan context manager, not deprecated on_event."""
-        import inspect
         import app.main as main_mod
         src = inspect.getsource(main_mod)
         assert "@app.on_event" not in src, (
@@ -201,8 +195,6 @@ class TestLifespanMigration:
         import warnings
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
-            import importlib
-            import app.main  # already imported; this just ensures it's loaded
             on_event_warnings = [
                 w for w in caught
                 if "on_event" in str(w.message).lower()
@@ -217,7 +209,6 @@ class TestLifespanMigration:
 class TestProductionGuardClean:
     def test_production_guard_checks_correct_fields(self):
         """The production startup guard should check meaningful fields only."""
-        import inspect
         import app.main as main_mod
         src = inspect.getsource(main_mod)
         # Dead checks that should be gone

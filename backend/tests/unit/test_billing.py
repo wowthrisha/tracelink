@@ -11,14 +11,12 @@ Covers:
 import json
 import time
 import uuid
-from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 import pytest_asyncio
 from httpx import AsyncClient, ASGITransport
 
-from app.auth import get_current_user
 from app.database import get_db
 from app.main import app
 from app.models.billing import UserBilling, PLAN_FREE, PLAN_PRO
@@ -299,7 +297,7 @@ async def unauth_client(db_session):
 
     app.dependency_overrides[get_db] = override_db
 
-    from unittest.mock import AsyncMock, MagicMock
+    from unittest.mock import MagicMock
     with patch("app.services.storage.StorageService.upload_file", new_callable=AsyncMock), \
          patch("app.services.storage.StorageService.generate_presigned_url", new_callable=AsyncMock), \
          patch("app.services.storage.StorageService.download_bytes", new_callable=AsyncMock) as mock_dl, \

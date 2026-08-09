@@ -4,10 +4,8 @@ Tests covering the production-hardening fixes applied in the audit remediation p
 Each test names the audit finding it covers (CRIT-N, HIGH-N, etc.) so regressions
 are immediately traceable back to the original vulnerability.
 """
-import asyncio
 import uuid
-from datetime import datetime, timezone
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi import HTTPException
@@ -127,7 +125,6 @@ class TestDocumentUserIdNotNull:
     @pytest.mark.asyncio
     async def test_document_user_id_is_not_nullable(self, db_session):
         from app.models.document import Document
-        from sqlalchemy import inspect as sa_inspect
 
         col = Document.__table__.c["user_id"]
         assert not col.nullable, "Document.user_id must be NOT NULL"
@@ -183,7 +180,6 @@ class TestRasterizerTimeout:
     async def test_timeout_raises_rasterizer_error(self):
         from app.services.rasterizer import RasterizerService, RasterizerError
         from unittest.mock import patch
-        import asyncio
 
         svc = RasterizerService()
         pdf_bytes = (

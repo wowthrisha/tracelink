@@ -32,12 +32,6 @@ REPO_ROOT = pathlib.Path("/Users/thrisha/traceview/securedoc")
 class TestCoverFilesRemoved:
     def test_no_cover_files_tracked_in_git(self):
         """All .cover files must be untracked — none committed to git."""
-        result = subprocess.run(
-            ["git", "ls-files", "--error-unmatch"],
-            cwd=str(REPO_ROOT),
-            capture_output=True,
-            text=True,
-        )
         # git ls-files of all tracked files should have no .cover entries
         tracked = subprocess.run(
             ["git", "ls-files"],
@@ -307,7 +301,6 @@ class TestDownloadIPAllowlist:
 class TestSessionLogRedaction:
     def test_reuse_log_truncates_session_id(self):
         """The REUSE log message must only log the first 6 chars of the session ID."""
-        import logging
         import inspect
         from app.services.link_service import LinkService
         source = inspect.getsource(LinkService.validate_link)

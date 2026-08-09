@@ -66,7 +66,6 @@ class TestStorageService:
             await storage_svc.upload_file(b"data", "test/del.pdf")
             await storage_svc.delete_file("test/del.pdf")
             # Verify the object is gone
-            import botocore.exceptions
             try:
                 storage_svc._client.get_object(Bucket="test-bucket", Key="test/del.pdf")
                 assert False, "Object should be deleted"

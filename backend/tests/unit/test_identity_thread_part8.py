@@ -648,7 +648,7 @@ class TestReviewerActivityExport:
         )
         lines = await _csv_lines(response)
         assert lines[0] == "Reviewer Name,Reviewer Email,Document,Comment Count,Reply Count,Last Activity"
-        data_rows = [l for l in lines[1:] if l.strip()]
+        data_rows = [line for line in lines[1:] if line.strip()]
         assert len(data_rows) == 1  # one row for the single reviewer (jane.smith)
         row = data_rows[0]
         assert "jane.smith@example.com" in row

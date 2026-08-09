@@ -37,7 +37,6 @@ class TestCleanupOrphanedViewerProfiles:
     async def test_deletes_unreferenced_profile(self):
         from app.models.viewer_profile import ViewerProfile
         from app.workers.cleanup import _cleanup_orphaned_viewer_profiles_async
-        import app.workers.cleanup as cleanup_mod
         import app.workers.tasks as tasks_mod
 
         engine = create_async_engine(

@@ -11,9 +11,9 @@ Covers:
 """
 import uuid
 import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
-from app.models.org import Organization, OrgMembership, ORG_ROLES, role_gte
+from app.models.org import ORG_ROLES, role_gte
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -152,7 +152,7 @@ class TestOrganizations:
         cr = await self._create_org(client)
         org_id = cr.json()["id"]
         new_user = str(uuid.uuid4())
-        add_r = await client.post(f"/api/orgs/{org_id}/members", json={"user_id": new_user, "role": "viewer"})
+        await client.post(f"/api/orgs/{org_id}/members", json={"user_id": new_user, "role": "viewer"})
         r = await client.patch(
             f"/api/orgs/{org_id}/members/{new_user}",
             json={"role": "editor"},
@@ -582,7 +582,6 @@ class TestSSENotifications:
         # client fixture has auth override — should not 401
         # We check the endpoint exists and returns streaming response headers
         # by making a request with a short timeout (the stream never ends)
-        import httpx
         # Just confirm endpoint is registered and returns 200 (streaming)
         # We can't easily test the full SSE stream in unit tests without Redis
         # so we just confirm 200 is returned when Redis is unavailable

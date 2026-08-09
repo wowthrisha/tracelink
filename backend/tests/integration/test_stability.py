@@ -16,12 +16,12 @@ import uuid
 import pytest
 import pytest_asyncio
 from datetime import datetime, timedelta, timezone
-from unittest.mock import patch, AsyncMock, MagicMock, call
+from unittest.mock import patch, AsyncMock, MagicMock
 
 from httpx import AsyncClient, ASGITransport
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 
-from app.database import Base, get_db, make_engine
+from app.database import get_db, make_engine
 from app.main import app
 from app.auth import get_current_user
 from app.models.document import Document, DocumentPage
@@ -206,7 +206,7 @@ class TestGetDbSessionSafety:
             pass
 
         # The context manager's __aexit__ handles rollback; verify table empty
-        from sqlalchemy import select as sa_select, text
+        from sqlalchemy import select as sa_select
         result = await db_session.execute(
             sa_select(Document).where(Document.filename == "rollback_test.pdf")
         )
@@ -786,8 +786,7 @@ class TestEndpointRegressions:
 
     async def test_analytics_events_endpoint(self, client, active_link):
         # Generate an event via validate
-        body = await _validate(client, active_link.token)
-        sid = body["session_id"]
+        await _validate(client, active_link.token)
 
         r = await client.get(
             f"/api/analytics/events?link_id={active_link.id}&event_type=opened"
@@ -914,7 +913,7 @@ class TestEndpointRegressions:
         with patch("app.workers.tasks._get_db_session_factory", return_value=factory), \
              patch("app.workers.tasks.process_document") as mock_task:
             mock_task.delay = MagicMock(side_effect=lambda doc_id: queued_ids.append(doc_id))
-            result = await _requeue_orphaned_uploads_async()
+            await _requeue_orphaned_uploads_async()
 
         await engine.dispose()
         assert str(recent.id) not in queued_ids

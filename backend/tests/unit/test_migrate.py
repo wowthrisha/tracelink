@@ -10,9 +10,7 @@ They verify:
   5. The URL conversion strips the +asyncpg dialect tag for asyncpg.connect().
   6. Exit code from alembic subprocess is propagated.
 """
-import asyncio
-import sys
-from unittest.mock import AsyncMock, MagicMock, patch, call
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 

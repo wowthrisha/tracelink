@@ -10,7 +10,6 @@ from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sess
 from app.database import Base, get_db
 from app.main import app
 from app.models.document import Document, DocumentPage
-from app.models.link import ShareLink
 from app.models.event import AccessEvent  # noqa: F401 -- ensure event model loaded
 from app.models.session import ViewerSession  # noqa: F401 -- ensure session model loaded
 from app.models.webhook import WebhookEndpoint, WebhookDelivery  # noqa: F401 -- ensure webhook models loaded

@@ -16,7 +16,6 @@ These tests verify:
   F. Text documents do not call stream_rasterized_pages (regression)
   G. _TASK_WINDOW constant is defined and equals 2 × _UPLOAD_CONCURRENCY
 """
-import asyncio
 import uuid
 from dataclasses import dataclass
 from unittest.mock import AsyncMock, MagicMock, patch

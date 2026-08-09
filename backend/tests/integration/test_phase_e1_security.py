@@ -12,7 +12,6 @@ Covers all 7 confirmed findings from SECURITY_VERIFICATION_AUDIT.md:
   F7. storage key: no user-controlled components in storage paths
 """
 import uuid
-import json
 import pytest
 from unittest.mock import patch, MagicMock
 from sqlalchemy import select

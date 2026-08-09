@@ -10,12 +10,10 @@ Covers:
 """
 import hashlib
 import hmac
-import json
 import uuid
 import pytest
 from unittest.mock import patch, AsyncMock, MagicMock
 
-from app.config import Settings
 from app.services.adapters.registry import get_adapter, all_adapters, allowed_content_types
 from app.services.text_processor import detect_file_type
 from app.models.webhook import WEBHOOK_EVENTS

@@ -20,7 +20,6 @@ from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-import pytest_asyncio
 from sqlalchemy import select
 
 from app.models.document import Document, DocumentPage

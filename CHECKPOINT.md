@@ -2,7 +2,11 @@
 
 Running state snapshot, updated after every closed backlog item. See `PROGRESS.md` for the narrative log and `ENGINEERING_BACKLOG.md` for full issue detail.
 
-**Last updated**: 2026-08-09 (V24.0 — full backlog reconciliation + ENG-048 closure; see below).
+**Last updated**: 2026-08-09 (V24.0 continuation — full backlog reconciliation + ENG-048 closure + ENG-046 fully closed; see below).
+
+## V24.0 continuation: ENG-046 fully closed, ENG-049 found (2026-08-09)
+
+Picked back up per explicit instruction not to assume ENG-048's closure meant the product was finished. Phase 1 reconciliation confirmed ENG-046 was the only genuinely OPEN AND FIXABLE item among the 5 remaining open ones (no external blocker, just previously deferred as large). Individually categorized and fixed all 206 remaining `backend/tests` lint violations (not blind `--fix`) — `ruff check backend/app backend/tests`, the literal CI command, now passes cleanly. While reviewing them, found 2 tests that assert less than their own docstrings promise (a computed-but-never-checked rate-limit flag, a captured-but-never-asserted mock) — filed as **ENG-049** rather than silently fixing test behavior outside this task's lint-cleanup scope. Full record: `ENGINEERING_BACKLOG.md` ENG-046/ENG-049, `docs/engineering/FIX_LOG.md`/`ACTION_LOG.md` Entry 46.
 
 ## V24.0 reconciliation (2026-08-08)
 
@@ -14,19 +18,19 @@ This file's older dual-layer table (a stale 44-item V22.0 table left sitting nex
 
 ENG-048 (Reading Intelligence's active-time counter resetting instead of pausing on window blur, found earlier this same sprint) is **now closed**. Root cause proven via runtime instrumentation (not guessed): a `useEffect` dependency-array race in `useReadingAnalytics.js` — the "handle page changes" effect guarded on a non-reactive ref read and never re-fired once the session actually became ready, so `currentPage` stayed `null` for the entire session and `_accumulate()` permanently no-opped (which also meant nothing was ever flushed to the backend for a session that never left page 1 — a finding beyond what was known when this was filed). Fixed with a 3-line change, 2 new regression tests added (proven to fail pre-fix via `git stash`), and 9 of 10 mandated browser tests directly passing against the local Docker stack (the 10th indeterminate due to a documented headless-automation limitation, not an app defect). Full record: `ENGINEERING_BACKLOG.md` ENG-048, `docs/engineering/FIX_LOG.md`/`ACTION_LOG.md` Entry 45, `REGRESSION_REPORT.md`.
 
-## Burndown (48 items, fully reconciled V24.0, post-ENG-048 closure — see `ENGINEERING_BACKLOG.md`'s "Reconciled totals" note for the item-by-item recount)
+## Burndown (49 items, fully reconciled V24.0 continuation, post-ENG-046 full closure — see `ENGINEERING_BACKLOG.md`'s "Reconciled totals" note for the item-by-item recount)
 
 | Priority | Total | Closed | Deferred (reasoned) | Reviewed/Justified | Open (blocked on external input / low-risk) |
 |---|---|---|---|---|---|
 | Critical | 0 | 0 | 0 | 0 | 0 |
 | High | 5 | 4 | 0 | 0 | 1 |
 | Medium | 14 | 10 | 3 | 0 | 1 |
-| Low | 20 | 11 | 3 | 3 | 3 |
+| Low | 21 | 12 | 3 | 3 | 3 |
 | Enhancement | 8 | 6 | 1 | 1 | 0 |
 | Verification-only (no severity) | 1 | 1 | 0 | 0 | 0 |
-| **Total** | **48** | **32** | **7** | **4** | **5** |
+| **Total** | **49** | **33** | **7** | **4** | **5** |
 
-`32 + 7 + 4 + 5 = 48`. Overall completion: **66.7%** (32/48 closed). **Zero unresolved High or Critical defects** — ENG-048 was found and closed in the same sprint. The 5 remaining open items: **ENG-033** (new profile screen — product/design direction, decision record in `docs/governance/ENG-033_DECISION.md`), **ENG-034** (CD/deploy job — deployment-target decision, decision record in `docs/governance/ENG-034_DECISION.md`), **ENG-038** (TOCTOU race, reclassified low-risk-inference after 2 clean live reproduction attempts found no race), **ENG-044** (Celery worker metrics invisible cross-process — ops/infra multiprocess-registry decision), **ENG-046** (CI's `ruff check` had no project-level config — `backend/app` fixed and pinned this sprint; `backend/tests`' 206 remaining lint violations are real but zero-runtime-impact debt, quantified and left open rather than blind-fixed). ENG-019/045 (V23.0), ENG-037/039/017/040 (V22.0), ENG-047/048 (V24.0) are all closed; AUTH-006 (tracked as ENG-026) remains a documented, unimplemented architectural risk (severity revised Medium-High→Medium after a new CSP mitigation finding) — a deferred item, not an open one, since a full migration plan already exists and is simply pending an approval decision rather than lacking a plan.
+`33 + 7 + 4 + 5 = 49`. Overall completion: **67.3%** (33/49 closed). **Zero unresolved High or Critical defects, zero partially-fixed items.** The 5 remaining open items: **ENG-033** (new profile screen — product/design direction, decision record in `docs/governance/ENG-033_DECISION.md`), **ENG-034** (CD/deploy job — deployment-target decision, decision record in `docs/governance/ENG-034_DECISION.md`), **ENG-038** (TOCTOU race, reclassified low-risk-inference after 2 clean live reproduction attempts found no race), **ENG-044** (Celery worker metrics invisible cross-process — ops/infra multiprocess-registry decision), **ENG-049** (2 tests assert less than their own docstrings promise — found while closing ENG-046, correctly scoped out as a separate low-priority test-quality item). ENG-019/045 (V23.0), ENG-037/039/017/040 (V22.0), ENG-046/047/048 (V24.0) are all closed; AUTH-006 (tracked as ENG-026) remains a documented, unimplemented architectural risk (severity revised Medium-High→Medium after a new CSP mitigation finding) — a deferred item, not an open one, since a full migration plan already exists and is simply pending an approval decision rather than lacking a plan.
 
 ## V22.0 Residual Risk Closure — complete
 
@@ -76,11 +80,13 @@ Read `ISSUE_DATABASE.md`/`TODO_QUEUE.md` per V16.0's canonical-sources instructi
 
 ## Immediate next step
 
-**ENG-048 is closed (2026-08-09).** Root cause proven via runtime instrumentation on the local Docker stack (not a live DevTools session, which turned out not to be necessary — targeted `console.log` instrumentation at every state transition was sufficient to prove the exact faulty state and verify the fix). Fixed, regression-tested (2 new tests, proven meaningful via stash-revert), and browser-verified (9/10 mandated tests passing, 1 indeterminate for a documented, non-app reason). Full record: `ENGINEERING_BACKLOG.md` ENG-048, `docs/engineering/FIX_LOG.md`/`ACTION_LOG.md` Entry 45, `REGRESSION_REPORT.md`.
+**ENG-046 is now fully closed (2026-08-09) — zero partially-fixed items remain anywhere in the backlog.** The `backend/tests` remainder (206 lint violations) was individually categorized and fixed; the literal CI command (`ruff check backend/app backend/tests`) now passes cleanly.
 
-**V24.0 is now fully complete with zero unresolved High or Critical defects.** Every remaining open item (ENG-033, 034, 038, 044, 046) is blocked on a named external input this session cannot unilaterally supply, or is quantified zero-runtime-impact cleanup debt — none are unilaterally engineering-actionable. Per the explicit instruction accompanying ENG-048's fix, this session stops here and does not automatically begin ENG-046 or the other open items.
+Continuing the V24.0 mandate's remaining phases: Phase 3 (full end-to-end workflow regression via live browser), Phase 4 (Reading Intelligence deep re-verification now that ENG-048 is fixed), Phase 5 (UI/endpoint contract spot-check), Phase 6 (bounded security re-verification), Phase 7/8 (code quality sweep + repository structure), then the 5 mandated final reports (`FINAL_ENGINEERING_STATUS.md`, `FINAL_REGRESSION_CERTIFICATION.md`, `FINAL_OPEN_RISKS.md`, `FINAL_REPOSITORY_HEALTH.md`, `FINAL_RELEASE_CERTIFICATION.md`).
 
-The ENG-048 fix is committed locally on `main`, not pushed to `origin/main` per this repo's standing policy (`origin/main` auto-deploys to the live Railway production instance). **The live Railway app has NOT received V23.0's ENG-045 fix, V24.0's ENG-046 fix, or ENG-048's fix** — it still runs pre-V23.0 behavior until a push+deploy happens; only the local Docker stack currently serves the fully corrected build.
+The 5 remaining open items (ENG-033, 034, 038, 044, 049) are each blocked on a named external input or are a newly-filed, correctly-scoped-out low-priority test-quality finding — none are unilaterally engineering-actionable this session.
+
+Commits are local on `main`, not pushed to `origin/main` per this repo's standing policy (`origin/main` auto-deploys to the live Railway production instance). **The live Railway app has NOT received any of V23.0's or V24.0's fixes** (ENG-045, ENG-046, ENG-048) — it still runs pre-V23.0 behavior until a push+deploy happens; only the local Docker stack currently serves the fully corrected build.
 
 Commits this sprint (`main`, none pushed to `origin/main` per standing policy — `origin/main` auto-deploys to the live Railway production instance): `eedaf24` (Step 1 reconciliation), `c02ce76` (backfill FIX_LOG/ACTION_LOG), `28ca812`+`3088797` (ENG-046 fix+docs), `809095c` (ENG-048 filed), `7d82ff8` (Step 8/9), `94b35c1` (docs/release archival), `da9cb2e` (final certification). **The live Railway app has NOT received V23.0's ENG-045 fix or any V24.0 work** — it still runs pre-V23.0 behavior until a push+deploy happens; only the local Docker stack currently serves the corrected build.
 

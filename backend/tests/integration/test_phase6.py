@@ -8,9 +8,6 @@ import uuid
 import pytest
 from unittest.mock import AsyncMock, patch
 
-from app.main import app
-from app.database import get_db
-from app.auth import get_current_user
 
 # resolve frontend paths the same way test_phase2.py does
 _BACKEND_APP = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../app"))

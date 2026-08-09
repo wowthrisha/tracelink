@@ -12,9 +12,7 @@ Tests cover:
 """
 import uuid
 from datetime import datetime, timezone
-from unittest.mock import MagicMock
 
-import pytest
 
 from app.models.reading_analytics import (
     DocumentComplexity,
@@ -22,7 +20,6 @@ from app.models.reading_analytics import (
     ReadingSession,
 )
 from app.services.reading_analytics_service import (
-    EWMA_ALPHA,
     MIN_PAGES_FOR_SPEED,
     aggregate_session_from_pages,
     compute_absorption_score,

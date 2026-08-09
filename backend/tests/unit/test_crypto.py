@@ -1,4 +1,3 @@
-import pytest
 from app.utils.crypto import hash_password, verify_password, hash_value, mask_email
 
 

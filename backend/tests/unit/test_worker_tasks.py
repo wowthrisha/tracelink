@@ -89,9 +89,6 @@ class TestPurgeStaleSessionsAsync:
         from sqlalchemy import select
         from app.database import Base
         from app.models.session import ViewerSession
-        from app.models.document import Document  # noqa: ensure tables exist
-        from app.models.link import ShareLink     # noqa: ensure tables exist
-        from app.models.event import AccessEvent  # noqa: ensure tables exist
         from app.workers.tasks import _purge_stale_sessions_async
         import uuid
 

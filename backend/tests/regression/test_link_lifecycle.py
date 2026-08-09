@@ -101,7 +101,7 @@ class TestLinkLifecycleAdditional:
         await client.post("/api/viewer/validate", json={"token": token})
         # List should now show is_active=False
         list_r = await client.get(f"/api/links?document_id={sample_document_in_db.id}")
-        link_summary = next(l for l in list_r.json()["links"] if l["id"] == link_id)
+        link_summary = next(link for link in list_r.json()["links"] if link["id"] == link_id)
         assert link_summary["is_active"] is False
 
     @pytest.mark.asyncio
@@ -117,7 +117,7 @@ class TestLinkLifecycleAdditional:
         await client.delete(f"/api/links/{link_id}")
 
         # Try to patch revoked_at to None — should not re-enable link
-        r = await client.patch(f"/api/links/{link_id}", json={"label": "patched"})
+        await client.patch(f"/api/links/{link_id}", json={"label": "patched"})
         # Link should still be revoked after patch
         v = await client.post("/api/viewer/validate", json={"token": token})
         assert v.status_code == 410

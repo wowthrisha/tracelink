@@ -15,7 +15,6 @@ Covers:
   K) Concurrency — multiple concurrent page requests handled correctly
   L) No regressions in upload, validate, analytics, billing paths
 """
-import asyncio
 import concurrent.futures
 import uuid
 import pytest
@@ -25,15 +24,10 @@ from unittest.mock import patch, AsyncMock, MagicMock
 import fakeredis.aioredis
 
 from app.models.document import Document, DocumentPage
-from app.models.link import ShareLink
 from app.services.link_service import LinkService
 from app.services.page_cache import (
     RedisPageCache,
-    get_redis_page_cache,
     reset_redis_page_cache,
-    clear_local_page_cache,
-    clear_local_thumb_cache,
-    clear_doc_from_local_cache,
     _page_local_get,
     _page_local_put,
     _thumb_local_get,
@@ -48,8 +42,7 @@ from app.services.page_cache import (
     _THUMB_PREFIX,
 )
 from app.services.viewer_cache import (
-    link_cache, doc_cache, page_cache as meta_page_cache,
-    invalidate_doc_entries, clear_all_caches,
+    link_cache, invalidate_doc_entries,
 )
 from app.routers.viewer import clear_page_cache, clear_thumb_cache, clear_metadata_caches
 from app.services.storage import _STORAGE_EXECUTOR
@@ -355,7 +348,6 @@ class TestPageRequestIntegration:
         r1 = await client.get(f"/api/viewer/page/{link.token}/1", headers={"X-Session-ID": sid})
         assert r1.status_code == 200
 
-        storage_key = f"pages/{doc.id}/0001.webp"
         l1_hit_count = 0
 
         original_fetch = __import__("app.services.page_cache", fromlist=["fetch_page_bytes"]).fetch_page_bytes
@@ -513,7 +505,7 @@ class TestCacheInvalidationOnReprocess:
     @pytest.mark.asyncio
     async def test_reprocess_worker_clears_redis(self, redis_cache, db_session):
         """process_document_with_session on a stuck doc clears L2 cache."""
-        from unittest.mock import AsyncMock, MagicMock, patch
+        from unittest.mock import AsyncMock, MagicMock
         from app.workers.tasks import process_document_with_session
 
         doc = await _insert_doc_with_pages(db_session, 1)
@@ -654,7 +646,7 @@ class TestNoCacheLeakageSecurity:
     ):
         """An expired link snapshot from metadata cache returns 410."""
         from datetime import timedelta
-        from app.services.viewer_cache import LinkSnapshot, link_cache
+        from app.services.viewer_cache import LinkSnapshot
 
         doc = await _insert_doc_with_pages(db_session, 1)
         link_svc = LinkService()

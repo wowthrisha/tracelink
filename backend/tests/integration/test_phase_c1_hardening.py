@@ -188,7 +188,6 @@ class TestWorkerConfig:
         import app.config as config_module
         monkeypatch.setenv("WORKER_CONCURRENCY", "6")
         # Force fresh settings read
-        from pydantic_settings import BaseSettings
         s = config_module.Settings()
         assert s.worker_concurrency == 6
 
@@ -278,7 +277,7 @@ class TestDownloadPageLimit:
         from app.models.document import Document
         from app.models.link import ShareLink
         from app.models.session import ViewerSession
-        from unittest.mock import patch, AsyncMock
+        from unittest.mock import patch
         import datetime
 
         doc = Document(

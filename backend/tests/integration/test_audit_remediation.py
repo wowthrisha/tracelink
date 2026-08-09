@@ -19,10 +19,9 @@ Covers every fix applied during the final hardening pass:
 import json
 import uuid
 from datetime import datetime, timedelta, timezone
-from unittest.mock import AsyncMock, MagicMock, patch, PropertyMock
+from unittest.mock import AsyncMock, patch
 
 import pytest
-import pytest_asyncio
 
 from tests.conftest import TEST_USER_ID
 
@@ -73,7 +72,6 @@ class TestWatermarkEmail:
     @pytest.mark.asyncio
     async def test_upsert_session_returns_existing_email_on_heartbeat(self, db_session):
         from app.services.policy import PolicyEnforcer
-        from app.models.session import ViewerSession
         from app.models.link import ShareLink
         from app.models.document import Document
 
@@ -110,7 +108,6 @@ class TestWatermarkEmail:
     @pytest.mark.asyncio
     async def test_page_endpoint_watermark_contains_email(self, client, db_session, ready_document):
         """The page endpoint must pass viewer email to the watermark service."""
-        from app.models.link import ShareLink
         from app.services.link_service import LinkService
         from app.services.viewer_cache import clear_all_caches
 
@@ -130,9 +127,7 @@ class TestWatermarkEmail:
 
         called_watermark_texts = []
 
-        original_apply = None
         from app.services import watermark as wm_mod
-        original_apply = wm_mod.WatermarkService.apply_visible_watermark
 
         def _capture_wm(self, img_bytes, text, angle=None):
             called_watermark_texts.append(text)
@@ -206,10 +201,9 @@ class TestChunkArrayCache:
     @pytest.mark.asyncio
     async def test_text_chunk_endpoint_uses_chunk_cache(self, client, db_session):
         """Second chunk request reuses cached array, not splitting text again."""
-        from app.models.link import ShareLink
         from app.models.document import Document
         from app.services.link_service import LinkService
-        from app.services.viewer_cache import clear_all_caches, chunk_array_cache
+        from app.services.viewer_cache import clear_all_caches
 
         clear_all_caches()
 
@@ -265,7 +259,6 @@ class TestDomainNormalization:
     @pytest.mark.asyncio
     async def test_patch_allowed_domains_lowercased(self, client, db_session, sample_document_in_db):
         from app.services.link_service import LinkService
-        from app.services.policy import PolicyEnforcer
 
         link_svc = LinkService()
         link = await link_svc.create_link(
@@ -289,7 +282,6 @@ class TestDomainNormalization:
     @pytest.mark.asyncio
     async def test_domain_check_works_after_patch_with_uppercase(self, db_session):
         """After PATCH with uppercase domain, a viewer with matching lowercase domain is allowed."""
-        from app.models.link import ShareLink
         from app.models.document import Document
         from app.services.link_service import LinkService
         from app.services.policy import PolicyEnforcer
@@ -354,7 +346,6 @@ class TestDownloadTimezone:
         # We need a session_id but the link is expired — validate will fail.
         # Test the download path directly by giving it a fake session.
         from app.models.session import ViewerSession
-        from app.services.policy import PolicyEnforcer
 
         fake_sid = "z" * 32
         db_session.add(ViewerSession(
@@ -379,7 +370,6 @@ class TestAnalyticsIP:
     @pytest.mark.asyncio
     async def test_log_viewer_event_uses_state_client_ip(self, client, db_session, active_link):
         """POST /api/analytics/events must use request.state.client_ip, not request.client.host."""
-        from app.services.link_service import LinkService
         from app.services.viewer_cache import clear_all_caches
 
         clear_all_caches()
@@ -461,7 +451,6 @@ class TestDemoStorageListKeys:
     def test_list_keys_restores_correct_slashes(self, tmp_path):
         """list_keys_with_prefix must restore all path separators, not just the first."""
         import asyncio
-        from pathlib import Path
 
         # Simulate what DemoStorageService does — write files with underscores
         store_dir = tmp_path / "store"
@@ -480,7 +469,6 @@ class TestDemoStorageListKeys:
 
         # Build a mini DemoStorageService pointing at tmp_path
         # (avoid importing the real patch which monkey-patches the live app)
-        import sys, importlib, types
 
         class _LocalDemoStorage:
             def __init__(self, store):
@@ -519,7 +507,6 @@ class TestTextChunkNoDoubleDBFetch:
     async def test_text_chunk_uses_doc_snapshot_fields(self, client, db_session):
         """The text chunk endpoint must not execute a second Document SELECT."""
         from app.models.document import Document
-        from app.models.link import ShareLink
         from app.services.link_service import LinkService
         from app.services.viewer_cache import clear_all_caches, doc_cache, DocSnapshot
 

@@ -5,7 +5,6 @@ Covers:
   Action 6: Streaming PDF downloads (memory-efficient, pypdf-based assembly)
   Action 7: Prometheus metrics endpoint
 """
-import asyncio
 import io
 import uuid
 import pytest
@@ -13,7 +12,7 @@ from unittest.mock import patch, AsyncMock, MagicMock
 
 from app.config import Settings
 from app.services.link_service import LinkService
-from tests.conftest import TEST_USER_ID, _make_webp_bytes
+from tests.conftest import TEST_USER_ID
 
 
 # ══════════════════════════════════════════════════════════════════════════════

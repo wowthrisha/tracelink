@@ -3,7 +3,6 @@
 Verifies that Settings parses env vars correctly, that production guards
 are detectable, and that share URL generation is consistent.
 """
-import pytest
 from app.config import Settings
 from app.database import _normalize_db_url
 
