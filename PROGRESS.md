@@ -4,41 +4,41 @@ Narrative progress log, one entry per closed (or explicitly deferred) backlog it
 
 ## Dashboard
 
-**Reconciled 2026-08-09 (V24.0)** — this table predated V23.0 (ENG-019/ENG-045) and carried a stale "ENG-037 open" label the item's own canonical entry has contradicted since V22.0 (2026-08-05); both are corrected below. V24.0's Step 4 repository re-sweep then added ENG-046 (partially fixed) and ENG-047 (closed); Step 5/6/7's Reading Intelligence re-certification then found **ENG-048** (High severity, confirmed real, root cause not yet pinned). See `ENGINEERING_BACKLOG.md`'s "Reconciled totals" note for the full reconciliation record.
+**Reconciled 2026-08-09 (V24.0, updated after ENG-048's closure)** — this table predated V23.0 (ENG-019/ENG-045) and carried a stale "ENG-037 open" label the item's own canonical entry has contradicted since V22.0 (2026-08-05); both are corrected below. V24.0's Step 4 repository re-sweep then added ENG-046 (partially fixed) and ENG-047 (closed); Step 5/6/7's Reading Intelligence re-certification then found **ENG-048** (High severity), and a same-sprint follow-up pass root-caused, fixed, regression-tested, and browser-verified it. See `ENGINEERING_BACKLOG.md`'s "Reconciled totals" note for the full record.
 
 | Field | Value |
 |---|---|
-| Current issue | none in progress — V24.0 Step 1-7 complete (reconciliation, decision re-evaluation, repository re-sweep, Reading Intelligence re-certification) |
-| Previous issue | ENG-048 investigation (Reading Intelligence pause/resume defect — confirmed, not fixed) |
-| Next issue | **ENG-048 first** (High severity, needs a live DevTools breakpoint session — the top-priority item), then 5 other open items (ENG-033/034/038/044/046), each blocked on a named external input, evidence-based low-risk classification, or quantified remaining low-risk cleanup |
+| Current issue | none in progress — ENG-048 closed, V24.0 fully complete |
+| Previous issue | ENG-048 (Reading Intelligence pause/resume defect — root-caused via instrumentation, fixed, regression-tested, browser-verified) |
+| Next issue | 5 open items (ENG-033/034/038/044/046), each blocked on a named external input, evidence-based low-risk classification, or quantified remaining low-risk cleanup — not engineering-actionable without that input |
 | Critical remaining | 0 / 0 |
-| High remaining | 2 / 5 (ENG-033 — needs product/design input, decision record on file; **ENG-048 — confirmed real defect, root cause not pinned, needs live debugging, top priority**) |
+| High remaining | 1 / 5 (ENG-033 — needs product/design input, decision record on file. ENG-048 closed this sprint.) |
 | Medium remaining | 1 open / 14 total (ENG-034 needs ops decision — decision record in `docs/governance/ENG-034_DECISION.md`; 10 closed incl. ENG-039/041/042/045; 3 deferred: ENG-005/023/026 [ENG-026 severity revised Medium-High→Medium]) |
 | Low remaining | 3 open / 20 total (ENG-038 reclassified low-risk-inference, ENG-044 needs ops/infra input, ENG-046 `backend/tests` lint debt quantified and open; ENG-037 closed via tripwire — corrected V24.0; ENG-047 closed V24.0; 11 closed incl. ENG-040/043; 3 deferred, 3 reviewed-not-implemented) |
 | Enhancement remaining | 0 open / 8 total (ENG-019 closed V23.0 — full browser sweep; ENG-017/018/020/013/014 closed; ENG-015 justified, ENG-016 deferred) |
-| Overall % | 64.6% (31/48 closed, 11 deferred/reviewed/justified, 6 open) |
-| Current commit | `3088797` (V24.0 reconciliation + ENG-046/047; ENG-048 documentation commit follows) |
-| Last regression | PASS — post-ENG-046, 2026-08-09 (backend 1751 passed/1 skipped/0 failed, host-run, unchanged / `backend/app` ruff-clean under the newly-pinned ruleset / frontend unaffected). ENG-048 is investigation-only, no code changed. |
-| Current blocker | ENG-048 needs a live browser DevTools breakpoint session (Playwright automation alone can't set breakpoints or inspect React ref internals) — the other 5 open items are correctly blocked on external input, evidence-based low-risk reclassification, or explicitly-deferred low-risk cleanup |
-| Estimated completion | Every item ENG-001 through ENG-047 is FIXED, PROVEN FALSE, VERIFIED-AND-DEFERRED, PARTIALLY FIXED WITH THE REMAINDER QUANTIFIED, or CLASSIFIED AS A DECISION ITEM. **ENG-048 is the one exception** — confirmed real, not force-closed, not guess-fixed, honestly left open as the top-priority item for the next session. Zero unexplained entries, zero contradictory statuses (V24.0 reconciliation). |
+| Overall % | 66.7% (32/48 closed, 11 deferred/reviewed/justified, 5 open) |
+| Current commit | (ENG-048 fix commit follows this update) |
+| Last regression | PASS — post-ENG-048 fix, 2026-08-09 (backend 1751 passed/1 skipped/0 failed, unaffected — frontend-only change / frontend 15/15 passed, up from 13 / `eslint` clean / build 309.2kb unchanged / migration head 027 confirmed live). |
+| Current blocker | None — all 5 remaining open items are correctly blocked on external input, evidence-based low-risk reclassification, or explicitly-deferred low-risk cleanup |
+| Estimated completion | Every item ENG-001 through ENG-048 is now FIXED, PROVEN FALSE, VERIFIED-AND-DEFERRED, PARTIALLY FIXED WITH THE REMAINDER QUANTIFIED, or CLASSIFIED AS A DECISION ITEM — zero unexplained entries, zero contradictory statuses, zero unresolved High/Critical defects. |
 
 \* Backlog expanded from 21 to 31 items this cycle after merging `ISSUE_DATABASE.md`/`TODO_QUEUE.md` findings — see the V16.0 reconciliation entry below. This is real newly-surfaced scope, not re-litigation of closed work.
 
 \* ENG-005/ENG-011/ENG-012 counted as remaining/deferred, though all three deferrals were actively re-confirmed this cycle, not silently carried forward.
 
-## Burndown (recomputed V24.0, 2026-08-09 — 48 items, all triaged, ENG-037 mislabel corrected, ENG-046/047/048 added)
+## Burndown (recomputed V24.0, 2026-08-09, post-ENG-048 closure — 48 items, all triaged)
 
-| Priority | Total | Closed | Deferred (reasoned) | Reviewed/Justified | Open (blocked on external input / low-risk / needs live debugging) |
+| Priority | Total | Closed | Deferred (reasoned) | Reviewed/Justified | Open (blocked on external input / low-risk) |
 |---|---|---|---|---|---|
 | Critical | 0 | 0 | 0 | 0 | 0 |
-| High | 5 | 3 | 0 | 0 | 2 (ENG-033 — product/design, decision record on file; ENG-048 — confirmed real defect, needs live debugging) |
+| High | 5 | 4 | 0 | 0 | 1 (ENG-033 — product/design, decision record on file) |
 | Medium | 14 | 10 | 3 | 0 | 1 (ENG-034 — ops/deployment policy, decision record on file) |
 | Low | 20 | 11 | 3 | 3 | 3 (ENG-038 — low-risk inference, no reproducible race; ENG-044 — needs ops/infra multiprocess-registry decision; ENG-046 — `backend/tests` lint debt, quantified, zero runtime impact) |
 | Enhancement | 8 | 6 | 1 | 1 (justified) | 0 |
 | Verification-only (no severity) | 1 | 1 | 0 | 0 | 0 |
-| **Total** | **48** | **31** | **7** | **4** | **6** |
+| **Total** | **48** | **32** | **7** | **4** | **5** |
 
-`31 + 7 + 4 + 6 = 48`. ENG-037 is closed (via a permanent regression tripwire rather than a code merge) and is correctly counted as Closed above — its backlog summary-table label incorrectly read "Open (low urgency, needs care)" from V22.0 through V23.0 despite its own detail entry saying "Closed" since 2026-08-05; V24.0 corrected the label to match the entry. ENG-046 (CI's `ruff check` had no project-level config) was found this sprint, partially fixed (`backend/app` clean and pinned), and counted as Open for its real, quantified `backend/tests` remainder. ENG-047 (stale `CHANGELOG.md`) was found and closed this sprint via an honest pointer note. **ENG-048** (Reading Intelligence's active-time counter resets instead of pausing on window blur) was found this sprint during genuine browser re-certification of the flagship Viewer feature — confirmed real via 5+ independent reproductions, but the exact root-cause line wasn't pinned despite a full source read; correctly left open rather than closed on a guess. See `docs/release/V22_RESIDUAL_RISK_CERTIFICATION.md` §6/§10 for the ENG-037 decision reasoning (unchanged) and `ENGINEERING_BACKLOG.md`'s reconciliation note for the full correction record.
+`32 + 7 + 4 + 5 = 48`. ENG-037 is closed (via a permanent regression tripwire rather than a code merge) and is correctly counted as Closed above — its backlog summary-table label incorrectly read "Open (low urgency, needs care)" from V22.0 through V23.0 despite its own detail entry saying "Closed" since 2026-08-05; V24.0 corrected the label to match the entry. ENG-046 (CI's `ruff check` had no project-level config) was found this sprint, partially fixed (`backend/app` clean and pinned), and counted as Open for its real, quantified `backend/tests` remainder. ENG-047 (stale `CHANGELOG.md`) was found and closed this sprint via an honest pointer note. **ENG-048** (Reading Intelligence's active-time counter resetting instead of pausing on window blur) was found this sprint during genuine browser re-certification of the flagship Viewer feature, then root-caused via runtime instrumentation (a `useEffect` dependency-array race — the "handle page changes" effect never re-fired once the session became ready, so `currentPage` stayed `null` and `_accumulate()` permanently no-opped), fixed with a 3-line change, regression-tested (2 new tests, proven to fail pre-fix), and browser-verified (9 of 10 mandated tests directly passing, 1 indeterminate due to a documented headless-automation limitation, not an app defect). See `docs/release/V22_RESIDUAL_RISK_CERTIFICATION.md` §6/§10 for the ENG-037 decision reasoning (unchanged) and `ENGINEERING_BACKLOG.md`'s ENG-048 entry for the complete investigation and fix record.
 
 ## V22.0 — Residual Risk Closure sprint (2026-08-04 to 2026-08-08)
 

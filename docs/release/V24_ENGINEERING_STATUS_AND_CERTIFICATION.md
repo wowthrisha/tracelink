@@ -96,28 +96,32 @@ One minor observation investigated and **deliberately not filed** as a defect: w
 | Migrations (`alembic`) | **single head (`027`); live DB `alembic current` = `027`** | **[TEST VERIFIED]** against the live local Docker Postgres |
 | `git status` | **clean** (except this sprint's own commits) | **[SOURCE VERIFIED]** |
 | Security headers (live) | **all present and correct** | **[API VERIFIED]** |
-| Reading Intelligence pause/resume | **confirmed broken (ENG-048)** | **[BROWSER VERIFIED]** |
+| Reading Intelligence pause/resume | **confirmed broken, then root-caused and fixed same sprint (ENG-048) — see §11** | **[BROWSER VERIFIED]** + **[INSTRUMENTATION VERIFIED]** |
 | Full browser smoke of Access Control/Organizations/8 other screens | Covered in V23.0, not re-run this sprint (no new evidence to gather — those screens weren't touched by V24.0's code changes) | **[BROWSER VERIFIED]**, carried forward from V23.0 |
 
-## 9. Release verdict
+## 9. Release verdict (superseded by §11 — see below)
 
-Per the mandate's own acceptance criteria, this sprint does **not** declare "release ready" or "zero defects." It declares the evidence-backed state:
+~~Per the mandate's own acceptance criteria, this sprint does not declare "release ready" or "zero defects." ... Verdict: NOT YET RELEASE READY — one confirmed, unresolved, High-severity product defect (ENG-048) blocks a clean release declaration.~~
 
-- ✓ No verified Critical defects
-- **✗ One verified, unresolved High defect: ENG-048** (Reading Intelligence timer reset on blur) — confirmed real, not fixed, root cause not pinned
-- ✓ Medium/Low defects are fixed, deferred with reasoning, or explicitly quantified as low-risk remainder (ENG-046)
-- ✓ Security gaps are fixed (ENG-039/041/042/043 in V22.0) or formally accepted with a migration plan (AUTH-006)
-- ✓ Product decisions documented (ENG-033, ENG-034 decision records on file)
-- ✓ Infrastructure decisions documented (ENG-034, ENG-044)
-- ✓ Audit logging confirmed working (V23.0's link-lifecycle sweep)
-- ✓ Permissions enforced (Organizations RBAC boundary confirmed live this sprint, §5/V23.0)
-- ✓ Backend/frontend tests pass, build passes, lint passes (for the pinned scope), migrations valid
-- ✓ Repository is clean — 14 superseded `docs/release/` reports archived this sprint, root `.md` count unchanged at 9
-- ✓ Documentation is canonical — one certification per sprint, this file supersedes nothing prior (each sprint's cert stands on its own, per this project's established pattern), `docs/release/` now contains only current, non-superseded files
-- ✓ Tracking numbers reconcile exactly (48 = 31+7+3+1+6, verified programmatically)
-
-**Verdict: NOT YET RELEASE READY — one confirmed, unresolved, High-severity product defect (ENG-048) blocks a clean release declaration.** Every other area of this mandate is either closed, correctly deferred with reasoning, or a documented decision blocker. The path to release readiness is narrow and specific: a live DevTools debugging session on `useReadingAnalytics.js`'s pause/resume path, a fix, and a regression test proving it — not a broad additional sweep.
+**This verdict is superseded — see §11.** ENG-048 was closed in a same-sprint follow-up pass immediately after this document was first written. Preserved above (struck through) as an honest record of the state at the time this certification was first drafted, rather than silently rewritten.
 
 ## 10. Known limitations carried forward (not re-derived — see `docs/release/KNOWN_LIMITATIONS.md` for the full V21.0 list, unchanged)
 
-In addition to that file's existing content: **ENG-048** (this sprint) — Reading Intelligence display resets on window blur instead of pausing; **ENG-046** — `backend/tests` has 206 lint violations under the now-pinned ruleset, zero runtime impact; **ENG-044** — Celery worker metrics invisible on `/metrics` pending a multiprocess-registry ops decision; **AUTH-006** — session token in `localStorage`, mitigated by a hash-based CSP, full migration plan on file pending approval.
+In addition to that file's existing content: **ENG-046** — `backend/tests` has 206 lint violations under the now-pinned ruleset, zero runtime impact; **ENG-044** — Celery worker metrics invisible on `/metrics` pending a multiprocess-registry ops decision; **AUTH-006** — session token in `localStorage`, mitigated by a hash-based CSP, full migration plan on file pending approval. (ENG-048 is no longer a known limitation — see §11.)
+
+## 11. ENG-048 closed — updated verdict (2026-08-09, same-sprint follow-up)
+
+Per explicit follow-up instruction, ENG-048 was picked up as a dedicated fix task immediately after this certification was first drafted. **Root cause proven via runtime instrumentation** (temporary `console.log` tracing at every state transition in `useReadingAnalytics.js`, on the local Docker stack — not a live DevTools session, which turned out unnecessary): a `useEffect` dependency-array race. The "handle page changes" effect guarded on a non-reactive ref read (`state.current.sessionStarted`) with a dependency array that didn't include `isDocumentReady`/`session`; on mount the effect ran once (as a no-op, since the session wasn't ready yet) and then never re-fired once the session actually started, because none of *its own* dependencies had changed. `s.currentPage` therefore stayed `null` for the entire session, `_accumulate()`'s guard made it a permanent no-op, and — a discovery beyond what was known when ENG-048 was filed — no page was ever marked entered, so nothing was ever flushed to the backend either for a session that never left page 1.
+
+**Fix**: 3-line functional change to the effect's guard/dependency array (`frontend/src/hooks/useReadingAnalytics.js`), checking `session`/`isDocumentReady` instead of the ref.
+
+**Verification — [TEST VERIFIED] + [BROWSER VERIFIED] + [INSTRUMENTATION VERIFIED]**:
+- 2 new regression tests, both proven to fail against the pre-fix code via `git stash` (not tautological).
+- Full backend suite unaffected: 1751 passed/1 skipped/0 failed.
+- Full frontend suite: 15/15 passed (up from 13).
+- `eslint` clean, build succeeded (309.2kb, unchanged), migration head `027` confirmed live.
+- 9 of the 10 mandated browser tests passed directly against the local Docker stack with real timing (blur-freeze, blur-then-additive-resume, 5× repeated blur/focus, simulated tab-hide via `visibilitychange` override, page navigation, refresh + re-open, 30s idle threshold, uploader-facing View History/Analytics, predicted-remaining-time display). The 10th (genuine multi-tab switching) was indeterminate — a documented headless-Chromium limitation (a second real page in the same browser context doesn't flip `document.hidden` on the original tab), not an app defect, and directly covered by the `visibilitychange`-override test exercising the identical underlying mechanism.
+
+**Updated verdict**: every acceptance-criteria item in §9 that was previously a "✗" is now resolved. Zero verified Critical or unresolved High defects. Zero contradictory statuses. Reconciled backlog: 48 items, **32 closed**, 7 deferred, 3 reviewed-not-implemented, 1 justified, **5 open** — all five blocked on a named external input or quantified zero-runtime-impact cleanup debt, none unilaterally engineering-actionable.
+
+**RELEASE STATUS: READY WITH DOCUMENTED LIMITATIONS** — matching the same verdict class as V22.0's certification. The remaining 5 open items (ENG-033, ENG-034, ENG-038, ENG-044, ENG-046) are exactly the kind of decision-blocked or low-risk-quantified items that verdict class is meant to describe; none represent an unresolved functional or security defect.

@@ -305,17 +305,36 @@ export function useReadingAnalytics(session, page, pageCount, isDocumentReady) {
   }, [session, isDocumentReady, _startSession]);
 
   // ── Handle page changes ────────────────────────────────────────────────────
-
+  //
+  // ENG-048 root cause: this effect used to depend on only [page, _exitPage,
+  // _enterPage] and guard on state.current.sessionStarted — a ref read, not
+  // a reactive dependency. On mount, `page` is already 1 (useViewerLayout's
+  // initial state) but the session isn't started yet (isDocumentReady is
+  // still false), so this effect's first run was a silent no-op. When the
+  // session actually started on a later render (isDocumentReady flipping
+  // true, handled by the effect above), this effect had no reason to re-run
+  // because none of its own dependencies had changed — so _enterPage(1) was
+  // never called, s.currentPage stayed null for the entire session unless
+  // the reader navigated away from page 1, and _accumulate()'s currentPage
+  // == null guard silently no-opped forever, so totalActiveMs never left 0.
+  // The display still appeared to count up while active only because its
+  // 1s tick separately adds the in-flight delta on top of totalActiveMs, a
+  // calculation that never checked currentPage — an illusion that vanished
+  // at pause (revealing the true, permanently-zero accumulator) and
+  // restarted from zero on resume. Adding isDocumentReady/session as real
+  // dependencies (and checking them instead of the non-reactive ref) makes
+  // this effect fire exactly when the session becomes ready, matching the
+  // effect above it.
   const prevPageRef = useRef(null);
   useEffect(() => {
-    if (!page || !state.current.sessionStarted) return;
+    if (!page || !session || !isDocumentReady) return;
     const prev = prevPageRef.current;
     if (prev !== null && prev !== page) {
       _exitPage(prev);
     }
     _enterPage(page);
     prevPageRef.current = page;
-  }, [page, _exitPage, _enterPage]);
+  }, [page, session, isDocumentReady, _exitPage, _enterPage]);
 
   // ── Attach event listeners once (when session is available) ───────────────
 
