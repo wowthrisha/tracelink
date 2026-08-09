@@ -4,41 +4,41 @@ Narrative progress log, one entry per closed (or explicitly deferred) backlog it
 
 ## Dashboard
 
-**Reconciled 2026-08-09 (V24.0 continuation, updated after ENG-046's full closure)** — see `ENGINEERING_BACKLOG.md`'s "Reconciled totals" note for the full record.
+**Reconciled 2026-08-09 (V24.0 continuation, updated after ENG-050)** — see `ENGINEERING_BACKLOG.md`'s "Reconciled totals" note for the full record.
 
 | Field | Value |
 |---|---|
-| Current issue | none in progress — Phase 1/2 of the V24.0 continuation complete |
-| Previous issue | ENG-046 (`backend/tests` lint debt, 206 violations, fully closed) |
+| Current issue | Phase 3 full end-to-end workflow regression in progress |
+| Previous issue | ENG-050 (Access Control "Revoked" mislabel on never-shared documents, found live during Phase 3, fixed same-day) |
 | Next issue | 5 open items (ENG-033/034/038/044/049), each blocked on a named external input, evidence-based low-risk classification, or a low-priority test-quality tightening — not engineering-actionable without that |
 | Critical remaining | 0 / 0 |
 | High remaining | 1 / 5 (ENG-033 — needs product/design input, decision record on file) |
-| Medium remaining | 1 open / 14 total (ENG-034 needs ops decision — decision record in `docs/governance/ENG-034_DECISION.md`; 10 closed incl. ENG-039/041/042/045; 3 deferred: ENG-005/023/026 [ENG-026 severity revised Medium-High→Medium]) |
+| Medium remaining | 1 open / 15 total (ENG-034 needs ops decision — decision record in `docs/governance/ENG-034_DECISION.md`; 11 closed incl. ENG-039/041/042/045/050; 3 deferred: ENG-005/023/026 [ENG-026 severity revised Medium-High→Medium]) |
 | Low remaining | 3 open / 21 total (ENG-038 reclassified low-risk-inference, ENG-044 needs ops/infra input, ENG-049 new test-coverage-gap finding, low priority; ENG-037/046/047 all closed; 12 closed incl. ENG-040/043; 3 deferred, 3 reviewed-not-implemented) |
 | Enhancement remaining | 0 open / 8 total (ENG-019 closed V23.0 — full browser sweep; ENG-017/018/020/013/014 closed; ENG-015 justified, ENG-016 deferred) |
-| Overall % | 67.3% (33/49 closed, 11 deferred/reviewed/justified, 5 open) |
-| Current commit | (ENG-046 closure commit follows this update) |
-| Last regression | PASS — post-ENG-046 full closure, 2026-08-09 (backend 1751 passed/1 skipped/0 failed, unchanged throughout / frontend 15/15 unaffected / `ruff check backend/app backend/tests` — the literal CI command — now passes cleanly / migration head 027 confirmed live). |
+| Overall % | 68.0% (34/50 closed, 11 deferred/reviewed/justified, 5 open) |
+| Current commit | (ENG-050 fix commit follows this update) |
+| Last regression | PASS — post-ENG-050, 2026-08-09 (`eslint` clean / frontend 15/15 unaffected / build 309.3kb / backend untouched, frontend-only fix). |
 | Current blocker | None — all 5 remaining open items are correctly blocked on external input, evidence-based low-risk reclassification, or are a newly-filed, correctly-scoped-out low-priority finding |
-| Estimated completion | Every item ENG-001 through ENG-049 is now FIXED, PROVEN FALSE, VERIFIED-AND-DEFERRED, or CLASSIFIED AS A DECISION ITEM — zero unexplained entries, zero contradictory statuses, zero unresolved High/Critical defects, **zero partially-fixed items**. |
+| Estimated completion | Every item ENG-001 through ENG-050 is now FIXED, PROVEN FALSE, VERIFIED-AND-DEFERRED, or CLASSIFIED AS A DECISION ITEM — zero unexplained entries, zero contradictory statuses, zero unresolved High/Critical defects, **zero partially-fixed items**. |
 
 \* Backlog expanded from 21 to 31 items this cycle after merging `ISSUE_DATABASE.md`/`TODO_QUEUE.md` findings — see the V16.0 reconciliation entry below. This is real newly-surfaced scope, not re-litigation of closed work.
 
 \* ENG-005/ENG-011/ENG-012 counted as remaining/deferred, though all three deferrals were actively re-confirmed this cycle, not silently carried forward.
 
-## Burndown (recomputed V24.0 continuation, 2026-08-09, post-ENG-046 full closure — 49 items, all triaged)
+## Burndown (recomputed V24.0 continuation, 2026-08-09, post-ENG-050 — 50 items, all triaged)
 
 | Priority | Total | Closed | Deferred (reasoned) | Reviewed/Justified | Open (blocked on external input / low-risk) |
 |---|---|---|---|---|---|
 | Critical | 0 | 0 | 0 | 0 | 0 |
 | High | 5 | 4 | 0 | 0 | 1 (ENG-033 — product/design, decision record on file) |
-| Medium | 14 | 10 | 3 | 0 | 1 (ENG-034 — ops/deployment policy, decision record on file) |
+| Medium | 15 | 11 | 3 | 0 | 1 (ENG-034 — ops/deployment policy, decision record on file) |
 | Low | 21 | 12 | 3 | 3 | 3 (ENG-038 — low-risk inference, no reproducible race; ENG-044 — needs ops/infra multiprocess-registry decision; ENG-049 — 2 tests assert less than their docstring promises, new finding, low priority) |
 | Enhancement | 8 | 6 | 1 | 1 (justified) | 0 |
 | Verification-only (no severity) | 1 | 1 | 0 | 0 | 0 |
-| **Total** | **49** | **33** | **7** | **4** | **5** |
+| **Total** | **50** | **34** | **7** | **4** | **5** |
 
-`33 + 7 + 4 + 5 = 49`. **ENG-046 is now fully closed** — the `backend/tests` remainder (206 violations across 50 files) was individually categorized and fixed (not blind `--fix`), with the literal CI command (`ruff check backend/app backend/tests`) now passing cleanly. While reviewing those violations one at a time, 2 turned out to be evidence of incomplete test assertions rather than just dead code — filed as **ENG-049** (Low severity, test-quality, not a product defect) rather than silently expanding the lint-cleanup task's scope. See `docs/engineering/FIX_LOG.md`/`ACTION_LOG.md` for the full investigation trail and `ENGINEERING_BACKLOG.md`'s ENG-046/ENG-049 entries for complete detail.
+`34 + 7 + 4 + 5 = 50`. **ENG-046 is fully closed** — the `backend/tests` remainder (206 violations across 50 files) was individually categorized and fixed (not blind `--fix`), with the literal CI command (`ruff check backend/app backend/tests`) now passing cleanly; that review surfaced **ENG-049** (2 tests asserting less than their docstrings promise, Low severity, test-quality — not a product defect, correctly scoped out). Phase 3's live end-to-end workflow regression then found and fixed **ENG-050** the same day (a misleading "Revoked" status shown on every never-shared document — a real, reproducible Medium-severity UX defect in the single most common first Access Control interaction). See `docs/engineering/FIX_LOG.md`/`ACTION_LOG.md` for the full investigation trail and `ENGINEERING_BACKLOG.md`'s ENG-046/049/050 entries for complete detail.
 
 ## V22.0 — Residual Risk Closure sprint (2026-08-04 to 2026-08-08)
 

@@ -2,7 +2,11 @@
 
 Running state snapshot, updated after every closed backlog item. See `PROGRESS.md` for the narrative log and `ENGINEERING_BACKLOG.md` for full issue detail.
 
-**Last updated**: 2026-08-09 (V24.0 continuation — full backlog reconciliation + ENG-048 closure + ENG-046 fully closed; see below).
+**Last updated**: 2026-08-09 (V24.0 continuation — Phase 3 live regression found and fixed ENG-050; see below).
+
+## V24.0 continuation, Phase 3: ENG-050 found and fixed (2026-08-09)
+
+Live end-to-end Upload→Access Control walkthrough (a genuinely fresh document, not a memorized re-check) found every never-shared document mislabeled "Revoked" with a "NO ACTIVE LINKS" banner — a binary `activeLinks.length === 0` check in `AccessScreen.jsx` that couldn't distinguish "never shared" from "had a link, now revoked." Fixed with a proper 3-way state (`Unshared`/`Active`/`Revoked`), all 3 states live-verified in sequence on a real document. Full record: `ENGINEERING_BACKLOG.md` ENG-050, `docs/engineering/FIX_LOG.md`/`ACTION_LOG.md` Entry 47.
 
 ## V24.0 continuation: ENG-046 fully closed, ENG-049 found (2026-08-09)
 
@@ -18,19 +22,19 @@ This file's older dual-layer table (a stale 44-item V22.0 table left sitting nex
 
 ENG-048 (Reading Intelligence's active-time counter resetting instead of pausing on window blur, found earlier this same sprint) is **now closed**. Root cause proven via runtime instrumentation (not guessed): a `useEffect` dependency-array race in `useReadingAnalytics.js` — the "handle page changes" effect guarded on a non-reactive ref read and never re-fired once the session actually became ready, so `currentPage` stayed `null` for the entire session and `_accumulate()` permanently no-opped (which also meant nothing was ever flushed to the backend for a session that never left page 1 — a finding beyond what was known when this was filed). Fixed with a 3-line change, 2 new regression tests added (proven to fail pre-fix via `git stash`), and 9 of 10 mandated browser tests directly passing against the local Docker stack (the 10th indeterminate due to a documented headless-automation limitation, not an app defect). Full record: `ENGINEERING_BACKLOG.md` ENG-048, `docs/engineering/FIX_LOG.md`/`ACTION_LOG.md` Entry 45, `REGRESSION_REPORT.md`.
 
-## Burndown (49 items, fully reconciled V24.0 continuation, post-ENG-046 full closure — see `ENGINEERING_BACKLOG.md`'s "Reconciled totals" note for the item-by-item recount)
+## Burndown (50 items, fully reconciled V24.0 continuation, post-ENG-050 — see `ENGINEERING_BACKLOG.md`'s "Reconciled totals" note for the item-by-item recount)
 
 | Priority | Total | Closed | Deferred (reasoned) | Reviewed/Justified | Open (blocked on external input / low-risk) |
 |---|---|---|---|---|---|
 | Critical | 0 | 0 | 0 | 0 | 0 |
 | High | 5 | 4 | 0 | 0 | 1 |
-| Medium | 14 | 10 | 3 | 0 | 1 |
+| Medium | 15 | 11 | 3 | 0 | 1 |
 | Low | 21 | 12 | 3 | 3 | 3 |
 | Enhancement | 8 | 6 | 1 | 1 | 0 |
 | Verification-only (no severity) | 1 | 1 | 0 | 0 | 0 |
-| **Total** | **49** | **33** | **7** | **4** | **5** |
+| **Total** | **50** | **34** | **7** | **4** | **5** |
 
-`33 + 7 + 4 + 5 = 49`. Overall completion: **67.3%** (33/49 closed). **Zero unresolved High or Critical defects, zero partially-fixed items.** The 5 remaining open items: **ENG-033** (new profile screen — product/design direction, decision record in `docs/governance/ENG-033_DECISION.md`), **ENG-034** (CD/deploy job — deployment-target decision, decision record in `docs/governance/ENG-034_DECISION.md`), **ENG-038** (TOCTOU race, reclassified low-risk-inference after 2 clean live reproduction attempts found no race), **ENG-044** (Celery worker metrics invisible cross-process — ops/infra multiprocess-registry decision), **ENG-049** (2 tests assert less than their own docstrings promise — found while closing ENG-046, correctly scoped out as a separate low-priority test-quality item). ENG-019/045 (V23.0), ENG-037/039/017/040 (V22.0), ENG-046/047/048 (V24.0) are all closed; AUTH-006 (tracked as ENG-026) remains a documented, unimplemented architectural risk (severity revised Medium-High→Medium after a new CSP mitigation finding) — a deferred item, not an open one, since a full migration plan already exists and is simply pending an approval decision rather than lacking a plan.
+`34 + 7 + 4 + 5 = 50`. Overall completion: **68.0%** (34/50 closed). **Zero unresolved High or Critical defects, zero partially-fixed items.** The 5 remaining open items: **ENG-033** (new profile screen — product/design direction, decision record in `docs/governance/ENG-033_DECISION.md`), **ENG-034** (CD/deploy job — deployment-target decision, decision record in `docs/governance/ENG-034_DECISION.md`), **ENG-038** (TOCTOU race, reclassified low-risk-inference after 2 clean live reproduction attempts found no race), **ENG-044** (Celery worker metrics invisible cross-process — ops/infra multiprocess-registry decision), **ENG-049** (2 tests assert less than their own docstrings promise — found while closing ENG-046, correctly scoped out as a separate low-priority test-quality item). ENG-019/045 (V23.0), ENG-037/039/017/040 (V22.0), ENG-046/047/048/050 (V24.0) are all closed; AUTH-006 (tracked as ENG-026) remains a documented, unimplemented architectural risk (severity revised Medium-High→Medium after a new CSP mitigation finding) — a deferred item, not an open one, since a full migration plan already exists and is simply pending an approval decision rather than lacking a plan.
 
 ## V22.0 Residual Risk Closure — complete
 

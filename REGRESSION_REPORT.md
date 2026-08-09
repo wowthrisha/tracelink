@@ -195,6 +195,17 @@ No regression risk since no code changed. This is the one open item this sprint 
 
 **Zero regressions.** ENG-046 is now fully closed — zero partially-fixed items remain anywhere in the backlog.
 
+### ENG-050 found and fixed — AccessScreen "Revoked" mislabel (2026-08-09, V24.0 continuation, Phase 3)
+
+| Checkpoint | Backend | Frontend | Notes |
+|---|---|---|---|
+| Discovery | N/A — frontend-only defect | Browser Verified via a fresh, un-memorized Upload→Access Control walkthrough on a genuinely new document (not a re-check of a prior session's memory), per the mandate's "do not trust previous certification" instruction | A never-shared document showed "Revoked" status and a "NO ACTIVE LINKS" banner — indistinguishable from a document whose link was actually cancelled. Root cause: `activeLinks.length === 0 ? 'Revoked' : 'Active'` in `AccessScreen.jsx` was a binary check with no "never had a link" state. |
+| Fix (added an `everHadLinks` derived flag, 3-way status: Unshared / Active / Revoked) | N/A | `eslint` clean, build succeeded (unchanged size class), reused the existing `StatusDot` `'inactive'` variant — no new component needed | Smallest correct fix per project discipline: one derived boolean, no refactor of surrounding logic. |
+| Full regression | **1751 passed**, 1 skipped, 0 failed (unaffected — frontend-only change) | **15/15 passed**, unaffected | Rebuilt Docker `api` container with the new bundle. |
+| Live 3-state verification (local Docker stack, real document) | N/A | **3/3 PASS**: Unshared (new doc, no link ever created) → "NOT SHARED YET", inactive dot; Active (link created) → "Active", green dot, "Revoke All Access" button shown; Revoked (link explicitly revoked) → "Revoked", "NO ACTIVE LINKS" banner, red dot | Disposable test document deleted and confirmed removed after verification — no leftover test data. |
+
+**Zero regressions.** ENG-050 closed same-day per the "small/safe/clearly in scope" discipline (found live during Phase 3, not a pre-planned fix) — commit `fix(ENG-050): distinguish "unshared" from "revoked" document status`.
+
 ### Why a local Docker stack instead of testing against production or trusting source alone
 
 The deployed instance auto-deploys from `origin/main` on push — verifying a fix there would mean shipping unverified code to production first. `docker compose up --build` (Postgres 16 + Redis 7 + the API + worker, all local-only) uses the same Supabase auth project as production but a completely separate local database, so real production data was never at risk, while still giving genuine, real-browser evidence rather than a source-code assumption that a CSS change "should" fix the clipping.

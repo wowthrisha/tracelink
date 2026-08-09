@@ -829,3 +829,15 @@ Method: `ruff` (installed for this session) for AST-verified unused-import/unuse
 **Verification**: `ruff check backend/app backend/tests` (the literal CI command) → **"All checks passed!"** Full backend suite re-run: 1751 passed/1 skipped/0 failed (unchanged throughout — the test suite itself is the strongest possible safety net for test-file edits, since these files ARE what's being executed). Frontend suite unaffected (15/15). Migration head `027` confirmed live.
 
 **Files**: 50 files under `backend/tests/` (73 insertions, 193 deletions — net reduction, as expected for a dead-code/lint cleanup).
+
+## Sprint V24.0 (continuation, Phase 3) — ENG-050: fresh documents wrongly labeled "Revoked" (2026-08-09)
+
+**Issue**: found during Phase 3's live end-to-end workflow regression — not a memory-based re-check. Uploaded a genuinely fresh, uniquely-named document via the real UI, navigated straight to Access Control before creating any link, and the screen showed a red "Revoked" status badge plus a "NO ACTIVE LINKS" banner, despite the document never having had a single link created for it. Reproduced twice with two independently-named documents to rule out a one-off fluke; confirmed via the Documents list that the document's own processing status was correctly "Ready" — this was specifically the Access Control screen's link-status computation, not a processing bug.
+
+**Root cause**: `frontend/src/screens/AccessScreen.jsx` computed the status as a binary `activeLinks.length === 0 ? 'Revoked' : 'Active'`, conflating "never shared" (the default state of every freshly-uploaded document) with "had a link that was explicitly revoked or expired" (where "Revoked" is accurate) — both mapped to the same alarming red label.
+
+**Fix**: added `everHadLinks = links.length > 0` (the unfiltered link list) to distinguish three states instead of two: never shared → "Unshared" (neutral grey, reusing the existing `StatusDot` component's `inactive` variant) / "NOT SHARED YET" banner; had links, none currently active → "Revoked" (red, unchanged, now accurate); at least one active link → "Active" (green, unchanged). Updated both the header banner and the document-status badge for consistency (same underlying distinction, two render sites).
+
+**Verification**: live-tested all three resulting states end-to-end on the local Docker stack with real documents — uploaded fresh (confirmed "Unshared"/"NOT SHARED YET"), created a link (confirmed "Active"), revoked it (confirmed "Revoked," now genuinely accurate). Disposable test documents cleaned up after (deleted, confirmed removed from the Documents list). `eslint` clean, frontend suite 15/15 unaffected, build succeeded (309.3kb).
+
+**Files**: `frontend/src/screens/AccessScreen.jsx`.

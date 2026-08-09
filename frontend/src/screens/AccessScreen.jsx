@@ -126,6 +126,11 @@ export function AccessScreen({ doc, onSelectDoc, defaultTab }) {
   useEffect(() => { if (tab === 'annotations' && visualAnnotations.length === 0 && !visualLoading) fetchVisualAnnotations(); }, [tab]);
 
   const activeLinks = links.filter(l => !l.revoked_at && (!l.expires_at || new Date(l.expires_at) > new Date()));
+  // A document that has never had any link created for it is "Unshared," not
+  // "Revoked" — the latter specifically implies a link existed and was
+  // cancelled. Conflating the two shows a misleading red "Revoked" badge on
+  // every freshly-uploaded document that simply hasn't been shared yet.
+  const everHadLinks = links.length > 0;
 
   const handleSave = async () => {
     if (expiry && new Date(expiry) < new Date(new Date().toDateString())) {
@@ -205,11 +210,14 @@ export function AccessScreen({ doc, onSelectDoc, defaultTab }) {
           ? <Btn variant="outline-danger" size="sm" onClick={() => setRevokeModal(true)}>✕ Revoke All Access</Btn>
           : <div style={{
             display: 'flex', alignItems: 'center', gap: 6,
-            background: C.errorBg, border: `1px solid ${C.errorBdr}`,
+            background: everHadLinks ? C.errorBg : 'transparent',
+            border: `1px solid ${everHadLinks ? C.errorBdr : C.border}`,
             borderRadius: 6, padding: '4px 10px'
           }}>
-            <StatusDot status="error" size={5} />
-            <span style={{ ...mono, fontSize: 10, color: C.error, letterSpacing: '0.5px' }}>NO ACTIVE LINKS</span>
+            <StatusDot status={everHadLinks ? 'error' : 'inactive'} size={5} />
+            <span style={{ ...mono, fontSize: 10, color: everHadLinks ? C.error : C.textMuted, letterSpacing: '0.5px' }}>
+              {everHadLinks ? 'NO ACTIVE LINKS' : 'NOT SHARED YET'}
+            </span>
           </div>
         }
       </Header>
@@ -233,9 +241,9 @@ export function AccessScreen({ doc, onSelectDoc, defaultTab }) {
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <StatusDot status={activeLinks.length === 0 ? 'error' : 'active'} />
-                <span style={{ fontSize: 11, color: activeLinks.length === 0 ? C.error : C.success, fontWeight: 600 }}>
-                  {activeLinks.length === 0 ? 'Revoked' : 'Active'}
+                <StatusDot status={activeLinks.length > 0 ? 'active' : (everHadLinks ? 'error' : 'inactive')} />
+                <span style={{ fontSize: 11, color: activeLinks.length > 0 ? C.success : (everHadLinks ? C.error : C.textMuted), fontWeight: 600 }}>
+                  {activeLinks.length > 0 ? 'Active' : (everHadLinks ? 'Revoked' : 'Unshared')}
                 </span>
               </div>
               <RiskBadge level={doc?.risk} />
