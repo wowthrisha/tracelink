@@ -2,7 +2,18 @@
 
 Running state snapshot, updated after every closed backlog item. See `PROGRESS.md` for the narrative log and `ENGINEERING_BACKLOG.md` for full issue detail.
 
-**Last updated**: 2026-08-09 (V24.0 continuation — Phase 3 live regression found and fixed ENG-050; see below).
+**Last updated**: 2026-08-11 (V23.0 live browser-reported backlog — BUG-001 through BUG-008 + OBS-001 resolved; see below).
+
+## V23.0 live browser-reported backlog — resolved (2026-08-11)
+
+A separate, freshly-filed backlog (BUG-001..008, OBS-001 — distinct from this file's ENG-XXX numbering) reported live from actual product usage. Full detail in the new **`BUG_REMEDIATION_REPORT.md`** and **`PRODUCTION_REGRESSION_CERTIFICATION.md`** at repo root — not duplicated here, only the pointer and what a resuming session needs:
+
+- **7 of 9 fixed and committed** (`7c5e7eb`..`b71185d`, 9 commits, local `main` only — **not pushed to `origin/main`**). One (BUG-001, TOC/Search navigation) investigated exhaustively — source review, live API reproduction, and live browser click-through all succeeded correctly — and could not be reproduced; classified UNCONFIRMED/NOT REPRODUCIBLE, no code changed. One (OBS-001, sign-in flash) was explicitly filed as *unconfirmed* but was actually reproduced live (network log showed 3 authenticated API calls firing and 401ing after the shell had already mounted, from a stale localStorage token) and fixed.
+- **BUG-004 is the one worth flagging to any resuming session**: a real security gap — document retention expiry was never enforced in the viewer access path, only via the once-daily cleanup job's eventual deletion. Now enforced immediately at `_get_cached_link_and_doc`, `LinkService.validate_link`, and `/gate`.
+- **Environment note**: `claude-in-chrome` browser automation **was** connected and usable this session (contradicts the stale "not connected" note further down this file from an earlier sprint) — `get_page_text`/`find`/`javascript_tool`/`browser_batch` all worked reliably; `computer` screenshot/zoom actions were intermittently flaky (CDP timeouts) but not blocking. Public share-link viewer pages need no login at all and were used extensively for BUG-001/BUG-005 verification without ever touching credentials.
+- **Still open**: BUG-006, BUG-007, BUG-008 (all Low severity, cosmetic/a11y) are fixed and unit-tested but need an owner-authenticated session (Access Control, Webhooks, Analytics screens) for live visual re-verification — the assistant does not enter credentials into login forms under any circumstances, so this needs the user to sign in themselves in the already-open browser tab. Exact next action: sign in, then re-open Access Control → Feedback → Export dropdown, Webhooks → New Webhook checkboxes, and Analytics → Overview help icons to confirm the fixes render correctly.
+- **Not pushed to `origin/main`** — per this repo's standing policy, since that auto-deploys to live production Railway. Do not push without separate explicit confirmation.
+- Regression baseline after this sprint: backend **1763 passed, 1 skipped, 0 failed**; frontend **56 passed, 0 failed** (10 files, +18 net new test files this sprint).
 
 ## V24.0 continuation, Phase 3: ENG-050 found and fixed (2026-08-09)
 
