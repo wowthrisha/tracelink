@@ -16,16 +16,47 @@ import { OrgsScreen } from './OrgsScreen.jsx';
 import { NotificationsScreen } from './NotificationsScreen.jsx';
 const { useState, useEffect } = React;
 
-function parseJwtEmail(token) {
+function _decodeJwtPayload(token) {
   try {
-    const payload = JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
-    return payload.email || '';
-  } catch { return ''; }
+    return JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
+  } catch { return null; }
+}
+
+function parseJwtEmail(token) {
+  return _decodeJwtPayload(token)?.email || '';
+}
+
+// OBS-001: a stored token past its own `exp` claim used to be trusted at
+// face value — the authenticated shell (sidebar + UploadScreen, which
+// immediately fires /api/documents, /api/groups, and this file's own
+// /api/billing/status) rendered and started fetching before any request
+// came back, and only *then* did the first 401 clear the token and hard-
+// reload the page back to the sign-in screen. That render-then-reload
+// round trip is the "intermittent sign-in flash" — reproduced live by
+// seeding an expired token into localStorage and watching all three calls
+// 401 in sequence after the authenticated UI had already mounted.
+// Checking `exp` synchronously, client-side, before the first render
+// decision needs no network round trip and catches the common case (a
+// session that simply expired while the tab was closed or idle) without
+// adding latency to the normal valid-token path. A token revoked
+// server-side before its natural expiry isn't caught here — that still
+// falls through to the existing 401-triggered reload, unchanged.
+function _isTokenExpired(token) {
+  const payload = _decodeJwtPayload(token);
+  if (!payload || typeof payload.exp !== 'number') return false;
+  return payload.exp * 1000 <= Date.now();
 }
 
 // All screens are direct imports. app.jsx is the 5-line entry point.
 export function AppShell() {
-  const [token, setToken] = useState(() => localStorage.getItem('securedoc_token'));
+  const [token, setToken] = useState(() => {
+    const stored = localStorage.getItem('securedoc_token');
+    if (stored && _isTokenExpired(stored)) {
+      localStorage.removeItem('securedoc_token');
+      return null;
+    }
+    return stored;
+  });
   const [screen, setScreen] = useState('upload');
   const [activeDoc, setActiveDoc] = useState(null);
   const [plan, setPlan] = useState('free');
