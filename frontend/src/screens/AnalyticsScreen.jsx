@@ -51,7 +51,7 @@ export function AnalyticsScreen() {
     { label: 'Views Today', value: totalViews.toLocaleString(), icon: '▦', tooltip: 'Number of document page views recorded today.' },
     { label: 'Active Links', value: (overview?.active_links || 0).toString(), icon: '◫', tooltip: 'Share links that are not revoked or expired.' },
     { label: 'Avg Session', value: avgSessionStr, icon: '⏱', tooltip: 'Average time spent per page across all active documents. Documents with zero views are excluded.' },
-    { label: 'Blocked Attempts', value: (overview?.blocked_attempts_today || 0).toString(), icon: '⊗', tooltip: 'Prints, copies, downloads, and right-clicks blocked today — your protections working as intended.' },
+    { label: 'Blocked Attempts (Today)', value: (overview?.blocked_attempts_today || 0).toString(), icon: '⊗', tooltip: 'Prints, copies, downloads, and right-clicks blocked today — your protections working as intended. The By Document and By Group tabs show all-time totals instead, so their numbers will not match this one.' },
     { label: 'Active Docs', value: activeDocs.length.toString(), icon: '◈', tooltip: 'Documents with at least one view recorded.' },
     { label: 'Completion', value: avgCompletion > 0 ? `${avgCompletion}%` : '—', icon: '⊕', tooltip: 'Average completion rate — percentage of pages viewed per session, averaged across active documents.' },
   ];
@@ -83,7 +83,7 @@ export function AnalyticsScreen() {
           let rows, filename;
           if (analyticsTab === 'documents') {
             if (!docStats.length) { toast('No document data to export', 'info'); return; }
-            const header = 'Document,Group,Views,Sessions,Avg Session,Completion %,Blocked,Risk';
+            const header = 'Document,Group,Views,Sessions,Avg Session,Completion %,Blocked (All-Time),Risk';
             rows = docStats.map(d => [
               `"${(d.filename || '').replace(/"/g, '""')}"`,
               `"${(d.group_name || '').replace(/"/g, '""')}"`,
@@ -113,7 +113,7 @@ export function AnalyticsScreen() {
               'Metric,Value',
               `Total Views,${overview.total_views_today || 0}`,
               `Active Links,${overview.active_links || 0}`,
-              `Blocked Attempts,${overview.blocked_attempts_today || 0}`,
+              `Blocked Attempts (Today),${overview.blocked_attempts_today || 0}`,
               `Active Documents,${docStats.filter(d => d.total_views > 0).length}`,
             ];
             filename = 'analytics_overview.csv';
@@ -147,7 +147,9 @@ export function AnalyticsScreen() {
                 <thead>
                   <tr style={{ borderBottom: `1px solid ${C.border}` }}>
                     {['Document', 'Group', 'Views', 'Sessions', 'Completion', 'Blocked', 'Risk', ''].map(h => (
-                      <th key={h} style={{ ...label(9), padding: '8px 14px', textAlign: 'left', color: C.textDim }}>{h}</th>
+                      <th key={h}
+                        title={h === 'Blocked' ? 'All-time total — unlike the Overview tab\'s "Blocked Attempts (Today)" card, this is not limited to today.' : undefined}
+                        style={{ ...label(9), padding: '8px 14px', textAlign: 'left', color: C.textDim }}>{h}</th>
                     ))}
                   </tr>
                 </thead>
@@ -283,9 +285,9 @@ export function AnalyticsScreen() {
                           { l: 'Views', v: g.total_views },
                           { l: 'Sessions', v: g.unique_sessions },
                           { l: 'Active Links', v: g.active_links },
-                          { l: 'Blocked', v: g.blocked_attempts, warn: g.blocked_attempts > 0 },
+                          { l: 'Blocked', v: g.blocked_attempts, warn: g.blocked_attempts > 0, title: 'All-time total — unlike the Overview tab\'s "Blocked Attempts (Today)" card, this is not limited to today.' },
                         ].map(it => (
-                          <div key={it.l}>
+                          <div key={it.l} title={it.title}>
                             <div style={{ fontSize: 8, color: C.textDim, textTransform: 'uppercase', letterSpacing: 1 }}>{it.l}</div>
                             <div style={{ ...mono, fontSize: 18, fontWeight: 700, color: it.warn ? C.error : C.textPrimary }}>{it.v}</div>
                           </div>
@@ -303,7 +305,9 @@ export function AnalyticsScreen() {
                     <thead>
                       <tr style={{ borderBottom: `1px solid ${C.border}` }}>
                         {['Group', 'Docs', 'Total Views', 'Sessions', 'Active Links', 'Blocked', 'Risk'].map(h => (
-                          <th key={h} style={{ ...label(9), padding: '8px 14px', textAlign: 'left', color: C.textDim }}>{h}</th>
+                          <th key={h}
+                            title={h === 'Blocked' ? 'All-time total — unlike the Overview tab\'s "Blocked Attempts (Today)" card, this is not limited to today.' : undefined}
+                            style={{ ...label(9), padding: '8px 14px', textAlign: 'left', color: C.textDim }}>{h}</th>
                         ))}
                       </tr>
                     </thead>
