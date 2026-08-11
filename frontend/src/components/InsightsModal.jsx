@@ -169,7 +169,7 @@ function ReadingTab({ summary, heatmap }) {
 // ── Per-viewer breakdown ──────────────────────────────────────────────────────
 
 function ViewersTab({ viewers }) {
-  if (!viewers || viewers.length === 0) {
+  if (!Array.isArray(viewers) || viewers.length === 0) {
     return <EmptyState>No viewer sessions yet.</EmptyState>;
   }
   return (
@@ -206,7 +206,7 @@ function ViewersTab({ viewers }) {
 // ── NL insights list ──────────────────────────────────────────────────────────
 
 function InsightsTab({ insights }) {
-  if (!insights || insights.length === 0) {
+  if (!Array.isArray(insights) || insights.length === 0) {
     return <EmptyState>No insights yet — more reading sessions will generate patterns.</EmptyState>;
   }
   const typeColor = { warning: '#E09A45', positive: '#3DD68C', info: '#5AC8D0', anomaly: '#E05A45' };

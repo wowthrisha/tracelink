@@ -213,7 +213,18 @@ export function ViewerScreen({ doc, publicToken, onSelectDoc, onBack, ownerEmail
                 window.SecureDocAPI.getDocumentReadingInsights(heatmapDocId).catch(() => null),
                 window.SecureDocAPI.getDocumentReadingViewers(heatmapDocId).catch(() => null),
               ]).then(([summary, heatmap, insights, viewers]) => {
-                setReadingData({ summary, heatmap, insights, viewers });
+                // /insights and /viewers wrap their list in a metadata envelope
+                // (document_id, filename, ...) — same shape family as /heatmap,
+                // whose `.pages` list ReadingTab already reads out of the
+                // envelope below. Unwrap here so InsightsTab/ViewersTab receive
+                // the bare arrays they render with .map(), matching how
+                // ReadingTab consumes heatmap.pages instead of `heatmap` itself.
+                setReadingData({
+                  summary,
+                  heatmap,
+                  insights: insights?.insights ?? null,
+                  viewers: viewers?.viewers ?? null,
+                });
               }).finally(() => setReadingLoading(false));
             }
           }
