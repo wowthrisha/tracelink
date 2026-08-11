@@ -17,6 +17,11 @@ Security contracts
   Expiry       — expires_at is in the cached snapshot and checked against
                  datetime.now(utc) on every request, even on hits.  A TTL
                  expiry and a wall-clock expiry are two independent checks.
+                 This applies to both the ShareLink's own expires_at and
+                 (as of the BUG-004 fix) the Document's retention expires_at/
+                 lifecycle_state — a document past its retention date is
+                 blocked here immediately rather than only after the daily
+                 cleanup job eventually deletes its row.
 
   max_views    — enforced at validate time inside link_service.validate_link,
                  which reads fresh from the DB and is rate-limited.  The page-
@@ -76,6 +81,8 @@ class DocSnapshot:
     file_type: str = "pdf"
     storage_key: Optional[str] = None
     page_count: Optional[int] = None
+    lifecycle_state: str = "active"
+    expires_at: Optional[datetime] = None
 
 
 @dataclass(frozen=True)

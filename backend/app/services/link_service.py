@@ -144,6 +144,28 @@ class LinkService:
 
         # 4. View count < max_views — checked later atomically; skip eager check here.
 
+        # 4b. Document itself not past its own retention expiry (BUG-004).
+        # This is the session-establishment path (POST /api/viewer/validate) —
+        # the one call that actually opens a Viewer session — so it must
+        # enforce Document.expires_at/lifecycle_state independently of the
+        # link's own expiry. Previously this method never loaded the Document
+        # at all, so a document could still be opened here even after its
+        # retention date passed, relying entirely on the daily cleanup job
+        # (which runs at most once a day) to eventually delete the row.
+        from app.models.document import Document
+        doc_result = await db.execute(select(Document).where(Document.id == link.document_id))
+        doc = doc_result.scalar_one_or_none()
+        if doc is not None:
+            doc_expired = doc.lifecycle_state in ("expired", "deleted")
+            if not doc_expired and doc.expires_at is not None:
+                doc_expires = doc.expires_at
+                if doc_expires.tzinfo is None:
+                    doc_expires = doc_expires.replace(tzinfo=timezone.utc)
+                doc_expired = doc_expires < now
+            if doc_expired:
+                await analytics_svc.log_event(db, link.id, "expired", ip=ip, user_agent=user_agent)
+                raise HTTPException(status_code=410, detail="Document expired")
+
         # 5. Password check
         if link.password_hash is not None:
             if not password or not verify_password(password, link.password_hash):

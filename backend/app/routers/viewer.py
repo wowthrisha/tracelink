@@ -43,6 +43,7 @@ from app.middleware.rate_limit import limiter
 from app.services.viewer_service import (  # noqa: F401
     _check_link_active,
     _check_doc_ready,
+    _check_doc_not_expired,
     _get_session_id,
     _session_watermark_angle,
     clear_page_cache,
@@ -86,7 +87,8 @@ async def _get_cached_link_and_doc(
       2. Revocation + expiry check against current clock
       3. IP allowlist enforcement
       4. Document metadata — L1 TTL cache (60 s) or DB SELECT
-      5. Document ready check
+      5. Document retention-expiry check against current clock (BUG-004)
+      6. Document ready check
 
     Returns (link_snap, doc_snap, client_ip, now).
     Raises HTTPException on any access control failure.
@@ -124,9 +126,12 @@ async def _get_cached_link_and_doc(
             file_type=_doc.file_type or "pdf",
             storage_key=_doc.storage_key,
             page_count=_doc.page_count,
+            lifecycle_state=_doc.lifecycle_state,
+            expires_at=_doc.expires_at,
         )
         if _doc.status == "ready":
             doc_cache.put(_doc_key, doc_snap)
+    _check_doc_not_expired(doc_snap, now)
     _check_doc_ready(doc_snap)
 
     return link_snap, doc_snap, ip, now
@@ -151,6 +156,19 @@ async def get_gate_requirements(token: str, db: AsyncSession = Depends(get_db)):
         if expires < now:
             return {"status": "expired", "requires_password": False, "requires_email": False}
     if link.max_views is not None and link.view_count >= link.max_views:
+        return {"status": "expired", "requires_password": False, "requires_email": False}
+    # BUG-004: the link itself can still be active while the underlying
+    # document has passed its own retention expiry — check that too so the
+    # gate (the very first thing a viewer hits) reports it honestly instead
+    # of prompting for a password/email for a document that's really gone.
+    doc_result = await db.execute(select(Document).where(Document.id == link.document_id))
+    doc = doc_result.scalar_one_or_none()
+    if doc is not None and (
+        doc.lifecycle_state in ("expired", "deleted")
+        or (doc.expires_at is not None and (
+            doc.expires_at if doc.expires_at.tzinfo else doc.expires_at.replace(tzinfo=timezone.utc)
+        ) < now)
+    ):
         return {"status": "expired", "requires_password": False, "requires_email": False}
     return {
         "status": "active",

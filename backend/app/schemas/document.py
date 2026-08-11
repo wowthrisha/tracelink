@@ -30,6 +30,8 @@ class DocumentSummary(BaseModel):
     group_name: Optional[str] = None
     group_color: Optional[str] = None
     file_type: str = "pdf"
+    expires_at: Optional[datetime] = None
+    lifecycle_state: str = "active"
 
     model_config = {"from_attributes": True}
 

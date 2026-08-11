@@ -1,4 +1,5 @@
 import { C, mono } from '../../constants/tokens.js';
+import { fmtDate } from '../../utils/viewer.js';
 import { StatusDot, RiskBadge, Btn } from '../atoms.jsx';
 
 const { useState } = React;
@@ -10,6 +11,14 @@ export function DocRow({ doc, isLast, onView, onAccess, onDelete, onReprocess, o
   const isUploaded = doc.status === 'uploaded';
   const canRetry = isProcessing || isError || isUploaded;
   const canShare = doc.status === 'ready';
+  // BUG-004: this used to read `doc.expires` (a field that has never existed
+  // on the API response — the real field is `expires_at`), so this column
+  // silently rendered '—' for every document regardless of its actual
+  // retention expiry. It also compared against a hardcoded absolute date
+  // instead of a rolling "expiring soon" window, matching AccessScreen.jsx's
+  // link-expiry indicator pattern.
+  const isExpired = doc.lifecycle_state === 'expired' || (doc.expires_at && new Date(doc.expires_at) < new Date());
+  const expiringSoon = !isExpired && doc.expires_at && (new Date(doc.expires_at) - Date.now()) < 7 * 24 * 60 * 60 * 1000;
   return (
     <tr onMouseEnter={() => setHov(true)} onMouseLeave={() => setHov(false)}
       onClick={onView}
@@ -51,9 +60,9 @@ export function DocRow({ doc, isLast, onView, onAccess, onDelete, onReprocess, o
       <td style={{ ...mono, padding: '12px 14px', fontSize: 11, color: C.textSecondary }}>{(doc.total_views || doc.views || 0).toLocaleString()}</td>
       <td style={{
         ...mono, padding: '12px 14px', fontSize: 10,
-        color: doc.expires ? (new Date(doc.expires) < new Date('2026-05-16') ? C.warning : C.textSecondary) : C.textMuted
+        color: isExpired ? C.error : expiringSoon ? C.warning : doc.expires_at ? C.textSecondary : C.textMuted
       }}>
-        {doc.expires || '—'}
+        {isExpired ? 'Expired' : doc.expires_at ? fmtDate(doc.expires_at) : '—'}
       </td>
       <td style={{ padding: '12px 14px' }} onClick={e => e.stopPropagation()}>
         <div style={{ display: 'flex', gap: 4, opacity: hov ? 1 : 0, transition: 'opacity .15s', alignItems: 'center' }}>

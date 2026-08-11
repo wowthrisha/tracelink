@@ -464,6 +464,8 @@ async def list_documents(
                 group_id=doc.group_id,
                 group_name=grp.name if grp else None,
                 group_color=grp.color if grp else None,
+                expires_at=doc.expires_at,
+                lifecycle_state=doc.lifecycle_state,
             )
         )
 

@@ -35,6 +35,27 @@ def _check_link_active(link, now: datetime) -> None:
             raise HTTPException(status_code=410, detail="Link expired")
 
 
+def _check_doc_not_expired(doc, now: datetime) -> None:
+    """Raise 410 if the document itself has passed its retention expiry.
+
+    BUG-004: retention expiry (Document.expires_at / lifecycle_state, set by
+    the storage/retention policy — distinct from ShareLink.expires_at) was
+    previously enforced only by the daily cleanup job eventually deleting the
+    row, leaving up to a 24h window (or longer if the job doesn't run) where
+    an expired document was still fully viewable through any still-valid
+    share link. This check makes expiry immediate at the access layer,
+    matching how link expiry is already enforced in _check_link_active.
+    """
+    if getattr(doc, "lifecycle_state", "active") in ("expired", "deleted"):
+        raise HTTPException(status_code=410, detail="Document expired")
+    expires = getattr(doc, "expires_at", None)
+    if expires is not None:
+        if expires.tzinfo is None:
+            expires = expires.replace(tzinfo=timezone.utc)
+        if expires < now:
+            raise HTTPException(status_code=410, detail="Document expired")
+
+
 def _check_doc_ready(doc) -> None:
     """Raise 503 if the document is not yet ready."""
     if doc.status == "uploaded":
