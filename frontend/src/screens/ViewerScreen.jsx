@@ -1,5 +1,5 @@
 import { LAYOUT, ZOOM_MIN, ZOOM_MAX, ZOOM_STEP, ZOOM_PRESETS, _saveLayoutPref } from '../constants/viewer.js';
-import { _errMsg } from '../utils/viewer.js';
+import { _errMsg, isDocumentContentReady } from '../utils/viewer.js';
 import { useTextLoader } from '../hooks/useTextLoader.js';
 import { useLinksSidecar } from '../hooks/useLinksSidecar.js';
 import { useSearchHighlights } from '../hooks/useSearchHighlights.js';
@@ -136,8 +136,20 @@ export function ViewerScreen({ doc, publicToken, onSelectDoc, onBack, ownerEmail
   // isDocumentReady latches true once the first page loads and never resets to false.
   // This prevents the hook from re-initializing on every page navigation (imgReady toggles
   // false→true on each page load which would otherwise reset the session timer).
+  //
+  // V24-001: this used to check `imgReady` alone. imgReady is only ever set by
+  // usePageLoader's onLoad handler for the PDF/image <img> — but the page-image
+  // effect that drives it explicitly no-ops for text documents
+  // (`if (isTextDoc) return;`), so imgReady never becomes true for a .txt/.md/
+  // .log document and this latch never fired. Since useReadingAnalytics's
+  // _startSession() is gated on isDocumentReady, the entire Reading Intelligence
+  // timer/tracking/flush silently never ran for any text-format document —
+  // browser-confirmed live: the reading-progress widget stayed on "Timer
+  // paused — not started" indefinitely (8+ seconds, including a real click on
+  // the content), and zero batch-flush requests fired despite the 5s flush
+  // interval. isDocumentContentReady() covers both content types.
   const docReadyLatchRef = useRef(false);
-  if (session && imgReady) docReadyLatchRef.current = true;
+  if (session && isDocumentContentReady({ isTextDoc, imgReady, textLoading, textContent })) docReadyLatchRef.current = true;
   const isDocumentReady = docReadyLatchRef.current;
   const { display: readingDisplay, insights: readingInsights } = useReadingAnalytics(session, page, PAGE_COUNT, isDocumentReady);
 
