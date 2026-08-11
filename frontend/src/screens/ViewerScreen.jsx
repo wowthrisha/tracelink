@@ -273,7 +273,17 @@ export function ViewerScreen({ doc, publicToken, onSelectDoc, onBack, ownerEmail
           } catch (e) { toast(_errMsg(e, 'Bookmark failed'), 'error'); }
         }}
         onDownload={async () => {
-          if (!session?.permissions?.can_download) return;
+          // BUG-005: this used to silently return when download is disabled —
+          // combined with the toolbar button's native `disabled` attribute
+          // (which also blocks keyboard focus, so screen-reader users never
+          // heard its aria-label either), clicking gave zero feedback. Reuses
+          // the same toast message already shown for the Ctrl+S keyboard
+          // shortcut block in useViewerSession.js, for a consistent explanation
+          // regardless of how the user tried to download.
+          if (!session?.permissions?.can_download) {
+            toast('Downloading is disabled for this document.', 'warning');
+            return;
+          }
           toast('Preparing download…', 'info');
           try {
             await window.SecureDocAPI.downloadDocument(session.link_token, session.session_id, session.document_filename);
@@ -281,10 +291,13 @@ export function ViewerScreen({ doc, publicToken, onSelectDoc, onBack, ownerEmail
           } catch (e) { toast(_errMsg(e, 'Download failed'), 'error'); }
         }}
         onPrint={() => {
-          if (session?.permissions?.can_print) {
-            window.print();
-            window.SecureDocAPI?.logEvent(session.link_token, session.session_id, 'printed');
+          // BUG-005: see onDownload above — same silent-no-op problem, same fix.
+          if (!session?.permissions?.can_print) {
+            toast('Printing is disabled for this document.', 'warning');
+            return;
           }
+          window.print();
+          window.SecureDocAPI?.logEvent(session.link_token, session.session_id, 'printed');
         }}
         rotation={rotation} onRotate={() => setRotation(r => (r + 90) % 360)}
         isTwoPage={isTwoPage} onToggleTwoPage={() => setTwoPageMode(v => !v)}

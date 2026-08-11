@@ -388,13 +388,22 @@ export function ViewerToolbar({
         />
       )}
       {sep}
-      <button onClick={onDownload} disabled={!canDownload} title={canDownload ? 'Download document' : 'Download not allowed'} aria-label={canDownload ? 'Download document' : 'Download not permitted'} style={{ ...btn, opacity: canDownload ? 1 : 0.28, padding: '3px 7px' }}>
+      {/* BUG-005: native `disabled` removes these from the Tab order entirely,
+          so keyboard/screen-reader users could never reach them to hear the
+          aria-label explaining why the action is blocked — and either way,
+          clicking (or Enter/Space on a disabled button, which never even
+          fires) gave no feedback. Using aria-disabled instead of disabled
+          keeps the button focusable and clickable — still visually inert via
+          the same dimmed opacity plus a not-allowed cursor — so onDownload/
+          onPrint (which now show an explanatory toast when blocked, see
+          ViewerScreen.jsx) actually run for every input method. */}
+      <button onClick={onDownload} aria-disabled={!canDownload} title={canDownload ? 'Download document' : 'Download not allowed'} aria-label={canDownload ? 'Download document' : 'Download not permitted'} style={{ ...btn, opacity: canDownload ? 1 : 0.28, cursor: canDownload ? 'pointer' : 'not-allowed', padding: '3px 7px' }}>
         <svg width="11" height="12" viewBox="0 0 11 12" fill="none" style={{ flexShrink: 0 }}>
           <path d="M5.5 1v7M2.5 5.5l3 3 3-3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
           <path d="M1 10h9" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
         </svg>
       </button>
-      <button onClick={onPrint} disabled={!canPrint} title={canPrint ? 'Print document' : 'Print not allowed'} aria-label={canPrint ? 'Print document' : 'Print not permitted'} style={{ ...btn, opacity: canPrint ? 1 : 0.28, padding: '3px 7px' }}>
+      <button onClick={onPrint} aria-disabled={!canPrint} title={canPrint ? 'Print document' : 'Print not allowed'} aria-label={canPrint ? 'Print document' : 'Print not permitted'} style={{ ...btn, opacity: canPrint ? 1 : 0.28, cursor: canPrint ? 'pointer' : 'not-allowed', padding: '3px 7px' }}>
         <svg width="12" height="11" viewBox="0 0 12 11" fill="none" style={{ flexShrink: 0 }}>
           <rect x="2" y="4" width="8" height="5" rx="1" stroke="currentColor" strokeWidth="1.2" fill="none"/>
           <path d="M3 4V2h6v2" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
