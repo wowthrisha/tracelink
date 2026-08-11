@@ -45,7 +45,14 @@ function CreateWebhookModal({ onClose, onCreated }) {
               const active = events.includes(ev);
               return (
                 <label key={ev} style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
-                  <input type="checkbox" checked={active} onChange={() => toggleEvent(ev)} />
+                  {/* BUG-007: the global `input { width: 100%; padding: 9px 12px; ... }`
+                      rule in SecureDoc.html (meant for text inputs) also matches
+                      `<input type="checkbox">` with no override, stretching it to fill
+                      the row and breaking its alignment with the label text next to it.
+                      LinksPanel.jsx's checkbox already carries this exact override —
+                      this one was just missing it. */}
+                  <input type="checkbox" checked={active} onChange={() => toggleEvent(ev)}
+                    style={{ flexShrink: 0, cursor: 'pointer', accentColor: '#5ac8d0', width: 13, height: 13 }} />
                   <span style={{ ...mono, fontSize: 11, color: active ? C.teal1 : C.textSecondary }}>{ev}</span>
                 </label>
               );
