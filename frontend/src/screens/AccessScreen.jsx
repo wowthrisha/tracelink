@@ -502,9 +502,19 @@ export function AccessScreen({ doc, onSelectDoc, defaultTab }) {
                 }}
                 style={{ fontSize: 11, background: C.teal1, border: `1px solid ${C.teal1}`, borderRadius: 6, padding: '4px 8px', color: '#fff', fontWeight: 600, cursor: 'pointer' }}
               >
-                <option value="" disabled>↓ Export…</option>
-                <option value="conversations">Export Feedback Conversations</option>
-                <option value="reviewer_activity">Export Reviewer Activity</option>
+                {/* BUG-006: the closed <select> trigger above is themed (teal/white),
+                    but its dropdown <option> list was left with no styling at all, so
+                    browsers rendered it with the default light system listbox — a stark
+                    light-blue-on-white popup that breaks the dark UI the moment it opens.
+                    There's no shared custom-dropdown component in this codebase (atoms.jsx
+                    has none) to swap in, and native <select> popups can't be restyled via
+                    the surrounding element's CSS — but Chromium/Firefox do respect
+                    background/color set directly on individual <option> elements, so
+                    applying the same dark surface tokens used everywhere else in this
+                    design system is the correctly-scoped fix here. */}
+                <option value="" disabled style={{ background: C.surface2, color: C.textMuted }}>↓ Export…</option>
+                <option value="conversations" style={{ background: C.surface2, color: C.textPrimary }}>Export Feedback Conversations</option>
+                <option value="reviewer_activity" style={{ background: C.surface2, color: C.textPrimary }}>Export Reviewer Activity</option>
               </select>
               <Btn variant={feedbackFiltersOpen ? 'primary' : 'ghost'} size="sm" onClick={() => setFeedbackFiltersOpen(o => !o)}>
                 ⚙ Filters {feedbackFiltersOpen ? '▲' : '▼'}
