@@ -532,6 +532,11 @@ class TestRateLimitRegression:
         # At least one 429 should appear (rate-limited) OR we got 404s (not 500s)
         has_500 = any(s == 500 for s in responses)
         assert not has_500, "validate endpoint must never return 500 for invalid tokens"
+        has_429 = any(s == 429 for s in responses)
+        assert has_429 or all(s == 404 for s in responses), (
+            "expected either rate-limiting to kick in (429) or every request to "
+            f"cleanly 404 on the nonexistent token; got {sorted(set(responses))}"
+        )
 
     @pytest.mark.asyncio
     async def test_page_endpoint_rate_limit_exists(self, client):

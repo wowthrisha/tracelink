@@ -481,8 +481,6 @@ class TestConversionFailures:
         with patch(
             "app.workers.pipeline.docx_pdf.process_docx_as_pdf",
             side_effect=ValueError("DOCX conversion failed for document X: not installed"),
-        ), patch(
-            "app.workers.tasks._mark_document_error", new_callable=AsyncMock
         ):
             with pytest.raises(ValueError):
                 await process_document_with_session(
@@ -490,8 +488,18 @@ class TestConversionFailures:
                     storage, _mock_rasterizer(), _mock_watermark()
                 )
 
-        # The ValueError is permanent — worker must not retry it, and
-        # the caller (_process_document_async) will call _mark_document_error
+        # The ValueError is permanent — worker must not retry it, and propagates
+        # to this function's caller, _process_document_async, which is what
+        # actually calls _mark_document_error. process_document_with_session
+        # (the function this test calls directly) never calls it itself, so
+        # patching/asserting on it here would be testing a code path this test
+        # doesn't reach — that assertion belongs to, and already exists in,
+        # test_phase_e2_stability.py::...::test_processing_error_marks_document
+        # (patches _process_document_async's real caller, asserts
+        # mock_err.assert_called_once()). ENG-049 originally flagged this test's
+        # unused `as mock_mark_error` capture as an incomplete assertion; the
+        # correct fix is removing the not-actually-exercised mock, not adding an
+        # assertion that would fail here since this call chain never reaches it.
 
 
 # ── F. Upload router — DOCX unchanged ─────────────────────────────────────────
