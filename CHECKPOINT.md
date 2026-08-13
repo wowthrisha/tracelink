@@ -2,7 +2,15 @@
 
 Running state snapshot, updated after every closed backlog item. See `PROGRESS.md` for the narrative log and `ENGINEERING_BACKLOG.md` for full issue detail.
 
-**Last updated**: 2026-08-11 (V23.0 live browser-reported backlog — BUG-001 through BUG-008 + OBS-001 resolved; see below).
+**Last updated**: 2026-08-13 (autonomous residual-issue pass over ENG-XXX backlog — ENG-049 closed; V24.0 exploratory audit resumed with authenticated browser access; see `V24_CHECKPOINT.md` and `V24_ISSUE_DATABASE.md` for full detail — not duplicated here).
+
+## Autonomous residual-issue pass (2026-08-13)
+
+Read the full ENG-033/034/038/044/049 detail directly from `ENGINEERING_BACKLOG.md` before touching anything (not from memory). **ENG-049 closed** — see `docs/engineering/FIX_LOG.md`'s corresponding entry for why the fix differs from what was originally recommended when the item was filed (traced the actual call chain first; the original recommendation for one of the two tests would have produced a permanently-failing assertion). **ENG-033/034/038/044 re-confirmed still correctly Open** — all four remain genuinely blocked on external product/ops decisions or an explicit prior-sprint "do not fix without reproduction" instruction; not re-litigated without new evidence. Backlog totals: **35 closed / 7 deferred / 3 reviewed-not-implemented / 1 justified / 4 open = 50**.
+
+Also, in the same continuous session (tracked separately under the V23.0/V24.0 live-backlog numbering, not ENG-XXX): found and fixed **V24-001** (Reading Intelligence completely non-functional for text/md/log documents — High severity, previously undiscovered) and live-verified **BUG-006/007/008** once authenticated browser access became available. See `BUG_REMEDIATION_REPORT.md`.
+
+**Full product sweep (mandate Section 19-20) not yet done.** Organizations, API Keys, full Webhooks flows (only checkbox-alignment checked so far), Audit Log, Notifications, Billing, Storage detail, Profile/Settings all remain unexercised this pass. Repository cleanup (Section 20) not started — functional verification takes priority per the mandate's own ordering, and a repo-structure pass shouldn't happen before the sweep that might still find things worth fixing first.
 
 ## V23.0 live browser-reported backlog — resolved (2026-08-11)
 

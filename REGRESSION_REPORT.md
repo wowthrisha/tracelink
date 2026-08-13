@@ -1,5 +1,7 @@
 # Regression Report — JWKS outage fix
 
+> **Note (2026-08-13):** This file's dated entries stop at Sprint V14.0 (2026-07-26). Like `CHANGELOG.md` (see ENG-047), it was not the operative tracking mechanism for sprints since — `ENGINEERING_BACKLOG.md`, `PROGRESS.md`, and `CHECKPOINT.md` are current and carry every regression result from V15.0 through the present. Current baseline as of 2026-08-13: backend `PYTHONPATH=. python -m pytest tests/` → **1763 passed, 1 skipped, 0 failed**; frontend `npm test -- --run` → **63 passed, 0 failed** (11 files); `ruff check backend/app backend/tests` → clean; `npm run lint`/`npm run build` → clean. Not backfilling the intervening sprints' entries here — that risks fabricating specifics not cleanly re-derivable from summary docs, the same reasoning ENG-047 already applied to `CHANGELOG.md`.
+
 ## New tests
 
 **File**: `backend/tests/integration/test_jwks_outage.py` (new, 6 tests)

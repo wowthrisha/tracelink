@@ -841,3 +841,17 @@ Method: `ruff` (installed for this session) for AST-verified unused-import/unuse
 **Verification**: live-tested all three resulting states end-to-end on the local Docker stack with real documents — uploaded fresh (confirmed "Unshared"/"NOT SHARED YET"), created a link (confirmed "Active"), revoked it (confirmed "Revoked," now genuinely accurate). Disposable test documents cleaned up after (deleted, confirmed removed from the Documents list). `eslint` clean, frontend suite 15/15 unaffected, build succeeded (309.3kb).
 
 **Files**: `frontend/src/screens/AccessScreen.jsx`.
+
+## Autonomous residual-issue pass — ENG-049: closed with a corrected fix (2026-08-13)
+
+**Issue**: filed as Open with a recommended fix during ENG-046's lint cleanup: two tests (`test_phase7.py::test_validate_has_rate_limit_decorator`, `test_phase_d2.py::test_conversion_failure_document_marked_error_by_worker`) computed values (`has_429`, an `as mock_mark_error` capture) that their own docstrings/comments implied should be asserted on, but never were.
+
+**Investigation before fixing**: for test 1, the fix was straightforward — add the assertion the comment already describes. For test 2, traced the actual call chain before applying the originally-recommended `mock_mark_error.assert_called_once()`: `_mark_document_error` is called by `_process_document_async` (`app/workers/tasks.py:245/262/273`), not by `process_document_with_session` (the function this test calls directly, `tasks.py:83`). Applying the original recommendation as-written would have produced an assertion that can never pass, since this test's call chain never reaches `_mark_document_error` at all. Confirmed real coverage for that call already exists in `test_phase_e2_stability.py` (patches `_process_document_async` directly, asserts `mock_err.assert_called_once()`).
+
+**Fix**: (1) `test_phase7.py` — added `assert has_429 or all(s == 404 for s in responses)`, matching the comment's stated intent exactly. (2) `test_phase_d2.py` — removed the not-actually-exercised `_mark_document_error` patch/capture entirely (it was never reachable from this test's call path) and added a comment pointing to `test_phase_e2_stability.py` for where that behavior is genuinely verified, rather than fabricating an assertion outside this test's real scope.
+
+**Verification**: both tests pass individually and as part of the full backend suite (1763 passed/1 skipped/0 failed, unchanged). `ruff check` clean on both files. No production code changed — test-only fix.
+
+**Files**: `backend/tests/integration/test_phase7.py`, `backend/tests/integration/test_phase_d2.py`.
+
+**Note for future readers**: this is a concrete example of why "verify the entire chain before fixing" matters even for a fix another sprint already scoped out — the originally-recommended fix for test 2 would have introduced a permanently-failing test had it been applied without re-tracing the call chain.
